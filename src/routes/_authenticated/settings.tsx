@@ -4,6 +4,9 @@ import { useServerFn } from "@tanstack/react-start";
 import { getProfile, listAccounts } from "@/lib/profile.functions";
 import { PageHeader } from "@/components/jarvis/HudBits";
 import { Twitter, Linkedin, Instagram, Facebook, Mail, Calendar, CheckCircle2, Circle } from "lucide-react";
+import { lovable } from "@/integrations/lovable";
+import { toast } from "sonner";
+import { useState } from "react";
 
 export const Route = createFileRoute("/_authenticated/settings")({
   head: () => ({ meta: [{ title: "Settings — JARVIS" }] }),
@@ -11,13 +14,34 @@ export const Route = createFileRoute("/_authenticated/settings")({
 });
 
 const PLATFORM_META: Record<string, { label: string; icon: any; note: string }> = {
-  twitter:   { label: "Twitter / X",   icon: Twitter,   note: "Connect requires X API credentials. Currently showing demo data." },
-  linkedin:  { label: "LinkedIn",      icon: Linkedin,  note: "Requires LinkedIn marketing developer approval. Showing demo data." },
-  instagram: { label: "Instagram",     icon: Instagram, note: "Requires Instagram Graph API access. Showing demo data." },
-  facebook:  { label: "Facebook Page", icon: Facebook,  note: "Requires FB Pages developer app. Showing demo data." },
-  gmail:     { label: "Gmail",         icon: Mail,      note: "Connected via Lovable connector." },
-  calendar:  { label: "Google Calendar", icon: Calendar, note: "Connected via Lovable connector." },
+  twitter:   { label: "Twitter / X",   icon: Twitter,   note: "Bring your own X API credentials to enable." },
+  linkedin:  { label: "LinkedIn",      icon: Linkedin,  note: "Requires LinkedIn marketing developer approval." },
+  instagram: { label: "Instagram",     icon: Instagram, note: "Requires Instagram Graph API access." },
+  facebook:  { label: "Facebook Page", icon: Facebook,  note: "Requires Facebook Pages developer app." },
+  gmail:     { label: "Gmail",         icon: Mail,      note: "Connect to let JARVIS read & draft mail." },
+  calendar:  { label: "Google Calendar", icon: Calendar, note: "Connect to surface upcoming events." },
 };
+
+function SettingsPage() {
+  const prof = useServerFn(getProfile);
+  const accts = useServerFn(listAccounts);
+  const { data: profile } = useQuery({ queryKey: ["profile"], queryFn: () => prof() });
+  const { data: accounts } = useQuery({ queryKey: ["accounts"], queryFn: () => accts() });
+  const [connecting, setConnecting] = useState(false);
+
+  async function connectGoogle() {
+    setConnecting(true);
+    try {
+      const result = await lovable.auth.signInWithOAuth("google", {
+        redirect_uri: window.location.origin + "/settings",
+        extraParams: { prompt: "consent", access_type: "offline" },
+      });
+      if (result.error) { toast.error("Could not connect Google"); return; }
+      if (!result.redirected) toast.success("Google connected");
+    } finally {
+      setConnecting(false);
+    }
+  }
 
 function SettingsPage() {
   const prof = useServerFn(getProfile);
@@ -41,13 +65,22 @@ function SettingsPage() {
         </section>
 
         <section className="glass-strong hud-corners rounded-xl p-5">
-          <div className="font-mono text-[10px] tracking-[0.3em] text-arc mb-4">CONNECTED CHANNELS</div>
+          <div className="flex items-center justify-between mb-4">
+            <div className="font-mono text-[10px] tracking-[0.3em] text-arc">CONNECTED CHANNELS</div>
+            <button
+              onClick={connectGoogle}
+              disabled={connecting}
+              className="text-xs px-3 py-1.5 rounded-md border border-arc/30 bg-arc/10 hover:bg-arc/20 transition disabled:opacity-50"
+            >
+              {connecting ? "Opening…" : "Connect Google (Gmail + Calendar)"}
+            </button>
+          </div>
           <div className="space-y-2">
             {(["calendar", "gmail", "twitter", "linkedin", "instagram", "facebook"] as const).map((p) => {
               const meta = PLATFORM_META[p];
               const Icon = meta.icon;
-              const live = p === "calendar" || p === "gmail";
               const acct = accounts?.find((a: any) => a.platform === p);
+              const live = !!acct && acct.status === "connected";
               return (
                 <div key={p} className="flex items-center gap-3 p-3 rounded-md bg-background/40 border border-arc/10">
                   <Icon size={16} className={live ? "text-success" : "text-hud-dim"} />
@@ -58,17 +91,15 @@ function SettingsPage() {
                     </div>
                     <div className="text-xs text-hud-dim">{meta.note}</div>
                   </div>
-                  <span className={`font-mono text-[10px] uppercase tracking-wider ${live ? "text-success" : "text-warning"}`}>
-                    {live ? "Live" : (acct?.status ?? "demo")}
+                  <span className={`font-mono text-[10px] uppercase tracking-wider ${live ? "text-success" : "text-hud-dim"}`}>
+                    {live ? "Live" : "Not connected"}
                   </span>
                 </div>
               );
             })}
           </div>
           <p className="mt-4 text-xs text-hud-dim">
-            To go live on social platforms, register developer apps with each provider and share the
-            client credentials. JARVIS will then run sentiment, drafting, and live monitoring against
-            real mentions.
+            Nothing is linked automatically. Connect each channel here whenever you're ready.
           </p>
         </section>
       </div>
