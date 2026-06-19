@@ -2,9 +2,10 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { listVault, upsertVault, deleteVault } from "@/lib/vault.functions";
+import { hasVaultPin, setVaultPin } from "@/lib/vault-pin.functions";
 import { PageHeader } from "@/components/jarvis/HudBits";
 import { useState } from "react";
-import { KeyRound, StickyNote, UserCircle2, Plus, Trash2, Eye, EyeOff, Save, X } from "lucide-react";
+import { KeyRound, StickyNote, UserCircle2, Plus, Trash2, Eye, EyeOff, Save, X, Lock } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_authenticated/vault")({
