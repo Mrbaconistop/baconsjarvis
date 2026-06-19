@@ -68,6 +68,10 @@ function VaultPage() {
       />
 
       <div className="px-8 pt-4">
+        <PinCard />
+      </div>
+
+      <div className="px-8 pt-4">
         <div className="inline-flex gap-1 bg-background/40 border border-arc/20 rounded-md p-1">
           {(Object.keys(KIND_META) as Kind[]).map((k) => {
             const Icon = KIND_META[k].icon;
