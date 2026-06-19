@@ -14,27 +14,6 @@ export type Database = {
   }
   public: {
     Tables: {
-      cash_balances: {
-        Row: {
-          amount_cents: number
-          note: string | null
-          updated_at: string
-          user_id: string
-        }
-        Insert: {
-          amount_cents?: number
-          note?: string | null
-          updated_at?: string
-          user_id: string
-        }
-        Update: {
-          amount_cents?: number
-          note?: string | null
-          updated_at?: string
-          user_id?: string
-        }
-        Relationships: []
-      }
       chat_messages: {
         Row: {
           created_at: string
@@ -337,45 +316,6 @@ export type Database = {
             | null
           sentiment_score?: number | null
           url?: string | null
-          user_id?: string
-        }
-        Relationships: []
-      }
-      stock_holdings: {
-        Row: {
-          avg_cost_cents: number | null
-          created_at: string
-          id: string
-          last_price_at: string | null
-          last_price_cents: number | null
-          note: string | null
-          shares: number
-          ticker: string
-          updated_at: string
-          user_id: string
-        }
-        Insert: {
-          avg_cost_cents?: number | null
-          created_at?: string
-          id?: string
-          last_price_at?: string | null
-          last_price_cents?: number | null
-          note?: string | null
-          shares?: number
-          ticker: string
-          updated_at?: string
-          user_id: string
-        }
-        Update: {
-          avg_cost_cents?: number | null
-          created_at?: string
-          id?: string
-          last_price_at?: string | null
-          last_price_cents?: number | null
-          note?: string | null
-          shares?: number
-          ticker?: string
-          updated_at?: string
           user_id?: string
         }
         Relationships: []

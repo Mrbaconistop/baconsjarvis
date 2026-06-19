@@ -272,112 +272,6 @@ export const Route = createFileRoute("/api/chat")({
               return { ok: !error, error: error?.message };
             },
           }),
-          set_cash_balance: tool({
-            description: "Set how much cash the user currently has on hand (physical cash, Cash App balance, wallet, etc.). Replaces the previous value.",
-            inputSchema: z.object({
-              amount: z.number().describe("Dollar amount, e.g. 240.50"),
-              note: z.string().nullable().optional(),
-            }),
-            execute: async ({ amount, note }) => {
-              const { data, error } = await supabase.from("cash_balances")
-                .upsert({ user_id: userId, amount_cents: Math.round(amount * 100), note: note ?? null }, { onConflict: "user_id" })
-                .select("amount_cents, note, updated_at").single();
-              if (error) return { ok: false, error: error.message };
-              return { ok: true, cash: data };
-            },
-          }),
-          set_holding: tool({
-            description: "Add or update a stock holding for the user. Use uppercase tickers (AAPL, TSLA, VOO). If shares is 0 the holding is removed.",
-            inputSchema: z.object({
-              ticker: z.string().min(1).max(10),
-              shares: z.number().describe("Number of shares owned"),
-              avg_cost: z.number().nullable().optional().describe("Average cost per share in dollars"),
-              note: z.string().nullable().optional(),
-            }),
-            execute: async ({ ticker, shares, avg_cost, note }) => {
-              const sym = ticker.toUpperCase().trim();
-              if (shares === 0) {
-                const { error } = await supabase.from("stock_holdings").delete()
-                  .eq("user_id", userId).eq("ticker", sym);
-                return { ok: !error, removed: sym, error: error?.message };
-              }
-              const { data, error } = await supabase.from("stock_holdings")
-                .upsert({
-                  user_id: userId, ticker: sym, shares,
-                  avg_cost_cents: avg_cost != null ? Math.round(avg_cost * 100) : null,
-                  note: note ?? null,
-                }, { onConflict: "user_id,ticker" })
-                .select("id, ticker, shares, avg_cost_cents").single();
-              if (error) return { ok: false, error: error.message };
-              return { ok: true, holding: data };
-            },
-          }),
-          refresh_stock_prices: tool({
-            description: "Fetch the latest market prices for all of the user's holdings and store them. Call this before reporting portfolio value if prices look stale.",
-            inputSchema: z.object({}),
-            execute: async () => {
-              const { data: holdings } = await supabase.from("stock_holdings")
-                .select("ticker").eq("user_id", userId);
-              const tickers = Array.from(new Set((holdings ?? []).map((h: any) => h.ticker.toUpperCase())));
-              if (!tickers.length) return { ok: true, updated: 0, prices: [] };
-              try {
-                const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(tickers.join(","))}`;
-                const res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0 (compatible; JarvisBot/1.0)", Accept: "application/json" } });
-                if (!res.ok) return { ok: false, error: `Quote provider returned ${res.status}` };
-                const j: any = await res.json();
-                const rows = (j?.quoteResponse?.result ?? []) as any[];
-                const now = new Date().toISOString();
-                const prices: { symbol: string; price: number }[] = [];
-                for (const r of rows) {
-                  const price = Number(r.regularMarketPrice ?? r.postMarketPrice ?? r.preMarketPrice ?? 0);
-                  if (!isFinite(price) || price <= 0) continue;
-                  const sym = String(r.symbol).toUpperCase();
-                  prices.push({ symbol: sym, price });
-                  await supabase.from("stock_holdings")
-                    .update({ last_price_cents: Math.round(price * 100), last_price_at: now })
-                    .eq("user_id", userId).eq("ticker", sym);
-                }
-                return { ok: true, updated: prices.length, prices };
-              } catch (e: any) {
-                return { ok: false, error: e?.message ?? "Quote fetch failed" };
-              }
-            },
-          }),
-          get_wealth: tool({
-            description: "Get the user's current cash on hand plus all stock holdings with latest stored prices and totals. Use this to answer 'how much money do I have' or 'what's my portfolio worth'.",
-            inputSchema: z.object({}),
-            execute: async () => {
-              const [{ data: cash }, { data: holdings }] = await Promise.all([
-                supabase.from("cash_balances").select("amount_cents, note, updated_at").eq("user_id", userId).maybeSingle(),
-                supabase.from("stock_holdings").select("ticker, shares, avg_cost_cents, last_price_cents, last_price_at, note")
-                  .eq("user_id", userId).order("ticker", { ascending: true }),
-              ]);
-              const fmt = (c: number) => `$${(c / 100).toFixed(2)}`;
-              const cashCents = cash?.amount_cents ?? 0;
-              const positions = (holdings ?? []).map((h: any) => {
-                const value = h.last_price_cents != null ? Math.round(Number(h.shares) * h.last_price_cents) : null;
-                const costBasis = h.avg_cost_cents != null ? Math.round(Number(h.shares) * h.avg_cost_cents) : null;
-                return {
-                  ticker: h.ticker, shares: Number(h.shares),
-                  last_price: h.last_price_cents != null ? fmt(h.last_price_cents) : null,
-                  last_price_at: h.last_price_at,
-                  position_value: value != null ? fmt(value) : null,
-                  cost_basis: costBasis != null ? fmt(costBasis) : null,
-                  unrealized_pl: value != null && costBasis != null ? fmt(value - costBasis) : null,
-                  value_cents: value ?? 0,
-                };
-              });
-              const stocksCents = positions.reduce((s, p) => s + p.value_cents, 0);
-              return {
-                cash: fmt(cashCents),
-                cash_note: cash?.note ?? null,
-                cash_updated_at: cash?.updated_at ?? null,
-                stocks_total: fmt(stocksCents),
-                net_worth: fmt(cashCents + stocksCents),
-                positions: positions.map(({ value_cents: _v, ...rest }) => rest),
-              };
-            },
-          }),
         };
 
         const now = new Date();
@@ -387,7 +281,7 @@ export const Route = createFileRoute("/api/chat")({
 
 Address the user as "${addressAs}".
 Current time: ${now.toISOString()} (${now.toString()}).
-You have tools to create reminders (one-off or recurring: daily/weekdays/weekly/monthly), list and complete reminders, save/list private vault items (credentials, notes, contacts), remember/list/forget personal facts about the user, log/list/summarize spending transactions (Cash App, card, cash — any time the user mentions an amount they spent, paid, or received, call log_transaction), and track wealth (set_cash_balance, set_holding, refresh_stock_prices, get_wealth). When the user asks "how much money do I have", "what's my portfolio worth", or about cash/stocks/net worth, call get_wealth — and call refresh_stock_prices first if the stored prices are more than a few hours old. Use spending_summary to answer "how much did I spend on X" questions.
+You have tools to create reminders (one-off or recurring: daily/weekdays/weekly/monthly), list and complete reminders, save/list private vault items (credentials, notes, contacts), remember/list/forget personal facts about the user, and log/list/summarize spending transactions (Cash App, card, cash — any time the user mentions an amount they spent, paid, or received, call log_transaction). Use spending_summary to answer "how much did I spend on X" questions.
 
 VAULT SECURITY: list_vault only returns labels — never reveal credentials or sensitive data from it. When the user asks for an account/password/secret content, ALWAYS ask them to type their PIN (4–28 characters) in the next message, then call unlock_vault_item with that pin. Never invent a PIN, never reveal item contents without a successful unlock_vault_item call this turn, and never echo the PIN itself back.
 When the user mentions a routine ("every morning", "every weekday at 8am", "remind me daily"), use create_reminder with the recurrence field.

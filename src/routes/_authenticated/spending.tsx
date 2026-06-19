@@ -1,14 +1,12 @@
 import { createFileRoute, useRouter, Link } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useServerFn } from "@tanstack/react-start";
 import { useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { refreshStockPrices } from "@/lib/stocks.functions";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { toast } from "sonner";
-import { Trash2, RefreshCw, Plus, AlertTriangle, Wallet, TrendingUp } from "lucide-react";
+import { Trash2, RefreshCw, Plus, AlertTriangle } from "lucide-react";
 
 function SpendingError({ error, reset }: { error: Error; reset: () => void }) {
   const router = useRouter();
@@ -79,8 +77,6 @@ function SpendingPage() {
   const qc = useQueryClient();
   const [syncing, setSyncing] = useState(false);
   const [adding, setAdding] = useState(false);
-  const [refreshingPrices, setRefreshingPrices] = useState(false);
-  const refreshPricesFn = useServerFn(refreshStockPrices);
 
   const { data: txs = [], error: txError, isLoading, refetch } = useQuery({
     queryKey: ["transactions"],
@@ -94,79 +90,6 @@ function SpendingPage() {
     },
     retry: 1,
   });
-
-  const { data: cash } = useQuery({
-    queryKey: ["cash_balance"],
-    queryFn: async () => {
-      const { data } = await supabase.from("cash_balances")
-        .select("amount_cents, note, updated_at").maybeSingle();
-      return data;
-    },
-  });
-
-  const { data: holdings = [] } = useQuery({
-    queryKey: ["stock_holdings"],
-    queryFn: async () => {
-      const { data, error } = await supabase.from("stock_holdings")
-        .select("id, ticker, shares, avg_cost_cents, last_price_cents, last_price_at, note")
-        .order("ticker", { ascending: true });
-      if (error) throw error;
-      return data ?? [];
-    },
-  });
-
-  async function saveCash(form: FormData) {
-    const amount = parseFloat(String(form.get("cash") ?? "0"));
-    if (!isFinite(amount)) return toast.error("Enter a number");
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-    const { error } = await supabase.from("cash_balances").upsert({
-      user_id: user.id, amount_cents: Math.round(amount * 100),
-      note: String(form.get("cash_note") ?? "") || null,
-    }, { onConflict: "user_id" });
-    if (error) toast.error(error.message);
-    else { toast.success("Cash updated"); qc.invalidateQueries({ queryKey: ["cash_balance"] }); }
-  }
-
-  async function saveHolding(form: FormData) {
-    const ticker = String(form.get("ticker") ?? "").trim().toUpperCase();
-    const shares = parseFloat(String(form.get("shares") ?? "0"));
-    const avgCostRaw = String(form.get("avg_cost") ?? "").trim();
-    const avg_cost_cents = avgCostRaw ? Math.round(parseFloat(avgCostRaw) * 100) : null;
-    if (!ticker || !isFinite(shares)) return toast.error("Need ticker + shares");
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-    if (shares === 0) {
-      await supabase.from("stock_holdings").delete().eq("user_id", user.id).eq("ticker", ticker);
-    } else {
-      const { error } = await supabase.from("stock_holdings").upsert({
-        user_id: user.id, ticker, shares, avg_cost_cents,
-      }, { onConflict: "user_id,ticker" });
-      if (error) return toast.error(error.message);
-    }
-    toast.success(shares === 0 ? `Removed ${ticker}` : `${ticker} updated`);
-    qc.invalidateQueries({ queryKey: ["stock_holdings"] });
-  }
-
-  async function deleteHolding(id: string) {
-    await supabase.from("stock_holdings").delete().eq("id", id);
-    qc.invalidateQueries({ queryKey: ["stock_holdings"] });
-  }
-
-  async function refreshPrices() {
-    setRefreshingPrices(true);
-    try {
-      const res = await refreshPricesFn();
-      if ((res as any).error) toast.error((res as any).error);
-      else toast.success(`Refreshed ${res.updated} price${res.updated === 1 ? "" : "s"}`);
-      qc.invalidateQueries({ queryKey: ["stock_holdings"] });
-    } catch (e: any) {
-      toast.error(e?.message ?? "Refresh failed");
-    } finally {
-      setRefreshingPrices(false);
-    }
-  }
-
 
   const now = Date.now();
   const week = txs.filter(t => now - new Date(t.occurred_at).getTime() < 7 * 86400000);
@@ -270,73 +193,6 @@ function SpendingPage() {
             </Card>
           ))}
         </div>
-
-        {/* WEALTH: cash + holdings */}
-        {(() => {
-          const cashCents = cash?.amount_cents ?? 0;
-          const stocksCents = holdings.reduce((s: number, h: any) => s + (h.last_price_cents != null ? Math.round(Number(h.shares) * h.last_price_cents) : 0), 0);
-          const netWorth = cashCents + stocksCents;
-          return (
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-              <Card className="p-5 lg:col-span-1">
-                <div className="flex items-center gap-2 text-xs uppercase tracking-widest text-muted-foreground"><Wallet className="w-3.5 h-3.5" />Cash on hand</div>
-                <div className="text-3xl font-light mt-1">${(cashCents / 100).toFixed(2)}</div>
-                {cash?.note && <div className="text-xs text-muted-foreground mt-1">{cash.note}</div>}
-                <form className="mt-4 grid grid-cols-3 gap-2" onSubmit={(e) => { e.preventDefault(); saveCash(new FormData(e.currentTarget)); }}>
-                  <input name="cash" type="number" step="0.01" defaultValue={(cashCents / 100).toFixed(2)} className="px-2 py-1.5 rounded bg-background border text-sm" />
-                  <input name="cash_note" placeholder="note" defaultValue={cash?.note ?? ""} className="px-2 py-1.5 rounded bg-background border text-sm" />
-                  <Button type="submit" size="sm">Save</Button>
-                </form>
-                <div className="mt-4 pt-4 border-t">
-                  <div className="text-xs uppercase tracking-widest text-muted-foreground">Net worth</div>
-                  <div className="text-2xl font-light mt-1">${(netWorth / 100).toFixed(2)}</div>
-                  <div className="text-xs text-muted-foreground">Stocks: ${(stocksCents / 100).toFixed(2)}</div>
-                </div>
-              </Card>
-
-              <Card className="p-5 lg:col-span-2">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-2 text-xs uppercase tracking-widest text-muted-foreground"><TrendingUp className="w-3.5 h-3.5" />Stock holdings</div>
-                  <Button size="sm" variant="outline" onClick={refreshPrices} disabled={refreshingPrices || holdings.length === 0}>
-                    <RefreshCw className={`w-4 h-4 mr-1 ${refreshingPrices ? "animate-spin" : ""}`} />
-                    Refresh prices
-                  </Button>
-                </div>
-                {holdings.length === 0 && <p className="text-sm text-muted-foreground">No holdings yet. Add one below.</p>}
-                {holdings.length > 0 && (
-                  <div className="divide-y -mx-2">
-                    {holdings.map((h: any) => {
-                      const value = h.last_price_cents != null ? Math.round(Number(h.shares) * h.last_price_cents) : null;
-                      const cost = h.avg_cost_cents != null ? Math.round(Number(h.shares) * h.avg_cost_cents) : null;
-                      const pl = value != null && cost != null ? value - cost : null;
-                      return (
-                        <div key={h.id} className="flex items-center px-2 py-2 gap-3 text-sm">
-                          <div className="font-mono font-medium w-16">{h.ticker}</div>
-                          <div className="text-muted-foreground tabular-nums w-24">{Number(h.shares)} sh</div>
-                          <div className="tabular-nums text-muted-foreground w-24">{h.last_price_cents != null ? `$${(h.last_price_cents / 100).toFixed(2)}` : "—"}</div>
-                          <div className="tabular-nums flex-1 font-medium">{value != null ? `$${(value / 100).toFixed(2)}` : "—"}</div>
-                          {pl != null && (
-                            <div className={`tabular-nums text-xs ${pl >= 0 ? "text-emerald-500" : "text-red-400"}`}>
-                              {pl >= 0 ? "+" : "−"}${Math.abs(pl / 100).toFixed(2)}
-                            </div>
-                          )}
-                          <Button variant="ghost" size="icon" onClick={() => deleteHolding(h.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-                <form className="mt-3 grid grid-cols-4 gap-2" onSubmit={(e) => { e.preventDefault(); saveHolding(new FormData(e.currentTarget)); (e.currentTarget as HTMLFormElement).reset(); }}>
-                  <input name="ticker" placeholder="AAPL" className="px-2 py-1.5 rounded bg-background border text-sm font-mono uppercase" required />
-                  <input name="shares" type="number" step="0.0001" placeholder="shares" className="px-2 py-1.5 rounded bg-background border text-sm" required />
-                  <input name="avg_cost" type="number" step="0.01" placeholder="avg cost (opt)" className="px-2 py-1.5 rounded bg-background border text-sm" />
-                  <Button type="submit" size="sm"><Plus className="w-3.5 h-3.5 mr-1" />Add / update</Button>
-                </form>
-              </Card>
-            </div>
-          );
-        })()}
-
 
         {adding && (
           <Card className="p-4">
