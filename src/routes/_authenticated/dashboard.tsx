@@ -6,9 +6,8 @@ import { useRealtimeRefresh } from "@/components/jarvis/useRealtimeRefresh";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { morningBriefing } from "@/lib/jarvis.functions";
-import { refreshFeed } from "@/lib/social.functions";
 import { listFeeds } from "@/lib/social.functions";
-import { Sparkles, RefreshCw } from "lucide-react";
+import { Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { useState } from "react";
 import { formatRelative } from "@/lib/time-utils";
@@ -50,12 +49,6 @@ function Dashboard() {
         subtitle="Triaged signals, ranked by what deserves your attention."
         right={
           <div className="flex gap-2">
-            <button
-              onClick={simulate} disabled={busy}
-              className="text-xs flex items-center gap-1.5 px-3 py-2 rounded-md border border-arc/30 hover:bg-arc/10 transition disabled:opacity-50"
-            >
-              <RefreshCw size={12} /> Simulate inbound
-            </button>
             <button
               onClick={generateBriefing} disabled={busy}
               className="text-xs flex items-center gap-1.5 px-3 py-2 rounded-md bg-arc text-arc-foreground shadow-arc hover:opacity-90 transition disabled:opacity-50"
