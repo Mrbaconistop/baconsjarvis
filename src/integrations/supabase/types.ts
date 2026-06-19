@@ -317,6 +317,51 @@ export type Database = {
         }
         Relationships: []
       }
+      transactions: {
+        Row: {
+          amount_cents: number
+          category: string
+          created_at: string
+          currency: string
+          external_id: string | null
+          id: string
+          merchant: string | null
+          note: string | null
+          occurred_at: string
+          source: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          amount_cents: number
+          category?: string
+          created_at?: string
+          currency?: string
+          external_id?: string | null
+          id?: string
+          merchant?: string | null
+          note?: string | null
+          occurred_at?: string
+          source?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          amount_cents?: number
+          category?: string
+          created_at?: string
+          currency?: string
+          external_id?: string | null
+          id?: string
+          merchant?: string | null
+          note?: string | null
+          occurred_at?: string
+          source?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       user_facts: {
         Row: {
           category: string
