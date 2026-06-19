@@ -202,3 +202,49 @@ function Field({ label, value, onChange, type = "text", textarea, rows = 2 }: an
     </label>
   );
 }
+
+function PinCard() {
+  const qc = useQueryClient();
+  const has = useServerFn(hasVaultPin);
+  const setp = useServerFn(setVaultPin);
+  const { data } = useQuery({ queryKey: ["vault-pin"], queryFn: () => has() });
+  const [pin, setPin] = useState("");
+  const [current, setCurrent] = useState("");
+  const [saving, setSaving] = useState(false);
+  const hasPin = !!data?.hasPin;
+
+  async function save() {
+    if (pin.length < 4 || pin.length > 28) return toast.error("PIN must be 4–28 characters");
+    setSaving(true);
+    try {
+      await setp({ data: { pin, currentPin: hasPin ? current : undefined } });
+      toast.success(hasPin ? "PIN updated" : "PIN set");
+      setPin(""); setCurrent("");
+      qc.invalidateQueries({ queryKey: ["vault-pin"] });
+    } catch (e: any) {
+      toast.error(e.message ?? "Failed");
+    } finally { setSaving(false); }
+  }
+
+  return (
+    <div className="glass-strong hud-corners rounded-xl p-4 mb-4 flex flex-wrap items-center gap-3">
+      <Lock size={14} className="text-arc" />
+      <div className="text-xs font-mono uppercase tracking-wider text-hud-dim">
+        Chat unlock PIN {hasPin ? "· set" : "· not set"}
+      </div>
+      <div className="flex-1" />
+      {hasPin && (
+        <input type="password" value={current} onChange={(e) => setCurrent(e.target.value)}
+          placeholder="Current PIN" autoComplete="off"
+          className="bg-background/60 border border-arc/20 rounded px-3 py-1.5 text-xs font-mono w-36" />
+      )}
+      <input type="password" value={pin} onChange={(e) => setPin(e.target.value)}
+        placeholder={hasPin ? "New PIN" : "Set PIN (4–28 chars)"} autoComplete="off"
+        className="bg-background/60 border border-arc/20 rounded px-3 py-1.5 text-xs font-mono w-44" />
+      <button onClick={save} disabled={saving}
+        className="text-xs px-3 py-1.5 rounded bg-arc text-arc-foreground disabled:opacity-50">
+        {saving ? "Saving…" : hasPin ? "Update" : "Set PIN"}
+      </button>
+    </div>
+  );
+}
