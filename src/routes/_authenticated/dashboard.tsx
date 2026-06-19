@@ -22,7 +22,6 @@ function Dashboard() {
   useRealtimeRefresh(user.id);
   const list = useServerFn(listFeeds);
   const brief = useServerFn(morningBriefing);
-  const refresh = useServerFn(refreshFeed);
 
   const { data: feeds } = useQuery({ queryKey: ["feeds"], queryFn: () => list() });
   const [busy, setBusy] = useState(false);
@@ -31,13 +30,6 @@ function Dashboard() {
     setBusy(true);
     try { await brief(); toast.success("Briefing ready, Sir."); }
     catch (e: any) { toast.error(e?.message ?? "Could not generate briefing"); }
-    finally { setBusy(false); }
-  }
-
-  async function simulate() {
-    setBusy(true);
-    try { await refresh(); toast.success("Channel scan complete."); }
-    catch (e: any) { toast.error(e?.message ?? "Scan failed"); }
     finally { setBusy(false); }
   }
 
