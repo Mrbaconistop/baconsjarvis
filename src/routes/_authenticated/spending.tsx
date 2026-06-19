@@ -271,6 +271,73 @@ function SpendingPage() {
           ))}
         </div>
 
+        {/* WEALTH: cash + holdings */}
+        {(() => {
+          const cashCents = cash?.amount_cents ?? 0;
+          const stocksCents = holdings.reduce((s: number, h: any) => s + (h.last_price_cents != null ? Math.round(Number(h.shares) * h.last_price_cents) : 0), 0);
+          const netWorth = cashCents + stocksCents;
+          return (
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              <Card className="p-5 lg:col-span-1">
+                <div className="flex items-center gap-2 text-xs uppercase tracking-widest text-muted-foreground"><Wallet className="w-3.5 h-3.5" />Cash on hand</div>
+                <div className="text-3xl font-light mt-1">${(cashCents / 100).toFixed(2)}</div>
+                {cash?.note && <div className="text-xs text-muted-foreground mt-1">{cash.note}</div>}
+                <form className="mt-4 grid grid-cols-3 gap-2" onSubmit={(e) => { e.preventDefault(); saveCash(new FormData(e.currentTarget)); }}>
+                  <input name="cash" type="number" step="0.01" defaultValue={(cashCents / 100).toFixed(2)} className="px-2 py-1.5 rounded bg-background border text-sm" />
+                  <input name="cash_note" placeholder="note" defaultValue={cash?.note ?? ""} className="px-2 py-1.5 rounded bg-background border text-sm" />
+                  <Button type="submit" size="sm">Save</Button>
+                </form>
+                <div className="mt-4 pt-4 border-t">
+                  <div className="text-xs uppercase tracking-widest text-muted-foreground">Net worth</div>
+                  <div className="text-2xl font-light mt-1">${(netWorth / 100).toFixed(2)}</div>
+                  <div className="text-xs text-muted-foreground">Stocks: ${(stocksCents / 100).toFixed(2)}</div>
+                </div>
+              </Card>
+
+              <Card className="p-5 lg:col-span-2">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2 text-xs uppercase tracking-widest text-muted-foreground"><TrendingUp className="w-3.5 h-3.5" />Stock holdings</div>
+                  <Button size="sm" variant="outline" onClick={refreshPrices} disabled={refreshingPrices || holdings.length === 0}>
+                    <RefreshCw className={`w-4 h-4 mr-1 ${refreshingPrices ? "animate-spin" : ""}`} />
+                    Refresh prices
+                  </Button>
+                </div>
+                {holdings.length === 0 && <p className="text-sm text-muted-foreground">No holdings yet. Add one below.</p>}
+                {holdings.length > 0 && (
+                  <div className="divide-y -mx-2">
+                    {holdings.map((h: any) => {
+                      const value = h.last_price_cents != null ? Math.round(Number(h.shares) * h.last_price_cents) : null;
+                      const cost = h.avg_cost_cents != null ? Math.round(Number(h.shares) * h.avg_cost_cents) : null;
+                      const pl = value != null && cost != null ? value - cost : null;
+                      return (
+                        <div key={h.id} className="flex items-center px-2 py-2 gap-3 text-sm">
+                          <div className="font-mono font-medium w-16">{h.ticker}</div>
+                          <div className="text-muted-foreground tabular-nums w-24">{Number(h.shares)} sh</div>
+                          <div className="tabular-nums text-muted-foreground w-24">{h.last_price_cents != null ? `$${(h.last_price_cents / 100).toFixed(2)}` : "—"}</div>
+                          <div className="tabular-nums flex-1 font-medium">{value != null ? `$${(value / 100).toFixed(2)}` : "—"}</div>
+                          {pl != null && (
+                            <div className={`tabular-nums text-xs ${pl >= 0 ? "text-emerald-500" : "text-red-400"}`}>
+                              {pl >= 0 ? "+" : "−"}${Math.abs(pl / 100).toFixed(2)}
+                            </div>
+                          )}
+                          <Button variant="ghost" size="icon" onClick={() => deleteHolding(h.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                <form className="mt-3 grid grid-cols-4 gap-2" onSubmit={(e) => { e.preventDefault(); saveHolding(new FormData(e.currentTarget)); (e.currentTarget as HTMLFormElement).reset(); }}>
+                  <input name="ticker" placeholder="AAPL" className="px-2 py-1.5 rounded bg-background border text-sm font-mono uppercase" required />
+                  <input name="shares" type="number" step="0.0001" placeholder="shares" className="px-2 py-1.5 rounded bg-background border text-sm" required />
+                  <input name="avg_cost" type="number" step="0.01" placeholder="avg cost (opt)" className="px-2 py-1.5 rounded bg-background border text-sm" />
+                  <Button type="submit" size="sm"><Plus className="w-3.5 h-3.5 mr-1" />Add / update</Button>
+                </form>
+              </Card>
+            </div>
+          );
+        })()}
+
+
         {adding && (
           <Card className="p-4">
             <form className="grid grid-cols-2 md:grid-cols-5 gap-3" onSubmit={(e) => { e.preventDefault(); addManual(new FormData(e.currentTarget)); }}>
