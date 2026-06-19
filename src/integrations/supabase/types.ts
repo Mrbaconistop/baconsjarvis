@@ -14,16 +14,293 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      connected_accounts: {
+        Row: {
+          connected_at: string
+          handle: string | null
+          id: string
+          platform: Database["public"]["Enums"]["social_platform"]
+          profile_pic_url: string | null
+          status: string
+          user_id: string
+        }
+        Insert: {
+          connected_at?: string
+          handle?: string | null
+          id?: string
+          platform: Database["public"]["Enums"]["social_platform"]
+          profile_pic_url?: string | null
+          status?: string
+          user_id: string
+        }
+        Update: {
+          connected_at?: string
+          handle?: string | null
+          id?: string
+          platform?: Database["public"]["Enums"]["social_platform"]
+          profile_pic_url?: string | null
+          status?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      engagement_stats: {
+        Row: {
+          engagements: number
+          hour_of_day: number
+          id: string
+          impressions: number
+          platform: Database["public"]["Enums"]["social_platform"]
+          posts: number
+          stat_date: string
+          user_id: string
+        }
+        Insert: {
+          engagements?: number
+          hour_of_day?: number
+          id?: string
+          impressions?: number
+          platform: Database["public"]["Enums"]["social_platform"]
+          posts?: number
+          stat_date: string
+          user_id: string
+        }
+        Update: {
+          engagements?: number
+          hour_of_day?: number
+          id?: string
+          impressions?: number
+          platform?: Database["public"]["Enums"]["social_platform"]
+          posts?: number
+          stat_date?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      notifications: {
+        Row: {
+          action_payload: Json
+          created_at: string
+          id: string
+          message: string
+          priority: Database["public"]["Enums"]["priority_level"]
+          read_status: boolean
+          source_id: string | null
+          source_table: string | null
+          title: string
+          type: Database["public"]["Enums"]["notification_type"]
+          user_id: string
+        }
+        Insert: {
+          action_payload?: Json
+          created_at?: string
+          id?: string
+          message: string
+          priority?: Database["public"]["Enums"]["priority_level"]
+          read_status?: boolean
+          source_id?: string | null
+          source_table?: string | null
+          title: string
+          type?: Database["public"]["Enums"]["notification_type"]
+          user_id: string
+        }
+        Update: {
+          action_payload?: Json
+          created_at?: string
+          id?: string
+          message?: string
+          priority?: Database["public"]["Enums"]["priority_level"]
+          read_status?: boolean
+          source_id?: string | null
+          source_table?: string | null
+          title?: string
+          type?: Database["public"]["Enums"]["notification_type"]
+          user_id?: string
+        }
+        Relationships: []
+      }
+      profiles: {
+        Row: {
+          address_as: string
+          avatar_url: string | null
+          created_at: string
+          email: string | null
+          id: string
+          name: string | null
+          preferred_briefing_time: string
+          timezone: string
+          updated_at: string
+        }
+        Insert: {
+          address_as?: string
+          avatar_url?: string | null
+          created_at?: string
+          email?: string | null
+          id: string
+          name?: string | null
+          preferred_briefing_time?: string
+          timezone?: string
+          updated_at?: string
+        }
+        Update: {
+          address_as?: string
+          avatar_url?: string | null
+          created_at?: string
+          email?: string | null
+          id?: string
+          name?: string | null
+          preferred_briefing_time?: string
+          timezone?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      reminders: {
+        Row: {
+          created_at: string
+          datetime: string
+          description: string | null
+          id: string
+          is_completed: boolean
+          priority: Database["public"]["Enums"]["priority_level"]
+          source_ref: string | null
+          source_type: string | null
+          title: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          datetime: string
+          description?: string | null
+          id?: string
+          is_completed?: boolean
+          priority?: Database["public"]["Enums"]["priority_level"]
+          source_ref?: string | null
+          source_type?: string | null
+          title: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          datetime?: string
+          description?: string | null
+          id?: string
+          is_completed?: boolean
+          priority?: Database["public"]["Enums"]["priority_level"]
+          source_ref?: string | null
+          source_type?: string | null
+          title?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      social_feeds: {
+        Row: {
+          author_avatar: string | null
+          author_handle: string | null
+          author_name: string
+          content: string
+          external_id: string | null
+          id: string
+          is_actionable: boolean
+          is_handled: boolean
+          parent_post_id: string | null
+          platform: Database["public"]["Enums"]["social_platform"]
+          priority: Database["public"]["Enums"]["priority_level"]
+          received_at: string
+          sentiment_label: Database["public"]["Enums"]["sentiment_label"] | null
+          sentiment_score: number | null
+          url: string | null
+          user_id: string
+        }
+        Insert: {
+          author_avatar?: string | null
+          author_handle?: string | null
+          author_name: string
+          content: string
+          external_id?: string | null
+          id?: string
+          is_actionable?: boolean
+          is_handled?: boolean
+          parent_post_id?: string | null
+          platform: Database["public"]["Enums"]["social_platform"]
+          priority?: Database["public"]["Enums"]["priority_level"]
+          received_at?: string
+          sentiment_label?:
+            | Database["public"]["Enums"]["sentiment_label"]
+            | null
+          sentiment_score?: number | null
+          url?: string | null
+          user_id: string
+        }
+        Update: {
+          author_avatar?: string | null
+          author_handle?: string | null
+          author_name?: string
+          content?: string
+          external_id?: string | null
+          id?: string
+          is_actionable?: boolean
+          is_handled?: boolean
+          parent_post_id?: string | null
+          platform?: Database["public"]["Enums"]["social_platform"]
+          priority?: Database["public"]["Enums"]["priority_level"]
+          received_at?: string
+          sentiment_label?:
+            | Database["public"]["Enums"]["sentiment_label"]
+            | null
+          sentiment_score?: number | null
+          url?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      user_roles: {
+        Row: {
+          created_at: string
+          id: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      has_role: {
+        Args: {
+          _role: Database["public"]["Enums"]["app_role"]
+          _user_id: string
+        }
+        Returns: boolean
+      }
     }
     Enums: {
-      [_ in never]: never
+      app_role: "admin" | "user"
+      notification_type: "alert" | "update" | "warning" | "briefing"
+      priority_level: "critical" | "high" | "normal" | "low"
+      sentiment_label: "positive" | "neutral" | "negative"
+      social_platform:
+        | "twitter"
+        | "linkedin"
+        | "instagram"
+        | "facebook"
+        | "gmail"
+        | "calendar"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -150,6 +427,19 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      app_role: ["admin", "user"],
+      notification_type: ["alert", "update", "warning", "briefing"],
+      priority_level: ["critical", "high", "normal", "low"],
+      sentiment_label: ["positive", "neutral", "negative"],
+      social_platform: [
+        "twitter",
+        "linkedin",
+        "instagram",
+        "facebook",
+        "gmail",
+        "calendar",
+      ],
+    },
   },
 } as const
