@@ -1,89 +1,36 @@
-## Reality check on "all integrations"
+## Cash App spending tracker
 
-I can't honestly ship working Twitter/X, LinkedIn, Instagram, and Facebook Pages OAuth in one pass. Each requires:
-- You creating a developer app on the platform
-- Platform-specific app review (Instagram Graph + FB Pages = weeks; LinkedIn marketing scopes = approval-gated; X API now $200/mo for write access)
-- Per-user OAuth callback URLs registered in their dashboards
+**Note on scope:** Cash App has no public API for personal account history, so this works by (1) you telling JARVIS about purchases in chat and (2) JARVIS auto-scanning Cash App receipt emails in your connected Gmail. Both feed the same ledger.
 
-What I **can** ship working end-to-end today:
-- **Google Calendar** + **Gmail** via Lovable connectors (zero credential setup, OAuth handled)
-- **Lovable AI** (GPT-5 / Claude / Gemini) for the JARVIS brain, sentiment, summaries, drafts
-- **Lovable Cloud** for auth, full DB schema, realtime (Postgres changes = your SSE substitute)
+### 1. Database — `transactions` table
+New table `public.transactions` with: `amount_cents`, `currency`, `merchant`, `category`, `note`, `source` (`chat` | `gmail` | `manual`), `external_id` (Gmail message id, for dedupe), `occurred_at`. Standard per-user RLS scoped to `auth.uid()`, same pattern as reminders/vault.
 
-For Twitter/LinkedIn/Instagram/Facebook I'll build the full data model, UI, action buttons, and a clean integration seam (`SocialProvider` interface + per-platform stub), seeded with realistic mock feed data so the dashboard is fully alive. Swapping each stub for a real API later is a localized change once you provide credentials.
+### 2. Chat tools (added to `src/routes/api/chat.ts`)
+- `log_transaction` — JARVIS calls this when you say things like "spent $12 on lunch via Cash App". Auto-categorizes (food, transport, entertainment, bills, transfer, other).
+- `list_transactions` — filter by date range / category.
+- `spending_summary` — totals by category for "this week", "this month", or a custom range. JARVIS will use this to answer "how much did I spend on food this month?".
+- `delete_transaction` — fix mistakes.
 
-## Plan
+System prompt updated so JARVIS automatically logs amounts you mention in chat and confirms after.
 
-### 1. Foundation
-- Enable Lovable Cloud (auth + Postgres + realtime)
-- Enable Lovable AI Gateway
-- Connect Google Calendar + Gmail connectors
+### 3. Gmail auto-ingest (uses your existing Gmail connector)
+- New server route `src/routes/api/public/hooks/ingest-cashapp.ts` — pulls recent unread mail from `cash@square.com` / `cash@cashapp.com` via the Gmail connector gateway, parses amount + merchant + date out of the receipt body, inserts into `transactions` with `source='gmail'` and `external_id=<gmail msg id>` (unique constraint prevents duplicates), then marks the message read.
+- `pg_cron` job runs the route every hour. Auth via `apikey` header with the publishable key (standard pattern for `/api/public/*`).
+- Manual "Sync Cash App now" button on the new Spending page that hits the same route on demand.
 
-### 2. Database schema (migration)
-Tables exactly as you specified, with RLS on all (`auth.uid() = user_id`):
-- `profiles` (id→auth.users, name, timezone, preferred_briefing_time, address_as default 'Sir')
-- `connected_accounts` (platform, profile_pic_url, status — tokens stay in connector vault, not this table)
-- `reminders` (title, description, datetime, priority enum, is_completed, source_email_id, source_type)
-- `social_feeds` (platform, author_name, author_handle, author_avatar, content, url, sentiment_score, sentiment_label, is_actionable, parent_post_id, received_at)
-- `notifications` (type, title, message, priority, read_status, action_payload jsonb, source_table, source_id)
-- `engagement_stats` (date, platform, impressions, engagements — for Weekly Pulse)
-- `user_roles` + `app_role` enum + `has_role()` security definer (per platform rules)
+### 4. Spending page — `src/routes/_authenticated/spending.tsx`
+- Stat cards: This week / This month / Last 30 days totals.
+- Category breakdown (simple bar list, no chart lib).
+- Recent transactions table with inline delete.
+- "Sync Cash App emails" button.
+- Sidebar nav entry added in `AppShell`.
 
-### 3. Design system — "Holographic"
-`src/styles.css` overhaul:
-- Deep navy/black base `oklch(0.12 0.04 250)` with cyan-arc accent `oklch(0.78 0.18 220)` and amber alert `oklch(0.78 0.18 60)`
-- Glass tokens: `--glass-bg`, `--glass-border`, `backdrop-filter: blur(24px) saturate(160%)` (standard property only, per backdrop-filter rules)
-- HUD-style border treatments, corner brackets, subtle scanline overlay
-- Animated SVG grid + drifting particle layer (CSS-only, GPU-cheap)
-- Fonts: `@fontsource/space-grotesk` (display, HUD), `@fontsource/jetbrains-mono` (data/timestamps), `@fontsource/inter` (body) — installed via bun
-- Button variants: `hud`, `hud-critical`, `hud-ghost`; Card variant: `glass`, `glass-critical`
+### Technical notes
+- Amounts stored as integer cents to avoid float drift.
+- Gmail parser is regex-based (Cash App receipts have stable `$X.XX to <name>` / `Payment to <name> $X.XX` formats); unparseable emails get logged but skipped so the cron never crashes.
+- Categorization is a small keyword map server-side; user can override by replying "categorize that as transport" and JARVIS uses `log_transaction` update path.
+- No new secrets needed — uses existing `GOOGLE_MAIL_API_KEY` connector and `LOVABLE_API_KEY`.
 
-### 4. Routes (TanStack Start)
-- `/` — public landing teaser with sign-in CTA
-- `/auth` — email/password + Google sign-in
-- `/_authenticated/dashboard` — Priority Hub (categorized feed) + Quick-Action Bar + live ticker
-- `/_authenticated/time` — Reminders + calendar agenda
-- `/_authenticated/world` — Social Command Center with per-platform columns + sentiment filters
-- `/_authenticated/pulse` — Weekly Pulse charts (recharts: engagement vs. calendar density heatmap, best-time-to-post recommendation)
-- `/_authenticated/settings` — connected accounts, briefing time, address-as preference
-- `/api/public/cron/morning-briefing` — server route hit by external cron (Lovable Cloud pg_cron or external) that generates daily briefing per user
-
-### 5. Server functions (`src/lib/*.functions.ts`)
-- `jarvis.functions.ts` — `runCommand(text)`: NLP parse intent (reminder vs. summary vs. query), `draftReply(context)`, `summarizeMentions(platform, since)`, `morningBriefing()`. All use Lovable AI Gateway with the butler system prompt: *"You are JARVIS. Address the user as 'Sir' (or their configured form). Be efficient, anticipatory, warm. Reference upcoming calendar events when relevant. Keep responses under 60 words unless drafting content."*
-- `calendar.functions.ts` — pull next 7 days via Google Calendar connector, parse to reminders
-- `gmail.functions.ts` — scan recent threads, extract flight/booking/meeting cues → reminders
-- `reminders.functions.ts` — CRUD + natural-language create (`"call David at 3pm"` → parsed datetime)
-- `social.functions.ts` — `SocialProvider` interface + Twitter/LinkedIn/IG/FB stub implementations returning mock data; sentiment runs through Lovable AI for each new item; classified items inserted to `social_feeds`
-- `notifications.functions.ts` — generates action_payload buttons per source type
-- `pulse.functions.ts` — aggregates `engagement_stats` × `calendar_busyness` → recommends top 3 posting windows
-
-### 6. Real-time
-Browser subscribes to Postgres changes on `notifications` + `social_feeds` via Supabase realtime — replaces SSE/WebSocket requirement with zero extra infra.
-
-### 7. Voice-to-text
-Quick-Action Bar uses browser `SpeechRecognition` API (no key). Falls back to text input where unsupported.
-
-### 8. Actionable notifications
-Each notification renders buttons from `action_payload`:
-- `{type:'reply_ai', context:{...}}` → opens drawer with AI-drafted reply, [Send] [Edit] [Discard]
-- `{type:'snooze', minutes:120}` → updates row
-- `{type:'accept_connection'}` → calls platform stub
-- Anticipatory wrapper: if next calendar event is within 30 min, message prepends *"Sir, you have an incoming X, but I advise focusing on your [event] in [N] minutes."*
-
-### 9. SEO / shell
-- `sitemap.xml`, `robots.txt` (disallow `/_authenticated/*`), `llms.txt`
-- Root `head()` with proper OG metadata
-
-## What you'll need to do after I ship
-1. Approve enabling Cloud + connecting Google Calendar + Gmail (one-click each)
-2. Sign up in-app — Google sign-in works immediately
-3. For Twitter/LinkedIn/IG/FB: create developer apps, share client IDs + secrets, and I'll wire each one (one follow-up turn per platform). Until then those columns show realistic mock data clearly labeled "Demo data — connect [platform]".
-
-## Technical notes
-- TanStack Start (not Edge Functions) for all server logic
-- `requireSupabaseAuth` middleware on all user-scoped server fns
-- `attachSupabaseAuth` added to `src/start.ts` middleware
-- All AI calls server-side via `@ai-sdk/openai-compatible` + Lovable AI Gateway helper
-- Mock seed data inserted via migration so the dashboard looks alive from first login
-
-Ready to build? This will take several large edits — I'll execute in order: Cloud + schema → design system → auth + layout → dashboard + JARVIS brain → time module → world module → pulse + settings → connectors + briefing cron.
+### Limitations to call out
+- Only catches transactions Cash App emails you a receipt for (the default). If you've disabled email receipts in Cash App, the Gmail path won't see them — chat logging still works.
+- Refunds/reversals from Cash App emails aren't auto-reconciled in v1; you'd tell JARVIS and he'd log a negative entry.

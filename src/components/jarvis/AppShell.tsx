@@ -1,6 +1,6 @@
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import { ReactNode, useEffect, useState } from "react";
-import { LayoutDashboard, Clock, Globe, Activity, Settings, LogOut, MessageSquare, KeyRound } from "lucide-react";
+import { LayoutDashboard, Clock, Globe, Activity, Settings, LogOut, MessageSquare, KeyRound, Wallet } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
 import { JarvisOrb } from "./JarvisOrb";
@@ -10,9 +10,10 @@ const NAV = [
   { to: "/chat", label: "Chat", icon: MessageSquare, tag: "01" },
   { to: "/time", label: "Time", icon: Clock, tag: "02" },
   { to: "/vault", label: "Vault", icon: KeyRound, tag: "03" },
-  { to: "/world", label: "World", icon: Globe, tag: "04" },
-  { to: "/pulse", label: "Pulse", icon: Activity, tag: "05" },
-  { to: "/settings", label: "Settings", icon: Settings, tag: "06" },
+  { to: "/spending", label: "Spending", icon: Wallet, tag: "04" },
+  { to: "/world", label: "World", icon: Globe, tag: "05" },
+  { to: "/pulse", label: "Pulse", icon: Activity, tag: "06" },
+  { to: "/settings", label: "Settings", icon: Settings, tag: "07" },
 ] as const;
 
 export function AppShell({ children }: { children: ReactNode }) {
