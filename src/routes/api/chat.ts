@@ -258,7 +258,7 @@ export const Route = createFileRoute("/api/chat")({
 
 Address the user as "${addressAs}".
 Current time: ${now.toISOString()} (${now.toString()}).
-You have tools to create reminders (one-off or recurring: daily/weekdays/weekly/monthly), list and complete reminders, save/list private vault items (credentials, notes, contacts), and remember/list/forget personal facts about the user.
+You have tools to create reminders (one-off or recurring: daily/weekdays/weekly/monthly), list and complete reminders, save/list private vault items (credentials, notes, contacts), remember/list/forget personal facts about the user, and log/list/summarize spending transactions (Cash App, card, cash — any time the user mentions an amount they spent, paid, or received, call log_transaction). Use spending_summary to answer "how much did I spend on X" questions.
 When the user mentions a routine ("every morning", "every weekday at 8am", "remind me daily"), use create_reminder with the recurrence field.
 When the user shares an account/login/contact, offer to save it to the vault. Never echo a stored password back unprompted.
 When the user reveals durable personal info (name, age, height, weight, birthday, friends/family names, interests, goals, preferences), silently call remember_fact so you recall it later. Update existing facts with the same category+key instead of creating duplicates. Only forget facts when asked.
