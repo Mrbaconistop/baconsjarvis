@@ -171,6 +171,84 @@ export const Route = createFileRoute("/api/chat")({
               return { ok: !error, error: error?.message };
             },
           }),
+          log_transaction: tool({
+            description: "Log a spending transaction the user mentioned (Cash App, card, cash, etc.). Use this any time the user says they spent/paid/bought something with an amount.",
+            inputSchema: z.object({
+              amount: z.number().describe("Dollar amount, e.g. 12.50. Use a negative number for refunds/income."),
+              merchant: z.string().nullable().optional().describe("Who they paid, e.g. 'Chipotle', 'Alex'."),
+              category: z.enum(["food", "transport", "entertainment", "bills", "shopping", "groceries", "transfer", "income", "other"]).default("other"),
+              note: z.string().nullable().optional(),
+              source: z.enum(["chat", "manual"]).default("chat"),
+              occurred_at: z.string().nullable().optional().describe("ISO datetime; defaults to now"),
+            }),
+            execute: async ({ amount, merchant, category, note, source, occurred_at }) => {
+              const cents = Math.round(amount * 100);
+              const { data, error } = await supabase.from("transactions").insert({
+                user_id: userId, amount_cents: cents, merchant: merchant ?? null,
+                category, note: note ?? null, source,
+                occurred_at: occurred_at ? new Date(occurred_at).toISOString() : new Date().toISOString(),
+              }).select("id, amount_cents, merchant, category, occurred_at").single();
+              if (error) return { ok: false, error: error.message };
+              return { ok: true, transaction: data };
+            },
+          }),
+          list_transactions: tool({
+            description: "List recent transactions, optionally filtered by category or days back.",
+            inputSchema: z.object({
+              days: z.number().int().min(1).max(365).default(30),
+              category: z.string().nullable().optional(),
+              limit: z.number().int().min(1).max(100).default(25),
+            }),
+            execute: async ({ days, category, limit }) => {
+              const since = new Date(Date.now() - days * 86400000).toISOString();
+              let q = supabase.from("transactions")
+                .select("id, amount_cents, merchant, category, note, source, occurred_at")
+                .eq("user_id", userId).gte("occurred_at", since)
+                .order("occurred_at", { ascending: false }).limit(limit);
+              if (category) q = q.eq("category", category);
+              const { data } = await q;
+              return { transactions: data ?? [] };
+            },
+          }),
+          spending_summary: tool({
+            description: "Summarize spending totals grouped by category over a window.",
+            inputSchema: z.object({
+              window: z.enum(["week", "month", "30d", "90d", "year"]).default("month"),
+            }),
+            execute: async ({ window }) => {
+              const now = new Date();
+              const since = new Date(now);
+              if (window === "week") since.setDate(now.getDate() - 7);
+              else if (window === "month") since.setDate(1);
+              else if (window === "30d") since.setDate(now.getDate() - 30);
+              else if (window === "90d") since.setDate(now.getDate() - 90);
+              else since.setMonth(0, 1);
+              const { data } = await supabase.from("transactions")
+                .select("amount_cents, category")
+                .eq("user_id", userId).gte("occurred_at", since.toISOString());
+              const totals: Record<string, number> = {};
+              let total = 0;
+              for (const r of data ?? []) {
+                totals[r.category] = (totals[r.category] ?? 0) + r.amount_cents;
+                total += r.amount_cents;
+              }
+              const fmt = (c: number) => `$${(c / 100).toFixed(2)}`;
+              return {
+                window, since: since.toISOString(), total: fmt(total),
+                by_category: Object.fromEntries(Object.entries(totals).map(([k, v]) => [k, fmt(v)])),
+                count: data?.length ?? 0,
+              };
+            },
+          }),
+          delete_transaction: tool({
+            description: "Delete a transaction by id (use list_transactions to find ids).",
+            inputSchema: z.object({ id: z.string().uuid() }),
+            execute: async ({ id }) => {
+              const { error } = await supabase.from("transactions").delete()
+                .eq("id", id).eq("user_id", userId);
+              return { ok: !error, error: error?.message };
+            },
+          }),
         };
 
         const now = new Date();
