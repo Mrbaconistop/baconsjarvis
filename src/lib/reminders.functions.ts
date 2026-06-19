@@ -23,6 +23,7 @@ export const createReminder = createServerFn({ method: "POST" })
       description: z.string().max(1000).optional().nullable(),
       datetime: z.string(),
       priority: z.enum(["critical", "high", "normal", "low"]).default("normal"),
+      recurrence: z.enum(["daily", "weekdays", "weekly", "monthly"]).nullable().optional(),
     }).parse(input),
   )
   .handler(async ({ data, context }) => {

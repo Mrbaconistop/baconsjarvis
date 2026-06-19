@@ -24,13 +24,17 @@ function TimePage() {
   const [title, setTitle] = useState("");
   const [datetime, setDatetime] = useState("");
   const [priority, setPriority] = useState<"critical" | "high" | "normal" | "low">("normal");
+  const [recurrence, setRecurrence] = useState<"" | "daily" | "weekdays" | "weekly" | "monthly">("");
 
   async function add() {
     if (!title.trim() || !datetime) return;
     try {
-      await create({ data: { title, datetime: new Date(datetime).toISOString(), priority } });
+      await create({ data: {
+        title, datetime: new Date(datetime).toISOString(), priority,
+        recurrence: recurrence || null,
+      } });
       qc.invalidateQueries({ queryKey: ["reminders"] });
-      setTitle(""); setDatetime(""); setPriority("normal");
+      setTitle(""); setDatetime(""); setPriority("normal"); setRecurrence("");
       toast.success("Logged, Sir.");
     } catch (e: any) { toast.error(e?.message ?? "Failed"); }
   }
@@ -47,7 +51,7 @@ function TimePage() {
           <div className="font-mono text-[10px] tracking-[0.3em] text-arc mb-3 flex items-center gap-2">
             <Plus size={12} /> NEW REMINDER
           </div>
-          <div className="grid md:grid-cols-[1fr_220px_140px_auto] gap-3">
+          <div className="grid md:grid-cols-[1fr_220px_140px_140px_auto] gap-3">
             <input
               placeholder="e.g. Coffee with Marina"
               value={title}
@@ -70,12 +74,23 @@ function TimePage() {
               <option value="normal">Normal</option>
               <option value="low">Low</option>
             </select>
+            <select
+              value={recurrence}
+              onChange={(e) => setRecurrence(e.target.value as any)}
+              className="bg-background/40 border border-arc/20 rounded-md px-3 py-2 text-sm focus:border-arc focus:outline-none"
+            >
+              <option value="">One-off</option>
+              <option value="daily">Daily</option>
+              <option value="weekdays">Weekdays</option>
+              <option value="weekly">Weekly</option>
+              <option value="monthly">Monthly</option>
+            </select>
             <button onClick={add} className="bg-arc text-arc-foreground rounded-md px-4 text-sm font-medium shadow-arc hover:opacity-90 transition">
               Add
             </button>
           </div>
           <p className="mt-2 text-xs text-hud-dim">
-            Tip: use the Quick Action Bar on the dashboard to add reminders by voice or natural language.
+            Tip: tell JARVIS in chat — "remind me every weekday at 8am to stretch" — and it will set it for you.
           </p>
         </div>
 
@@ -99,6 +114,11 @@ function TimePage() {
                     <div className="flex items-center gap-2 flex-wrap">
                       <h3 className="font-medium">{r.title}</h3>
                       <PriorityChip level={r.priority} />
+                      {r.recurrence && (
+                        <span className="text-[10px] font-mono text-arc bg-arc/10 border border-arc/20 px-1.5 py-0.5 rounded uppercase">
+                          {r.recurrence}
+                        </span>
+                      )}
                       {imminent && <span className="text-[10px] font-mono text-critical animate-critical-pulse">IMMINENT</span>}
                     </div>
                     {r.description && <p className="text-sm text-muted-foreground mt-1">{r.description}</p>}
