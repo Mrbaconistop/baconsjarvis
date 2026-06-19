@@ -189,6 +189,7 @@ export type Database = {
           preferred_briefing_time: string
           timezone: string
           updated_at: string
+          vault_pin_hash: string | null
         }
         Insert: {
           address_as?: string
@@ -200,6 +201,7 @@ export type Database = {
           preferred_briefing_time?: string
           timezone?: string
           updated_at?: string
+          vault_pin_hash?: string | null
         }
         Update: {
           address_as?: string
@@ -211,6 +213,7 @@ export type Database = {
           preferred_briefing_time?: string
           timezone?: string
           updated_at?: string
+          vault_pin_hash?: string | null
         }
         Relationships: []
       }
