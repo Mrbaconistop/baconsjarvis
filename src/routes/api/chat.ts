@@ -41,6 +41,14 @@ export const Route = createFileRoute("/api/chat")({
           .select("address_as, name").eq("id", userId).maybeSingle();
         const addressAs = profile?.address_as ?? "Sir";
 
+        // Load remembered facts about the user (capped)
+        const { data: factRows } = await supabase.from("user_facts")
+          .select("category, key, value").eq("user_id", userId)
+          .order("updated_at", { ascending: false }).limit(200);
+        const factsBlock = (factRows ?? []).length
+          ? (factRows ?? []).map((f: any) => `- [${f.category}] ${f.key}: ${f.value}`).join("\n")
+          : "(none yet)";
+
         // Persist the latest user message
         const last = messages[messages.length - 1];
         if (last?.role === "user") {
