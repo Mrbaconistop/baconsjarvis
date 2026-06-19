@@ -43,11 +43,7 @@ function SettingsPage() {
     }
   }
 
-function SettingsPage() {
-  const prof = useServerFn(getProfile);
-  const accts = useServerFn(listAccounts);
-  const { data: profile } = useQuery({ queryKey: ["profile"], queryFn: () => prof() });
-  const { data: accounts } = useQuery({ queryKey: ["accounts"], queryFn: () => accts() });
+
 
   return (
     <div className="flex flex-col h-screen">
