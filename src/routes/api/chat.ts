@@ -132,6 +132,29 @@ export const Route = createFileRoute("/api/chat")({
               return { items: data ?? [] };
             },
           }),
+          unlock_vault_item: tool({
+            description: "Reveal the contents of a vault item (credentials, account passwords, sensitive notes). REQUIRES a PIN from the user. If the user has not provided a PIN in this turn, ask them for it first (4–28 characters) — do NOT call this without one. Match by id (from list_vault) or by label substring.",
+            inputSchema: z.object({
+              pin: z.string().min(4).max(28).describe("The PIN the user just typed."),
+              id: z.string().uuid().nullable().optional(),
+              label: z.string().nullable().optional().describe("Case-insensitive substring match on label."),
+            }),
+            execute: async ({ pin, id, label }) => {
+              const { data: prof } = await supabase.from("profiles").select("vault_pin_hash").eq("id", userId).maybeSingle();
+              if (!prof?.vault_pin_hash) return { ok: false, error: "No PIN set. Ask the user to set one in Settings first." };
+              const enc = new TextEncoder().encode(`${userId}:${pin}`);
+              const buf = await crypto.subtle.digest("SHA-256", enc);
+              const hash = Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("");
+              if (hash !== prof.vault_pin_hash) return { ok: false, error: "Incorrect PIN." };
+              let q = supabase.from("vault_items").select("id, kind, label, data, updated_at").eq("user_id", userId);
+              if (id) q = q.eq("id", id);
+              else if (label) q = q.ilike("label", `%${label}%`);
+              else return { ok: false, error: "Provide id or label." };
+              const { data } = await q.limit(5);
+              if (!data?.length) return { ok: false, error: "No matching vault item." };
+              return { ok: true, items: data };
+            },
+          }),
           remember_fact: tool({
             description: "Persist a key fact about the user so you remember it across conversations. Use sparingly for durable info: name, age, height, weight, birthday, location, friends/family names, interests, hobbies, goals, preferences, relationships. Categories: 'identity' (name/age/height/weight/birthday), 'people' (friend/family/coworker names + relationship), 'interest', 'preference', 'goal', 'general'.",
             inputSchema: z.object({
