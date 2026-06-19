@@ -71,7 +71,7 @@ function WorldPage() {
               <div className="flex-1 overflow-y-auto p-3 space-y-2">
                 {items.length === 0 && (
                   <div className="text-xs text-hud-dim p-4 text-center">
-                    {data?.length ? "No matches." : "Demo data — connect this platform to go live."}
+                    Nothing here yet — connect {p.label} to start receiving signals.
                   </div>
                 )}
                 {items.map((f: any) => (
