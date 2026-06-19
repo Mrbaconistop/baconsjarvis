@@ -155,20 +155,20 @@ function Editor({ item, onSave, onClose }: { item: any; onSave: (i: any) => void
           <button onClick={onClose} className="text-hud-dim hover:text-foreground"><X size={16} /></button>
         </div>
         <div className="space-y-3">
-          <Field label="Label" value={draft.label} onChange={(v) => setDraft({ ...draft, label: v })} />
+          <Field label="Label" value={draft.label} onChange={(v: string) => setDraft({ ...draft, label: v })} />
           {draft.kind === "credential" && (<>
-            <Field label="URL" value={draft.data.url ?? ""} onChange={(v) => setData("url", v)} />
-            <Field label="Username" value={draft.data.username ?? ""} onChange={(v) => setData("username", v)} />
-            <Field label="Password" type="password" value={draft.data.password ?? ""} onChange={(v) => setData("password", v)} />
+            <Field label="URL" value={draft.data.url ?? ""} onChange={(v: string) => setData("url", v)} />
+            <Field label="Username" value={draft.data.username ?? ""} onChange={(v: string) => setData("username", v)} />
+            <Field label="Password" type="password" value={draft.data.password ?? ""} onChange={(v: string) => setData("password", v)} />
           </>)}
           {draft.kind === "contact" && (<>
-            <Field label="Name" value={draft.data.name ?? ""} onChange={(v) => setData("name", v)} />
-            <Field label="Email" value={draft.data.email ?? ""} onChange={(v) => setData("email", v)} />
-            <Field label="Phone" value={draft.data.phone ?? ""} onChange={(v) => setData("phone", v)} />
-            <Field label="Notes" textarea value={draft.data.notes ?? ""} onChange={(v) => setData("notes", v)} />
+            <Field label="Name" value={draft.data.name ?? ""} onChange={(v: string) => setData("name", v)} />
+            <Field label="Email" value={draft.data.email ?? ""} onChange={(v: string) => setData("email", v)} />
+            <Field label="Phone" value={draft.data.phone ?? ""} onChange={(v: string) => setData("phone", v)} />
+            <Field label="Notes" textarea value={draft.data.notes ?? ""} onChange={(v: string) => setData("notes", v)} />
           </>)}
           {draft.kind === "note" && (
-            <Field label="Body" textarea rows={6} value={draft.data.body ?? ""} onChange={(v) => setData("body", v)} />
+            <Field label="Body" textarea rows={6} value={draft.data.body ?? ""} onChange={(v: string) => setData("body", v)} />
           )}
         </div>
         <div className="mt-5 flex justify-end gap-2">

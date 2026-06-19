@@ -25,10 +25,9 @@ export function ChatWindow({ threadId, initial }: { threadId: string; initial: U
     api: "/api/chat",
     prepareSendMessagesRequest: async ({ messages, body }) => {
       const { data: { session } } = await supabase.auth.getSession();
-      return {
-        body: { messages, threadId, ...body },
-        headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
-      };
+      const headers: Record<string, string> = {};
+      if (session?.access_token) headers.Authorization = `Bearer ${session.access_token}`;
+      return { body: { messages, threadId, ...(body ?? {}) }, headers };
     },
   }), [threadId]);
 
@@ -66,7 +65,7 @@ export function ChatWindow({ threadId, initial }: { threadId: string; initial: U
             <div>At your service, Sir. Ask for a reminder, save a credential, or simply talk.</div>
           </div>
         )}
-        {messages.map((m) => <MessageBubble key={m.id} msg={m} />)}
+        {messages.map((m: UIMessage) => <MessageBubble key={m.id} msg={m} />)}
         {status === "submitted" && (
           <div className="flex items-center gap-2 text-arc font-mono text-xs">
             <span className="inline-block size-1.5 rounded-full bg-arc animate-pulse" />
@@ -124,7 +123,7 @@ function MessageBubble({ msg }: { msg: UIMessage }) {
               </div>
             ) : (
               <div key={i} className="prose prose-invert prose-sm max-w-none text-foreground prose-p:my-2 prose-headings:text-arc prose-strong:text-foreground prose-code:text-arc prose-code:bg-arc/10 prose-code:px-1 prose-code:rounded">
-                <ReactMarkdown remarkGfm={[remarkGfm] as any}>{part.text}</ReactMarkdown>
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{part.text}</ReactMarkdown>
               </div>
             );
           }

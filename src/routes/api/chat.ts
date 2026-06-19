@@ -137,7 +137,7 @@ You have tools to create reminders (one-off or recurring: daily/weekdays/weekly/
 When the user mentions a routine ("every morning", "every weekday at 8am", "remind me daily"), use create_reminder with the recurrence field.
 When the user shares an account/login/contact, offer to save it to the vault. Never echo a stored password back unprompted.
 Be concise. Confirm after taking an action.`,
-          messages: convertToModelMessages(messages),
+          messages: await convertToModelMessages(messages),
           tools,
           stopWhen: stepCountIs(8),
         });
