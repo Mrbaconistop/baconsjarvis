@@ -78,7 +78,7 @@ function SpendingPage() {
   const [syncing, setSyncing] = useState(false);
   const [adding, setAdding] = useState(false);
 
-  const { data: txs = [] } = useQuery({
+  const { data: txs = [], error: txError, isLoading, refetch } = useQuery({
     queryKey: ["transactions"],
     queryFn: async () => {
       const since = new Date(Date.now() - 90 * 86400000).toISOString();
@@ -88,6 +88,7 @@ function SpendingPage() {
       if (error) throw error;
       return data as Tx[];
     },
+    retry: 1,
   });
 
   const now = Date.now();
