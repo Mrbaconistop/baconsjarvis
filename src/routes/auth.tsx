@@ -1,6 +1,7 @@
 import { createFileRoute, useNavigate, redirect } from "@tanstack/react-router";
 import { useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { lovable } from "@/integrations/lovable";
 import { toast } from "sonner";
 import { ParticleField } from "@/components/jarvis/ParticleField";
 import { JarvisOrb } from "@/components/jarvis/JarvisOrb";
@@ -78,6 +79,32 @@ function AuthPage() {
             {loading ? "Initialising…" : mode === "sign_in" ? "Sign in" : "Create account"}
           </button>
         </form>
+
+        <div className="my-4 flex items-center gap-3 text-[10px] font-mono text-hud-dim">
+          <div className="h-px flex-1 bg-arc/20" /> OR <div className="h-px flex-1 bg-arc/20" />
+        </div>
+
+        <button
+          type="button"
+          disabled={loading}
+          onClick={async () => {
+            setLoading(true);
+            try {
+              const result = await lovable.auth.signInWithOAuth("google", {
+                redirect_uri: window.location.origin + "/dashboard",
+              });
+              if (result.error) throw new Error(result.error.message ?? "Google sign-in failed");
+              if (result.redirected) return;
+              navigate({ to: "/dashboard" });
+            } catch (err: any) {
+              toast.error(err.message ?? "Google sign-in failed");
+              setLoading(false);
+            }
+          }}
+          className="w-full flex items-center justify-center gap-2 rounded-md bg-background/60 border border-arc/30 py-2.5 text-sm hover:border-arc transition disabled:opacity-50"
+        >
+          <GoogleMark /> Continue with Google
+        </button>
 
         <button
           type="button"
