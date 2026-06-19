@@ -1,12 +1,14 @@
 import { createFileRoute, useRouter, Link } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useServerFn } from "@tanstack/react-start";
 import { useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { refreshStockPrices } from "@/lib/stocks.functions";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { toast } from "sonner";
-import { Trash2, RefreshCw, Plus, AlertTriangle } from "lucide-react";
+import { Trash2, RefreshCw, Plus, AlertTriangle, Wallet, TrendingUp } from "lucide-react";
 
 function SpendingError({ error, reset }: { error: Error; reset: () => void }) {
   const router = useRouter();
