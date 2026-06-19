@@ -132,6 +132,45 @@ export const Route = createFileRoute("/api/chat")({
               return { items: data ?? [] };
             },
           }),
+          remember_fact: tool({
+            description: "Persist a key fact about the user so you remember it across conversations. Use sparingly for durable info: name, age, height, weight, birthday, location, friends/family names, interests, hobbies, goals, preferences, relationships. Categories: 'identity' (name/age/height/weight/birthday), 'people' (friend/family/coworker names + relationship), 'interest', 'preference', 'goal', 'general'.",
+            inputSchema: z.object({
+              category: z.enum(["identity", "people", "interest", "preference", "goal", "general"]),
+              key: z.string().describe("Short stable key, e.g. 'height', 'best_friend', 'favorite_band'."),
+              value: z.string().describe("The fact value, e.g. '6ft 1in', 'Alex (best friend, loves climbing)'."),
+            }),
+            execute: async ({ category, key, value }) => {
+              const { error } = await supabase.from("user_facts")
+                .upsert({ user_id: userId, category, key, value }, { onConflict: "user_id,category,key" });
+              return { ok: !error, error: error?.message };
+            },
+          }),
+          list_facts: tool({
+            description: "List facts you've remembered about the user, optionally filtered by category.",
+            inputSchema: z.object({ category: z.enum(["identity", "people", "interest", "preference", "goal", "general"]).nullable().optional() }),
+            execute: async ({ category }) => {
+              let q = supabase.from("user_facts").select("id, category, key, value, updated_at").eq("user_id", userId);
+              if (category) q = q.eq("category", category);
+              const { data } = await q.order("updated_at", { ascending: false }).limit(100);
+              return { facts: data ?? [] };
+            },
+          }),
+          forget_fact: tool({
+            description: "Forget a remembered fact by id (from list_facts) or by category+key.",
+            inputSchema: z.object({
+              id: z.string().uuid().nullable().optional(),
+              category: z.string().nullable().optional(),
+              key: z.string().nullable().optional(),
+            }),
+            execute: async ({ id, category, key }) => {
+              let q = supabase.from("user_facts").delete().eq("user_id", userId);
+              if (id) q = q.eq("id", id);
+              else if (category && key) q = q.eq("category", category).eq("key", key);
+              else return { ok: false, error: "Provide id or category+key" };
+              const { error } = await q;
+              return { ok: !error, error: error?.message };
+            },
+          }),
         };
 
         const now = new Date();
@@ -141,9 +180,14 @@ export const Route = createFileRoute("/api/chat")({
 
 Address the user as "${addressAs}".
 Current time: ${now.toISOString()} (${now.toString()}).
-You have tools to create reminders (one-off or recurring: daily/weekdays/weekly/monthly), list and complete reminders, and save/list private vault items (credentials, notes, contacts).
+You have tools to create reminders (one-off or recurring: daily/weekdays/weekly/monthly), list and complete reminders, save/list private vault items (credentials, notes, contacts), and remember/list/forget personal facts about the user.
 When the user mentions a routine ("every morning", "every weekday at 8am", "remind me daily"), use create_reminder with the recurrence field.
 When the user shares an account/login/contact, offer to save it to the vault. Never echo a stored password back unprompted.
+When the user reveals durable personal info (name, age, height, weight, birthday, friends/family names, interests, goals, preferences), silently call remember_fact so you recall it later. Update existing facts with the same category+key instead of creating duplicates. Only forget facts when asked.
+
+Known facts about ${addressAs}:
+${factsBlock}
+
 Be concise. Confirm after taking an action.`,
           messages: await convertToModelMessages(messages),
           tools,
