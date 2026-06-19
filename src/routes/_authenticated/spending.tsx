@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useRouter, Link } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
@@ -6,10 +6,54 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { toast } from "sonner";
-import { Trash2, RefreshCw, Plus } from "lucide-react";
+import { Trash2, RefreshCw, Plus, AlertTriangle } from "lucide-react";
+
+function SpendingError({ error, reset }: { error: Error; reset: () => void }) {
+  const router = useRouter();
+  const msg = error?.message ?? "Unknown error";
+  const lower = msg.toLowerCase();
+  let hint = "I couldn't load your spending data.";
+  if (lower.includes("jwt") || lower.includes("auth") || lower.includes("unauthorized")) {
+    hint = "Your session expired. Sign back in and I'll fetch the ledger again.";
+  } else if (lower.includes("permission") || lower.includes("rls") || lower.includes("policy")) {
+    hint = "I don't have permission to read the transactions table. The access policy may be missing.";
+  } else if (lower.includes("relation") && lower.includes("does not exist")) {
+    hint = "The transactions table isn't set up yet. The latest migration may not have run.";
+  } else if (lower.includes("network") || lower.includes("fetch")) {
+    hint = "I can't reach the backend right now. Check your connection and try again.";
+  }
+  return (
+    <div className="max-w-2xl">
+      <Card className="p-6 space-y-4">
+        <div className="flex items-center gap-3">
+          <AlertTriangle className="w-5 h-5 text-amber-400" />
+          <h1 className="text-2xl font-light">Spending ledger unavailable</h1>
+        </div>
+        <p className="text-sm text-muted-foreground">{hint}</p>
+        <details className="text-xs text-muted-foreground">
+          <summary className="cursor-pointer">Technical detail</summary>
+          <pre className="mt-2 whitespace-pre-wrap break-words font-mono">{msg}</pre>
+        </details>
+        <div className="flex gap-2">
+          <Button size="sm" onClick={() => { router.invalidate(); reset(); }}>Retry</Button>
+          <Button asChild variant="outline" size="sm"><Link to="/dashboard">Back to dashboard</Link></Button>
+        </div>
+      </Card>
+    </div>
+  );
+}
 
 export const Route = createFileRoute("/_authenticated/spending")({
   component: SpendingPage,
+  errorComponent: SpendingError,
+  notFoundComponent: () => (
+    <Card className="p-6 max-w-xl">
+      <h1 className="text-2xl font-light">No spending records found</h1>
+      <p className="text-sm text-muted-foreground mt-2">
+        I couldn't find any transactions for your account yet. Log one in chat or use the Add button on the Spending page once it loads.
+      </p>
+    </Card>
+  ),
 });
 
 type Tx = {
@@ -34,7 +78,7 @@ function SpendingPage() {
   const [syncing, setSyncing] = useState(false);
   const [adding, setAdding] = useState(false);
 
-  const { data: txs = [] } = useQuery({
+  const { data: txs = [], error: txError, isLoading, refetch } = useQuery({
     queryKey: ["transactions"],
     queryFn: async () => {
       const since = new Date(Date.now() - 90 * 86400000).toISOString();
@@ -44,6 +88,7 @@ function SpendingPage() {
       if (error) throw error;
       return data as Tx[];
     },
+    retry: 1,
   });
 
   const now = Date.now();
@@ -118,6 +163,23 @@ function SpendingPage() {
             </Button>
           </div>
         </div>
+
+        {txError && (
+          <Card className="p-4 border-amber-500/40">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="w-4 h-4 text-amber-400 mt-0.5" />
+              <div className="flex-1">
+                <div className="text-sm font-medium">Couldn't load transactions</div>
+                <div className="text-xs text-muted-foreground mt-1">{(txError as Error).message}</div>
+              </div>
+              <Button size="sm" variant="outline" onClick={() => refetch()}>Retry</Button>
+            </div>
+          </Card>
+        )}
+
+        {isLoading && !txError && (
+          <div className="text-sm text-muted-foreground">Loading ledger…</div>
+        )}
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {[
