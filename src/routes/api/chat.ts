@@ -132,6 +132,29 @@ export const Route = createFileRoute("/api/chat")({
               return { items: data ?? [] };
             },
           }),
+          unlock_vault_item: tool({
+            description: "Reveal the contents of a vault item (credentials, account passwords, sensitive notes). REQUIRES a PIN from the user. If the user has not provided a PIN in this turn, ask them for it first (4–28 characters) — do NOT call this without one. Match by id (from list_vault) or by label substring.",
+            inputSchema: z.object({
+              pin: z.string().min(4).max(28).describe("The PIN the user just typed."),
+              id: z.string().uuid().nullable().optional(),
+              label: z.string().nullable().optional().describe("Case-insensitive substring match on label."),
+            }),
+            execute: async ({ pin, id, label }) => {
+              const { data: prof } = await supabase.from("profiles").select("vault_pin_hash").eq("id", userId).maybeSingle();
+              if (!prof?.vault_pin_hash) return { ok: false, error: "No PIN set. Ask the user to set one in Settings first." };
+              const enc = new TextEncoder().encode(`${userId}:${pin}`);
+              const buf = await crypto.subtle.digest("SHA-256", enc);
+              const hash = Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("");
+              if (hash !== prof.vault_pin_hash) return { ok: false, error: "Incorrect PIN." };
+              let q = supabase.from("vault_items").select("id, kind, label, data, updated_at").eq("user_id", userId);
+              if (id) q = q.eq("id", id);
+              else if (label) q = q.ilike("label", `%${label}%`);
+              else return { ok: false, error: "Provide id or label." };
+              const { data } = await q.limit(5);
+              if (!data?.length) return { ok: false, error: "No matching vault item." };
+              return { ok: true, items: data };
+            },
+          }),
           remember_fact: tool({
             description: "Persist a key fact about the user so you remember it across conversations. Use sparingly for durable info: name, age, height, weight, birthday, location, friends/family names, interests, hobbies, goals, preferences, relationships. Categories: 'identity' (name/age/height/weight/birthday), 'people' (friend/family/coworker names + relationship), 'interest', 'preference', 'goal', 'general'.",
             inputSchema: z.object({
@@ -259,6 +282,8 @@ export const Route = createFileRoute("/api/chat")({
 Address the user as "${addressAs}".
 Current time: ${now.toISOString()} (${now.toString()}).
 You have tools to create reminders (one-off or recurring: daily/weekdays/weekly/monthly), list and complete reminders, save/list private vault items (credentials, notes, contacts), remember/list/forget personal facts about the user, and log/list/summarize spending transactions (Cash App, card, cash — any time the user mentions an amount they spent, paid, or received, call log_transaction). Use spending_summary to answer "how much did I spend on X" questions.
+
+VAULT SECURITY: list_vault only returns labels — never reveal credentials or sensitive data from it. When the user asks for an account/password/secret content, ALWAYS ask them to type their PIN (4–28 characters) in the next message, then call unlock_vault_item with that pin. Never invent a PIN, never reveal item contents without a successful unlock_vault_item call this turn, and never echo the PIN itself back.
 When the user mentions a routine ("every morning", "every weekday at 8am", "remind me daily"), use create_reminder with the recurrence field.
 When the user shares an account/login/contact, offer to save it to the vault. Never echo a stored password back unprompted.
 When the user reveals durable personal info (name, age, height, weight, birthday, friends/family names, interests, goals, preferences), silently call remember_fact so you recall it later. Update existing facts with the same category+key instead of creating duplicates. Only forget facts when asked.

@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { AppShell } from "@/components/jarvis/AppShell";
+
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { toast } from "sonner";
@@ -103,7 +103,7 @@ function SpendingPage() {
   }
 
   return (
-    <AppShell>
+    
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <div>
@@ -186,6 +186,6 @@ function SpendingPage() {
           </div>
         </Card>
       </div>
-    </AppShell>
+    
   );
 }
