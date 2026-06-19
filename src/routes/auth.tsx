@@ -1,7 +1,6 @@
 import { createFileRoute, useNavigate, redirect } from "@tanstack/react-router";
 import { useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { lovable } from "@/integrations/lovable";
 import { toast } from "sonner";
 import { ParticleField } from "@/components/jarvis/ParticleField";
 import { JarvisOrb } from "@/components/jarvis/JarvisOrb";
@@ -50,14 +49,6 @@ function AuthPage() {
     }
   }
 
-  async function onGoogle() {
-    setLoading(true);
-    const result = await lovable.auth.signInWithOAuth("google", { redirect_uri: window.location.origin + "/dashboard" });
-    if (result.error) { toast.error("Google sign-in failed"); setLoading(false); return; }
-    if (result.redirected) return;
-    navigate({ to: "/dashboard" });
-  }
-
   return (
     <main className="relative min-h-screen flex items-center justify-center grid-bg overflow-hidden p-6">
       <ParticleField />
@@ -66,19 +57,7 @@ function AuthPage() {
         <div className="text-center mb-6">
           <div className="font-mono text-[10px] tracking-[0.4em] text-arc">[ AUTHENTICATION ]</div>
           <h1 className="font-display text-3xl mt-2 text-glow">Identify yourself, Sir</h1>
-        </div>
-
-        <button
-          onClick={onGoogle}
-          disabled={loading}
-          className="w-full flex items-center justify-center gap-3 rounded-md border border-arc/30 bg-background/40 py-2.5 hover:bg-arc/10 transition disabled:opacity-50"
-        >
-          <GoogleMark />
-          <span>Continue with Google</span>
-        </button>
-
-        <div className="my-5 flex items-center gap-3 text-xs text-hud-dim">
-          <div className="flex-1 h-px bg-arc/20" /> OR <div className="flex-1 h-px bg-arc/20" />
+          <p className="mt-2 text-xs text-hud-dim">Email & docs can be connected later from Settings.</p>
         </div>
 
         <form onSubmit={onSubmit} className="space-y-3">
