@@ -79,6 +79,8 @@ function SpendingPage() {
   const qc = useQueryClient();
   const [syncing, setSyncing] = useState(false);
   const [adding, setAdding] = useState(false);
+  const [refreshingPrices, setRefreshingPrices] = useState(false);
+  const refreshPricesFn = useServerFn(refreshStockPrices);
 
   const { data: txs = [], error: txError, isLoading, refetch } = useQuery({
     queryKey: ["transactions"],
@@ -92,6 +94,79 @@ function SpendingPage() {
     },
     retry: 1,
   });
+
+  const { data: cash } = useQuery({
+    queryKey: ["cash_balance"],
+    queryFn: async () => {
+      const { data } = await supabase.from("cash_balances")
+        .select("amount_cents, note, updated_at").maybeSingle();
+      return data;
+    },
+  });
+
+  const { data: holdings = [] } = useQuery({
+    queryKey: ["stock_holdings"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("stock_holdings")
+        .select("id, ticker, shares, avg_cost_cents, last_price_cents, last_price_at, note")
+        .order("ticker", { ascending: true });
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+
+  async function saveCash(form: FormData) {
+    const amount = parseFloat(String(form.get("cash") ?? "0"));
+    if (!isFinite(amount)) return toast.error("Enter a number");
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    const { error } = await supabase.from("cash_balances").upsert({
+      user_id: user.id, amount_cents: Math.round(amount * 100),
+      note: String(form.get("cash_note") ?? "") || null,
+    }, { onConflict: "user_id" });
+    if (error) toast.error(error.message);
+    else { toast.success("Cash updated"); qc.invalidateQueries({ queryKey: ["cash_balance"] }); }
+  }
+
+  async function saveHolding(form: FormData) {
+    const ticker = String(form.get("ticker") ?? "").trim().toUpperCase();
+    const shares = parseFloat(String(form.get("shares") ?? "0"));
+    const avgCostRaw = String(form.get("avg_cost") ?? "").trim();
+    const avg_cost_cents = avgCostRaw ? Math.round(parseFloat(avgCostRaw) * 100) : null;
+    if (!ticker || !isFinite(shares)) return toast.error("Need ticker + shares");
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    if (shares === 0) {
+      await supabase.from("stock_holdings").delete().eq("user_id", user.id).eq("ticker", ticker);
+    } else {
+      const { error } = await supabase.from("stock_holdings").upsert({
+        user_id: user.id, ticker, shares, avg_cost_cents,
+      }, { onConflict: "user_id,ticker" });
+      if (error) return toast.error(error.message);
+    }
+    toast.success(shares === 0 ? `Removed ${ticker}` : `${ticker} updated`);
+    qc.invalidateQueries({ queryKey: ["stock_holdings"] });
+  }
+
+  async function deleteHolding(id: string) {
+    await supabase.from("stock_holdings").delete().eq("id", id);
+    qc.invalidateQueries({ queryKey: ["stock_holdings"] });
+  }
+
+  async function refreshPrices() {
+    setRefreshingPrices(true);
+    try {
+      const res = await refreshPricesFn();
+      if ((res as any).error) toast.error((res as any).error);
+      else toast.success(`Refreshed ${res.updated} price${res.updated === 1 ? "" : "s"}`);
+      qc.invalidateQueries({ queryKey: ["stock_holdings"] });
+    } catch (e: any) {
+      toast.error(e?.message ?? "Refresh failed");
+    } finally {
+      setRefreshingPrices(false);
+    }
+  }
+
 
   const now = Date.now();
   const week = txs.filter(t => now - new Date(t.occurred_at).getTime() < 7 * 86400000);
