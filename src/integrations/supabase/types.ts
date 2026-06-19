@@ -14,6 +14,65 @@ export type Database = {
   }
   public: {
     Tables: {
+      chat_messages: {
+        Row: {
+          created_at: string
+          id: string
+          parts: Json
+          role: string
+          thread_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          parts: Json
+          role: string
+          thread_id: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          parts?: Json
+          role?: string
+          thread_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "chat_messages_thread_id_fkey"
+            columns: ["thread_id"]
+            isOneToOne: false
+            referencedRelation: "chat_threads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      chat_threads: {
+        Row: {
+          created_at: string
+          id: string
+          title: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          title?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          title?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       connected_accounts: {
         Row: {
           connected_at: string
@@ -163,6 +222,7 @@ export type Database = {
           id: string
           is_completed: boolean
           priority: Database["public"]["Enums"]["priority_level"]
+          recurrence: string | null
           source_ref: string | null
           source_type: string | null
           title: string
@@ -175,6 +235,7 @@ export type Database = {
           id?: string
           is_completed?: boolean
           priority?: Database["public"]["Enums"]["priority_level"]
+          recurrence?: string | null
           source_ref?: string | null
           source_type?: string | null
           title: string
@@ -187,6 +248,7 @@ export type Database = {
           id?: string
           is_completed?: boolean
           priority?: Database["public"]["Enums"]["priority_level"]
+          recurrence?: string | null
           source_ref?: string | null
           source_type?: string | null
           title?: string
@@ -276,6 +338,39 @@ export type Database = {
         }
         Relationships: []
       }
+      vault_items: {
+        Row: {
+          created_at: string
+          data: Json
+          id: string
+          kind: Database["public"]["Enums"]["vault_kind"]
+          label: string
+          tags: string[]
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          data?: Json
+          id?: string
+          kind: Database["public"]["Enums"]["vault_kind"]
+          label: string
+          tags?: string[]
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          data?: Json
+          id?: string
+          kind?: Database["public"]["Enums"]["vault_kind"]
+          label?: string
+          tags?: string[]
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
@@ -301,6 +396,7 @@ export type Database = {
         | "facebook"
         | "gmail"
         | "calendar"
+      vault_kind: "credential" | "note" | "contact"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -440,6 +536,7 @@ export const Constants = {
         "gmail",
         "calendar",
       ],
+      vault_kind: ["credential", "note", "contact"],
     },
   },
 } as const
