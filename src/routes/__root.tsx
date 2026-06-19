@@ -82,6 +82,10 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { property: "og:description", content: "An AI-powered command center that triages your inbox, calendar, and social signals — and tells you what matters." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
+      { name: "twitter:title", content: "JARVIS — Your Personal Command Center" },
+      { name: "twitter:description", content: "An AI-powered command center that triages your inbox, calendar, and social signals — and tells you what matters." },
+      { property: "og:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/425dd43d-724b-4676-aea5-a6da6fa0e91f/id-preview-cbc1b64c--e66d9074-0ef6-403c-a793-7588e4485a5f.lovable.app-1781886736548.png" },
+      { name: "twitter:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/425dd43d-724b-4676-aea5-a6da6fa0e91f/id-preview-cbc1b64c--e66d9074-0ef6-403c-a793-7588e4485a5f.lovable.app-1781886736548.png" },
     ],
     links: [
       { rel: "stylesheet", href: appCss },
