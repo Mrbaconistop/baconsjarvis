@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { convertToModelMessages, streamText, tool, stepCountIs, type UIMessage } from "ai";
 import { z } from "zod";
 import { createClient } from "@supabase/supabase-js";
-import { createLovableAiGatewayProvider, JARVIS_SYSTEM_PROMPT } from "@/lib/ai-gateway.server";
+import { JARVIS_SYSTEM_PROMPT, resolveChatModel } from "@/lib/ai-gateway.server";
 
 type Body = { messages?: UIMessage[]; threadId?: string };
 
