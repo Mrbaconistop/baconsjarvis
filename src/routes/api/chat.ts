@@ -301,10 +301,21 @@ Be concise. Confirm after taking an action.`,
           messages: await convertToModelMessages(messages),
           tools,
           stopWhen: stepCountIs(8),
+          onError: ({ error }) => {
+            console.error("[chat streamText error]", error);
+          },
         });
 
         return result.toUIMessageStreamResponse({
           originalMessages: messages,
+          onError: (error: unknown) => {
+            console.error("[chat stream response error]", error);
+            const e = error as { statusCode?: number; message?: string; responseBody?: string } | null;
+            if (e?.statusCode === 402) return "AI credits exhausted, Sir. Please top up to continue.";
+            if (e?.statusCode === 429) return "Rate limit reached, Sir. Try again in a moment.";
+            const detail = e?.responseBody || e?.message || String(error);
+            return `Signal interrupted, Sir: ${detail.slice(0, 300)}`;
+          },
           onFinish: async ({ messages: finalMessages }) => {
             const assistant = finalMessages[finalMessages.length - 1];
             if (assistant && assistant.role === "assistant") {
@@ -315,6 +326,7 @@ Be concise. Confirm after taking an action.`,
             }
           },
         });
+
       },
     },
   },
