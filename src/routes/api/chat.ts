@@ -280,7 +280,7 @@ export const Route = createFileRoute("/api/chat")({
 
         const now = new Date();
         const result = streamText({
-          model,
+          model: chatModel,
           system: `${JARVIS_SYSTEM_PROMPT}
 
 Address the user as "${addressAs}".
