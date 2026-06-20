@@ -62,8 +62,12 @@ export const Route = createFileRoute("/api/chat")({
           }
         }
 
-        const gateway = createLovableAiGatewayProvider(key);
-        const model = gateway("google/gemini-3-flash-preview");
+        let chatModel;
+        try {
+          chatModel = resolveChatModel().model;
+        } catch (e: any) {
+          return new Response(e?.message ?? "Model unavailable", { status: 500 });
+        }
 
         const tools = {
           create_reminder: tool({
