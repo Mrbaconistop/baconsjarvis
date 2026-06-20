@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { convertToModelMessages, streamText, tool, stepCountIs, type UIMessage } from "ai";
 import { z } from "zod";
 import { createClient } from "@supabase/supabase-js";
-import { createLovableAiGatewayProvider, JARVIS_SYSTEM_PROMPT } from "@/lib/ai-gateway.server";
+import { JARVIS_SYSTEM_PROMPT, resolveChatModel } from "@/lib/ai-gateway.server";
 
 type Body = { messages?: UIMessage[]; threadId?: string };
 
@@ -20,8 +20,8 @@ export const Route = createFileRoute("/api/chat")({
         const auth = request.headers.get("authorization") ?? "";
         const token = auth.replace(/^Bearer\s+/i, "");
         if (!token) return new Response("Unauthorized", { status: 401 });
-        const key = process.env.LOVABLE_API_KEY;
-        if (!key) return new Response("Missing LOVABLE_API_KEY", { status: 500 });
+        // model resolution moved below (supports Groq via GROQ_API_KEY)
+
 
         const { messages, threadId } = (await request.json()) as Body;
         if (!Array.isArray(messages) || !threadId) return new Response("Bad request", { status: 400 });
@@ -62,8 +62,12 @@ export const Route = createFileRoute("/api/chat")({
           }
         }
 
-        const gateway = createLovableAiGatewayProvider(key);
-        const model = gateway("google/gemini-3-flash-preview");
+        let chatModel;
+        try {
+          chatModel = resolveChatModel().model;
+        } catch (e: any) {
+          return new Response(e?.message ?? "Model unavailable", { status: 500 });
+        }
 
         const tools = {
           create_reminder: tool({
@@ -276,7 +280,7 @@ export const Route = createFileRoute("/api/chat")({
 
         const now = new Date();
         const result = streamText({
-          model,
+          model: chatModel,
           system: `${JARVIS_SYSTEM_PROMPT}
 
 Address the user as "${addressAs}".
