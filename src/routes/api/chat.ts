@@ -20,8 +20,8 @@ export const Route = createFileRoute("/api/chat")({
         const auth = request.headers.get("authorization") ?? "";
         const token = auth.replace(/^Bearer\s+/i, "");
         if (!token) return new Response("Unauthorized", { status: 401 });
-        const key = process.env.LOVABLE_API_KEY;
-        if (!key) return new Response("Missing LOVABLE_API_KEY", { status: 500 });
+        // model resolution moved below (supports Groq via GROQ_API_KEY)
+
 
         const { messages, threadId } = (await request.json()) as Body;
         if (!Array.isArray(messages) || !threadId) return new Response("Bad request", { status: 400 });
