@@ -1,5 +1,38 @@
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 
+export function createGroqProvider(apiKey: string) {
+  return createOpenAICompatible({
+    name: "groq",
+    baseURL: "https://api.groq.com/openai/v1",
+    headers: { Authorization: `Bearer ${apiKey}` },
+  });
+}
+
+/**
+ * Picks the chat model based on env:
+ * - If GROQ_API_KEY is set (and CHAT_PROVIDER !== "lovable"), use Groq.
+ *   Model: GROQ_MODEL (default "llama-3.3-70b-versatile").
+ * - Otherwise use Lovable AI Gateway with google/gemini-3-flash-preview.
+ */
+export function resolveChatModel() {
+  const provider = (process.env.CHAT_PROVIDER ?? "").toLowerCase();
+  const groqKey = process.env.GROQ_API_KEY;
+  const useGroq = provider === "groq" || (provider !== "lovable" && !!groqKey);
+
+  if (useGroq) {
+    if (!groqKey) throw new Error("CHAT_PROVIDER=groq but GROQ_API_KEY is not set");
+    const groq = createGroqProvider(groqKey);
+    const modelId = process.env.GROQ_MODEL ?? "llama-3.3-70b-versatile";
+    return { model: groq(modelId), provider: "groq" as const, modelId };
+  }
+
+  const key = process.env.LOVABLE_API_KEY;
+  if (!key) throw new Error("Missing LOVABLE_API_KEY");
+  const gateway = createLovableAiGatewayProvider(key);
+  const modelId = "google/gemini-3-flash-preview";
+  return { model: gateway(modelId), provider: "lovable" as const, modelId };
+}
+
 const LOVABLE_AIG_RUN_ID_HEADER = "X-Lovable-AIG-Run-ID";
 
 export function createLovableAiGatewayProvider(lovableApiKey: string, initialRunId?: string) {
