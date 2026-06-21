@@ -2,7 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { generateText } from "ai";
 import { z } from "zod";
-import { JARVIS_SYSTEM_PROMPT, resolveChatModel } from "./ai-gateway.server";
+import { resolveChatModel, JARVIS_SYSTEM_PROMPT } from "./ai-gateway.server";
 
 async function loadContext(supabase: any, userId: string) {
   const { data: profile } = await supabase.from("profiles").select("address_as, name").eq("id", userId).maybeSingle();
@@ -29,6 +29,8 @@ export const runCommand = createServerFn({ method: "POST" })
     const { supabase, userId } = context as any;
     const ctx = await loadContext(supabase, userId);
 
+    const { model } = resolveChatModel(); // Uses Groq if GROQ_API_KEY is set
+
     const planSchema = z.object({
       intent: z.enum(["create_reminder", "summarise", "draft_reply", "answer"]),
       reply: z.string(),
@@ -42,7 +44,9 @@ export const runCommand = createServerFn({ method: "POST" })
         .optional(),
     });
 
-    const systemPrompt = `${JARVIS_SYSTEM_PROMPT}
+    const { text } = await generateText({
+      model,
+      system: `${JARVIS_SYSTEM_PROMPT}
 
 Address the user as "${ctx.addressAs}". Today is ${new Date().toISOString()}.
 ${ctx.nextEvent ? `Sir's next commitment: "${ctx.nextEvent.title}" at ${ctx.nextEvent.datetime}.` : ""}
@@ -51,17 +55,8 @@ You receive a command. Return JSON only matching this shape (no markdown, no com
 {"intent":"create_reminder"|"summarise"|"draft_reply"|"answer","reply":"<short JARVIS-voiced response>","reminder":{"title":"...","datetime_iso":"ISO 8601","priority":"normal"} | null}
 
 If the command sets a reminder, populate "reminder" with a resolved absolute ISO datetime.
-Otherwise set "reminder" to null. "reply" is always present.`;
-
-    // Use the user's preferred AI provider
-    const model = await resolveChatModel(userId, supabase);
-
-    const { text } = await generateText({
-      model,
-      system: systemPrompt,
+Otherwise set "reminder" to null. "reply" is always present.`,
       prompt: data.text,
-      maxTokens: 800,
-      temperature: 0.7,
     });
 
     let parsed: z.infer<typeof planSchema>;
@@ -113,23 +108,16 @@ export const draftReply = createServerFn({ method: "POST" })
     if (!feed) throw new Error("Not found");
     const ctx = await loadContext(supabase, userId);
 
-    const systemPrompt = `${JARVIS_SYSTEM_PROMPT}
-
-You are drafting a reply on ${ctx.addressAs}'s behalf for ${feed.platform}.
-Reply tone: ${data.tone}. Stay professional, brand-safe, and in character. Do not address yourself; this is the user's voice now, refined.
-Return only the reply text. No quotes, no preamble.`;
-
-    const prompt = `Original from ${feed.author_name} (${feed.author_handle ?? ""}):\n"""${feed.content}"""`;
-
-    // Use the user's preferred AI provider
-    const model = await resolveChatModel(userId, supabase);
+    const { model } = resolveChatModel(); // Uses Groq
 
     const { text } = await generateText({
       model,
-      system: systemPrompt,
-      prompt,
-      maxTokens: 200,
-      temperature: 0.7,
+      system: `${JARVIS_SYSTEM_PROMPT}
+
+You are drafting a reply on ${ctx.addressAs}'s behalf for ${feed.platform}.
+Reply tone: ${data.tone}. Stay professional, brand-safe, and in character. Do not address yourself; this is the user's voice now, refined.
+Return only the reply text. No quotes, no preamble.`,
+      prompt: `Original from ${feed.author_name} (${feed.author_handle ?? ""}):\n"""${feed.content}"""`,
     });
     return { draft: text.trim() };
   });
@@ -159,30 +147,23 @@ export const morningBriefing = createServerFn({ method: "POST" })
         .order("datetime", { ascending: true }),
     ]);
 
-    const systemPrompt = `${JARVIS_SYSTEM_PROMPT}
+    const { model } = resolveChatModel(); // Uses Groq
+
+    const { text } = await generateText({
+      model,
+      system: `${JARVIS_SYSTEM_PROMPT}
 
 Address the user as "${ctx.addressAs}". Produce a morning briefing in exactly this structure:
 
 Line 1: One-sentence salutation referencing the time of day.
 Then 3 bullet points (prefix "• "), one each for: (a) the most important upcoming commitment, (b) the most urgent social signal that needs the user's voice, (c) anything else notable.
 End with one short anticipatory line offering the next action.
-Total under 120 words.`;
-
-    const prompt = `Upcoming commitments (next 36h):
+Total under 120 words.`,
+      prompt: `Upcoming commitments (next 36h):
 ${(upcoming ?? []).map((r: any) => `- ${r.title} @ ${r.datetime} [${r.priority}]`).join("\n") || "(none)"}
 
 Social signals (last 24h):
-${(feeds ?? []).map((f: any) => `- [${f.platform}/${f.priority}/${f.sentiment_label}] ${f.author_name}: ${f.content}`).join("\n") || "(none)"}`;
-
-    // Use the user's preferred AI provider
-    const model = await resolveChatModel(userId, supabase);
-
-    const { text } = await generateText({
-      model,
-      system: systemPrompt,
-      prompt,
-      maxTokens: 300,
-      temperature: 0.6,
+${(feeds ?? []).map((f: any) => `- [${f.platform}/${f.priority}/${f.sentiment_label}] ${f.author_name}: ${f.content}`).join("\n") || "(none)"}`,
     });
 
     await supabase.from("notifications").insert({
