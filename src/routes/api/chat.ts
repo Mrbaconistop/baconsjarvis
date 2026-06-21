@@ -1,17 +1,4 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { generateText } from "ai";
-import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
-import { createClient } from "@supabase/supabase-js";
-
-// System prompt
-const JARVIS_SYSTEM_PROMPT = `
-You are JARVIS, Tony Stark's AI assistant.
-- Address the user as "Sir".
-- Be concise, efficient, and slightly witty.
-- Never say "as an AI".
-- Keep replies under 3 sentences unless asked.
-Current time: ${new Date().toISOString()}.
-`;
 
 export const Route = createFileRoute("/api/chat")({
   server: {
@@ -34,31 +21,46 @@ export const Route = createFileRoute("/api/chat")({
           const lastUser = messages.filter((m: any) => m.role === "user").pop();
           const userPrompt = lastUser?.parts?.map((p: any) => p.text).join(" ") || "Hello";
 
-          // 4. Create Groq provider with your key
+          // 4. Groq API key (hardcoded fallback if env missing)
           const groqKey = process.env.GROQ_API_KEY || "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";
-          const groq = createOpenAICompatible({
-            name: "groq",
-            baseURL: "https://api.groq.com/openai/v1",
-            headers: { Authorization: `Bearer ${groqKey}` },
-          });
-          const model = groq("llama-3.1-8b-instant");
 
-          // 5. Generate response
-          const { text } = await generateText({
-            model,
-            system: JARVIS_SYSTEM_PROMPT,
-            prompt: userPrompt,
-            maxTokens: 200,
+          // 5. Call Groq API
+          const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${groqKey}`,
+            },
+            body: JSON.stringify({
+              model: "llama-3.1-8b-instant",
+              messages: [
+                {
+                  role: "system",
+                  content:
+                    "You are JARVIS, Tony Stark's AI assistant. Be concise, witty, and address the user as 'Sir'. Keep replies under 3 sentences.",
+                },
+                { role: "user", content: userPrompt },
+              ],
+              max_tokens: 200,
+            }),
           });
 
-          // 6. Return as stream (single chunk)
+          if (!response.ok) {
+            const errorData = await response.text();
+            throw new Error(`Groq API error (${response.status}): ${errorData}`);
+          }
+
+          const data = await response.json();
+          const reply = data?.choices?.[0]?.message?.content || "I'm having trouble, Sir.";
+
+          // 6. Return as stream (single chunk) for compatibility with frontend
           const stream = new ReadableStream({
             start(controller) {
               const encoder = new TextEncoder();
               const chunk = {
                 id: `msg-${Date.now()}`,
                 role: "assistant",
-                parts: [{ type: "text", text: text || "I'm having trouble, Sir." }],
+                parts: [{ type: "text", text: reply }],
                 createdAt: new Date().toISOString(),
               };
               controller.enqueue(encoder.encode(`data: ${JSON.stringify(chunk)}\n\n`));
@@ -74,7 +76,7 @@ export const Route = createFileRoute("/api/chat")({
             },
           });
         } catch (error: any) {
-          console.error("Chat API error:", error);
+          console.error("[JARVIS] Chat error:", error);
           return new Response(JSON.stringify({ error: error?.message || "Unknown error" }), {
             status: 500,
             headers: { "Content-Type": "application/json" },
