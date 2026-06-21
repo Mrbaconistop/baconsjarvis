@@ -59,16 +59,7 @@ export function resolveChatModels(): Provider[] {
     }
   }
 
-  // 4. Fallback (Always available – no API key needed)
-  providers.push({
-    name: "fallback",
-    model: {
-      doGenerate: async () => ({
-        text: "I'm currently offline, Sir. Please check my API keys.",
-      }),
-    },
-  });
-
+  // No fallback – we'll handle that in the calling code.
   return providers;
 }
 

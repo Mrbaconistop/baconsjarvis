@@ -53,15 +53,21 @@ You receive a command. Return JSON only matching this shape (no markdown, no com
 If the command sets a reminder, populate "reminder" with a resolved absolute ISO datetime.
 Otherwise set "reminder" to null. "reply" is always present.`;
 
-    // === Try providers with failover ===
+    // Get providers
     const providers = resolveChatModels();
     let finalText = "";
     let lastError: Error | null = null;
 
+    // If no providers at all, return a fallback immediately
+    if (providers.length === 0) {
+      return { reply: "I don't have any AI providers configured, Sir. Please add an API key.", created: null };
+    }
+
+    // Try each provider
     for (const provider of providers) {
       try {
         const { text } = await generateText({
-          model: provider.model, // <-- Directly use the model
+          model: provider.model,
           system: systemPrompt,
           prompt: data.text,
           maxTokens: 800,
@@ -77,6 +83,7 @@ Otherwise set "reminder" to null. "reply" is always present.`;
       }
     }
 
+    // If all providers failed, use a fallback message
     if (!finalText) {
       console.error("[JARVIS] runCommand all providers failed:", lastError);
       finalText = "I'm having trouble connecting to my core systems, Sir. Try again in a moment.";
@@ -139,10 +146,13 @@ Return only the reply text. No quotes, no preamble.`;
 
     const prompt = `Original from ${feed.author_name} (${feed.author_handle ?? ""}):\n"""${feed.content}"""`;
 
-    // === Try providers with failover ===
     const providers = resolveChatModels();
     let finalText = "";
     let lastError: Error | null = null;
+
+    if (providers.length === 0) {
+      return { draft: "I don't have any AI providers configured, Sir." };
+    }
 
     for (const provider of providers) {
       try {
@@ -211,27 +221,30 @@ ${(upcoming ?? []).map((r: any) => `- ${r.title} @ ${r.datetime} [${r.priority}]
 Social signals (last 24h):
 ${(feeds ?? []).map((f: any) => `- [${f.platform}/${f.priority}/${f.sentiment_label}] ${f.author_name}: ${f.content}`).join("\n") || "(none)"}`;
 
-    // === Try providers with failover ===
     const providers = resolveChatModels();
     let finalText = "";
     let lastError: Error | null = null;
 
-    for (const provider of providers) {
-      try {
-        const { text } = await generateText({
-          model: provider.model,
-          system: systemPrompt,
-          prompt,
-          maxTokens: 300,
-          temperature: 0.6,
-        });
-        finalText = text;
-        console.log(`[JARVIS] morningBriefing used ${provider.name}`);
-        break;
-      } catch (error: any) {
-        console.warn(`[JARVIS] morningBriefing ${provider.name} failed:`, error.message);
-        lastError = error;
-        continue;
+    if (providers.length === 0) {
+      finalText = "I don't have any AI providers configured, Sir.";
+    } else {
+      for (const provider of providers) {
+        try {
+          const { text } = await generateText({
+            model: provider.model,
+            system: systemPrompt,
+            prompt,
+            maxTokens: 300,
+            temperature: 0.6,
+          });
+          finalText = text;
+          console.log(`[JARVIS] morningBriefing used ${provider.name}`);
+          break;
+        } catch (error: any) {
+          console.warn(`[JARVIS] morningBriefing ${provider.name} failed:`, error.message);
+          lastError = error;
+          continue;
+        }
       }
     }
 
