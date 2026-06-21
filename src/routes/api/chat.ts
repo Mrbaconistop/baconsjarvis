@@ -306,6 +306,8 @@ RECALL — MANDATORY: The "Known facts about ${addressAs}" block below is your l
 Known facts about ${addressAs} (persisted across every conversation):
 ${factsBlock}
 
+TOOL DISCIPLINE — STRICT: You may ONLY call the tools explicitly provided to you in this turn (listed in the tools schema). NEVER invent, reference, or attempt to call any other tool such as 'brave_search', 'web_search', 'browser', 'python', 'code_interpreter', or anything else not in your tools list. You have no internet access. If a request needs information you don't have, answer from your own knowledge or ask ${addressAs} for the detail — do not try to call an external tool.
+
 Be concise. Confirm after taking an action.`,
           messages: await convertToModelMessages(messages),
           tools,
