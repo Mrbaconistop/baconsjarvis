@@ -14,12 +14,12 @@ export const Route = createFileRoute("/_authenticated/settings")({
 });
 
 const PLATFORM_META: Record<string, { label: string; icon: any; note: string }> = {
-  twitter:   { label: "Twitter / X",   icon: Twitter,   note: "Bring your own X API credentials to enable." },
-  linkedin:  { label: "LinkedIn",      icon: Linkedin,  note: "Requires LinkedIn marketing developer approval." },
-  instagram: { label: "Instagram",     icon: Instagram, note: "Requires Instagram Graph API access." },
-  facebook:  { label: "Facebook Page", icon: Facebook,  note: "Requires Facebook Pages developer app." },
-  gmail:     { label: "Gmail",         icon: Mail,      note: "Connect to let JARVIS read & draft mail." },
-  calendar:  { label: "Google Calendar", icon: Calendar, note: "Connect to surface upcoming events." },
+  twitter: { label: "Twitter / X", icon: Twitter, note: "Bring your own X API credentials to enable." },
+  linkedin: { label: "LinkedIn", icon: Linkedin, note: "Requires LinkedIn marketing developer approval." },
+  instagram: { label: "Instagram", icon: Instagram, note: "Requires Instagram Graph API access." },
+  facebook: { label: "Facebook Page", icon: Facebook, note: "Requires Facebook Pages developer app." },
+  gmail: { label: "Gmail", icon: Mail, note: "Connect to let JARVIS read & draft mail." },
+  calendar: { label: "Google Calendar", icon: Calendar, note: "Connect to surface upcoming events." },
 };
 
 function SettingsPage() {
@@ -36,18 +36,23 @@ function SettingsPage() {
         redirect_uri: window.location.origin + "/settings",
         extraParams: { prompt: "consent", access_type: "offline" },
       });
-      if (result.error) { toast.error("Could not connect Google"); return; }
+      if (result.error) {
+        toast.error("Could not connect Google");
+        return;
+      }
       if (!result.redirected) toast.success("Google connected");
     } finally {
       setConnecting(false);
     }
   }
 
-
-
   return (
     <div className="flex flex-col h-screen">
-      <PageHeader tag="04 · SETTINGS" title="Configuration" subtitle="How JARVIS knows you and the channels you've connected." />
+      <PageHeader
+        tag="04 · SETTINGS"
+        title="Configuration"
+        subtitle="How JARVIS knows you and the channels you've connected."
+      />
       <div className="flex-1 overflow-y-auto px-8 py-6 space-y-6 max-w-3xl">
         <section className="glass-strong hud-corners rounded-xl p-5">
           <div className="font-mono text-[10px] tracking-[0.3em] text-arc mb-4">PROFILE</div>
@@ -83,11 +88,17 @@ function SettingsPage() {
                   <div className="flex-1">
                     <div className="font-medium text-sm flex items-center gap-2">
                       {meta.label}
-                      {live ? <CheckCircle2 size={12} className="text-success" /> : <Circle size={12} className="text-hud-dim" />}
+                      {live ? (
+                        <CheckCircle2 size={12} className="text-success" />
+                      ) : (
+                        <Circle size={12} className="text-hud-dim" />
+                      )}
                     </div>
                     <div className="text-xs text-hud-dim">{meta.note}</div>
                   </div>
-                  <span className={`font-mono text-[10px] uppercase tracking-wider ${live ? "text-success" : "text-hud-dim"}`}>
+                  <span
+                    className={`font-mono text-[10px] uppercase tracking-wider ${live ? "text-success" : "text-hud-dim"}`}
+                  >
                     {live ? "Live" : "Not connected"}
                   </span>
                 </div>
