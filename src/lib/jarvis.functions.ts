@@ -2,7 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { generateText } from "ai";
 import { z } from "zod";
-import { resolveChatModel, JARVIS_SYSTEM_PROMPT } from "./ai-gateway.server";
+import { JARVIS_SYSTEM_PROMPT, resolveChatModels } from "./ai-gateway.server";
 
 async function loadContext(supabase: any, userId: string) {
   const { data: profile } = await supabase.from("profiles").select("address_as, name").eq("id", userId).maybeSingle();
@@ -29,8 +29,6 @@ export const runCommand = createServerFn({ method: "POST" })
     const { supabase, userId } = context as any;
     const ctx = await loadContext(supabase, userId);
 
-    const { model } = resolveChatModel(); // Uses Groq if GROQ_API_KEY is set
-
     const planSchema = z.object({
       intent: z.enum(["create_reminder", "summarise", "draft_reply", "answer"]),
       reply: z.string(),
@@ -44,9 +42,7 @@ export const runCommand = createServerFn({ method: "POST" })
         .optional(),
     });
 
-    const { text } = await generateText({
-      model,
-      system: `${JARVIS_SYSTEM_PROMPT}
+    const systemPrompt = `${JARVIS_SYSTEM_PROMPT}
 
 Address the user as "${ctx.addressAs}". Today is ${new Date().toISOString()}.
 ${ctx.nextEvent ? `Sir's next commitment: "${ctx.nextEvent.title}" at ${ctx.nextEvent.datetime}.` : ""}
@@ -55,16 +51,44 @@ You receive a command. Return JSON only matching this shape (no markdown, no com
 {"intent":"create_reminder"|"summarise"|"draft_reply"|"answer","reply":"<short JARVIS-voiced response>","reminder":{"title":"...","datetime_iso":"ISO 8601","priority":"normal"} | null}
 
 If the command sets a reminder, populate "reminder" with a resolved absolute ISO datetime.
-Otherwise set "reminder" to null. "reply" is always present.`,
-      prompt: data.text,
-    });
+Otherwise set "reminder" to null. "reply" is always present.`;
+
+    // === Try providers with failover ===
+    const providers = resolveChatModels();
+    let finalText = "";
+    let lastError: Error | null = null;
+
+    for (const provider of providers) {
+      try {
+        const model = provider.getModel(provider.modelId);
+        const { text } = await generateText({
+          model,
+          system: systemPrompt,
+          prompt: data.text,
+          maxTokens: 800,
+          temperature: 0.7,
+        });
+        finalText = text;
+        console.log(`[JARVIS] runCommand used ${provider.name}`);
+        break;
+      } catch (error: any) {
+        console.warn(`[JARVIS] runCommand ${provider.name} failed:`, error.message);
+        lastError = error;
+        continue;
+      }
+    }
+
+    if (!finalText) {
+      console.error("[JARVIS] runCommand all providers failed:", lastError);
+      finalText = "I'm having trouble connecting to my core systems, Sir. Try again in a moment.";
+    }
 
     let parsed: z.infer<typeof planSchema>;
     try {
-      const jsonMatch = text.match(/\{[\s\S]*\}/);
-      parsed = planSchema.parse(JSON.parse(jsonMatch ? jsonMatch[0] : text));
+      const jsonMatch = finalText.match(/\{[\s\S]*\}/);
+      parsed = planSchema.parse(JSON.parse(jsonMatch ? jsonMatch[0] : finalText));
     } catch {
-      return { reply: text.slice(0, 400), created: null as null | { id: string } };
+      return { reply: finalText.slice(0, 400), created: null as null | { id: string } };
     }
 
     let created: { id: string } | null = null;
@@ -108,18 +132,45 @@ export const draftReply = createServerFn({ method: "POST" })
     if (!feed) throw new Error("Not found");
     const ctx = await loadContext(supabase, userId);
 
-    const { model } = resolveChatModel(); // Uses Groq
-
-    const { text } = await generateText({
-      model,
-      system: `${JARVIS_SYSTEM_PROMPT}
+    const systemPrompt = `${JARVIS_SYSTEM_PROMPT}
 
 You are drafting a reply on ${ctx.addressAs}'s behalf for ${feed.platform}.
 Reply tone: ${data.tone}. Stay professional, brand-safe, and in character. Do not address yourself; this is the user's voice now, refined.
-Return only the reply text. No quotes, no preamble.`,
-      prompt: `Original from ${feed.author_name} (${feed.author_handle ?? ""}):\n"""${feed.content}"""`,
-    });
-    return { draft: text.trim() };
+Return only the reply text. No quotes, no preamble.`;
+
+    const prompt = `Original from ${feed.author_name} (${feed.author_handle ?? ""}):\n"""${feed.content}"""`;
+
+    // === Try providers with failover ===
+    const providers = resolveChatModels();
+    let finalText = "";
+    let lastError: Error | null = null;
+
+    for (const provider of providers) {
+      try {
+        const model = provider.getModel(provider.modelId);
+        const { text } = await generateText({
+          model,
+          system: systemPrompt,
+          prompt,
+          maxTokens: 200,
+          temperature: 0.7,
+        });
+        finalText = text;
+        console.log(`[JARVIS] draftReply used ${provider.name}`);
+        break;
+      } catch (error: any) {
+        console.warn(`[JARVIS] draftReply ${provider.name} failed:`, error.message);
+        lastError = error;
+        continue;
+      }
+    }
+
+    if (!finalText) {
+      console.error("[JARVIS] draftReply all providers failed:", lastError);
+      finalText = "I'm unable to draft a reply right now, Sir.";
+    }
+
+    return { draft: finalText.trim() };
   });
 
 /* ---------- Morning briefing ---------- */
@@ -147,33 +198,59 @@ export const morningBriefing = createServerFn({ method: "POST" })
         .order("datetime", { ascending: true }),
     ]);
 
-    const { model } = resolveChatModel(); // Uses Groq
-
-    const { text } = await generateText({
-      model,
-      system: `${JARVIS_SYSTEM_PROMPT}
+    const systemPrompt = `${JARVIS_SYSTEM_PROMPT}
 
 Address the user as "${ctx.addressAs}". Produce a morning briefing in exactly this structure:
 
 Line 1: One-sentence salutation referencing the time of day.
 Then 3 bullet points (prefix "• "), one each for: (a) the most important upcoming commitment, (b) the most urgent social signal that needs the user's voice, (c) anything else notable.
 End with one short anticipatory line offering the next action.
-Total under 120 words.`,
-      prompt: `Upcoming commitments (next 36h):
+Total under 120 words.`;
+
+    const prompt = `Upcoming commitments (next 36h):
 ${(upcoming ?? []).map((r: any) => `- ${r.title} @ ${r.datetime} [${r.priority}]`).join("\n") || "(none)"}
 
 Social signals (last 24h):
-${(feeds ?? []).map((f: any) => `- [${f.platform}/${f.priority}/${f.sentiment_label}] ${f.author_name}: ${f.content}`).join("\n") || "(none)"}`,
-    });
+${(feeds ?? []).map((f: any) => `- [${f.platform}/${f.priority}/${f.sentiment_label}] ${f.author_name}: ${f.content}`).join("\n") || "(none)"}`;
+
+    // === Try providers with failover ===
+    const providers = resolveChatModels();
+    let finalText = "";
+    let lastError: Error | null = null;
+
+    for (const provider of providers) {
+      try {
+        const model = provider.getModel(provider.modelId);
+        const { text } = await generateText({
+          model,
+          system: systemPrompt,
+          prompt,
+          maxTokens: 300,
+          temperature: 0.6,
+        });
+        finalText = text;
+        console.log(`[JARVIS] morningBriefing used ${provider.name}`);
+        break;
+      } catch (error: any) {
+        console.warn(`[JARVIS] morningBriefing ${provider.name} failed:`, error.message);
+        lastError = error;
+        continue;
+      }
+    }
+
+    if (!finalText) {
+      console.error("[JARVIS] morningBriefing all providers failed:", lastError);
+      finalText = "I'm unable to generate the briefing right now, Sir.";
+    }
 
     await supabase.from("notifications").insert({
       user_id: userId,
       type: "briefing",
       priority: "normal",
       title: "Morning briefing",
-      message: text.trim(),
+      message: finalText.trim(),
       action_payload: [{ type: "dismiss", label: "Acknowledged" }],
     });
 
-    return { briefing: text.trim() };
+    return { briefing: finalText.trim() };
   });
