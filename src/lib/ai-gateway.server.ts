@@ -22,7 +22,7 @@ export function resolveChatModel() {
   if (useGroq) {
     if (!groqKey) throw new Error("CHAT_PROVIDER=groq but GROQ_API_KEY is not set");
     const groq = createGroqProvider(groqKey);
-    const modelId = process.env.GROQ_MODEL ?? "llama-3.3-70b-versatile";
+    const modelId = process.env.GROQ_MODEL ?? "mixtral-8x7b-32768";
     return { model: groq(modelId), provider: "groq" as const, modelId };
   }
 
