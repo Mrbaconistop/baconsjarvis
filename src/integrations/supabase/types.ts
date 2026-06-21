@@ -124,6 +124,90 @@ export type Database = {
         }
         Relationships: []
       }
+      daily_checkins: {
+        Row: {
+          created_at: string
+          day: string
+          energy: number | null
+          height_in: number | null
+          id: string
+          mood: string | null
+          notes: string | null
+          sleep_hours: number | null
+          user_id: string
+          weight_lbs: number | null
+        }
+        Insert: {
+          created_at?: string
+          day?: string
+          energy?: number | null
+          height_in?: number | null
+          id?: string
+          mood?: string | null
+          notes?: string | null
+          sleep_hours?: number | null
+          user_id: string
+          weight_lbs?: number | null
+        }
+        Update: {
+          created_at?: string
+          day?: string
+          energy?: number | null
+          height_in?: number | null
+          id?: string
+          mood?: string | null
+          notes?: string | null
+          sleep_hours?: number | null
+          user_id?: string
+          weight_lbs?: number | null
+        }
+        Relationships: []
+      }
+      discord_webhooks: {
+        Row: {
+          created_at: string
+          enabled: boolean
+          id: string
+          include_calendar: boolean
+          include_checkin: boolean
+          include_email: boolean
+          include_reminders: boolean
+          include_spending: boolean
+          last_sent_at: string | null
+          name: string
+          url: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          include_calendar?: boolean
+          include_checkin?: boolean
+          include_email?: boolean
+          include_reminders?: boolean
+          include_spending?: boolean
+          last_sent_at?: string | null
+          name?: string
+          url: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          include_calendar?: boolean
+          include_checkin?: boolean
+          include_email?: boolean
+          include_reminders?: boolean
+          include_spending?: boolean
+          last_sent_at?: string | null
+          name?: string
+          url?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       engagement_stats: {
         Row: {
           engagements: number
