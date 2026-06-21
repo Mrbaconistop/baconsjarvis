@@ -306,6 +306,8 @@ RECALL — MANDATORY: The "Known facts about ${addressAs}" block below is your l
 Known facts about ${addressAs} (persisted across every conversation):
 ${factsBlock}
 
+TOOL DISCIPLINE — STRICT: You may ONLY call the tools explicitly provided to you in this turn (listed in the tools schema). NEVER invent, reference, or attempt to call any other tool such as 'brave_search', 'web_search', 'browser', 'python', 'code_interpreter', or anything else not in your tools list. You have no internet access. If a request needs information you don't have, answer from your own knowledge or ask ${addressAs} for the detail — do not try to call an external tool.
+
 Be concise. Confirm after taking an action.`,
           messages: await convertToModelMessages(messages),
           tools,
@@ -323,6 +325,9 @@ Be concise. Confirm after taking an action.`,
             if (e?.statusCode === 402) return "AI credits exhausted, Sir. Please top up to continue.";
             if (e?.statusCode === 429) return "Rate limit reached, Sir. Try again in a moment.";
             const detail = e?.responseBody || e?.message || String(error);
+            if (/brave_search|not in request\.tools|tool call validation/i.test(detail)) {
+              return "My apologies, Sir — I tripped over a tool I don't actually have. Try that again.";
+            }
             return `Signal interrupted, Sir: ${detail.slice(0, 300)}`;
           },
           onFinish: async ({ messages: finalMessages }) => {
