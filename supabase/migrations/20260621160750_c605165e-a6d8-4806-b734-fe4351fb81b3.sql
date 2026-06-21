@@ -56,3 +56,8 @@ GRANT ALL ON public.discord_webhooks TO service_role;
 DROP POLICY IF EXISTS "own webhooks" ON public.discord_webhooks;
 CREATE POLICY "own webhooks" ON public.discord_webhooks FOR ALL
   USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+-- =============================================
+-- NEW: Add AI provider preference to profiles
+-- =============================================
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS ai_provider TEXT DEFAULT 'groq';
