@@ -24,6 +24,7 @@ import { Route as AuthenticatedDashboardRouteImport } from './routes/_authentica
 import { Route as AuthenticatedChatIndexRouteImport } from './routes/_authenticated/chat.index'
 import { Route as AuthenticatedChatThreadIdRouteImport } from './routes/_authenticated/chat.$threadId'
 import { Route as ApiPublicHooksIngestCashappRouteImport } from './routes/api/public/hooks/ingest-cashapp'
+import { Route as ApiPublicHooksDailyDiscordRouteImport } from './routes/api/public/hooks/daily-discord'
 
 const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
   id: '/sitemap.xml',
@@ -101,6 +102,12 @@ const ApiPublicHooksIngestCashappRoute =
     path: '/api/public/hooks/ingest-cashapp',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiPublicHooksDailyDiscordRoute =
+  ApiPublicHooksDailyDiscordRouteImport.update({
+    id: '/api/public/hooks/daily-discord',
+    path: '/api/public/hooks/daily-discord',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -116,6 +123,7 @@ export interface FileRoutesByFullPath {
   '/api/chat': typeof ApiChatRoute
   '/chat/$threadId': typeof AuthenticatedChatThreadIdRoute
   '/chat/': typeof AuthenticatedChatIndexRoute
+  '/api/public/hooks/daily-discord': typeof ApiPublicHooksDailyDiscordRoute
   '/api/public/hooks/ingest-cashapp': typeof ApiPublicHooksIngestCashappRoute
 }
 export interface FileRoutesByTo {
@@ -132,6 +140,7 @@ export interface FileRoutesByTo {
   '/api/chat': typeof ApiChatRoute
   '/chat/$threadId': typeof AuthenticatedChatThreadIdRoute
   '/chat': typeof AuthenticatedChatIndexRoute
+  '/api/public/hooks/daily-discord': typeof ApiPublicHooksDailyDiscordRoute
   '/api/public/hooks/ingest-cashapp': typeof ApiPublicHooksIngestCashappRoute
 }
 export interface FileRoutesById {
@@ -150,6 +159,7 @@ export interface FileRoutesById {
   '/api/chat': typeof ApiChatRoute
   '/_authenticated/chat/$threadId': typeof AuthenticatedChatThreadIdRoute
   '/_authenticated/chat/': typeof AuthenticatedChatIndexRoute
+  '/api/public/hooks/daily-discord': typeof ApiPublicHooksDailyDiscordRoute
   '/api/public/hooks/ingest-cashapp': typeof ApiPublicHooksIngestCashappRoute
 }
 export interface FileRouteTypes {
@@ -168,6 +178,7 @@ export interface FileRouteTypes {
     | '/api/chat'
     | '/chat/$threadId'
     | '/chat/'
+    | '/api/public/hooks/daily-discord'
     | '/api/public/hooks/ingest-cashapp'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -184,6 +195,7 @@ export interface FileRouteTypes {
     | '/api/chat'
     | '/chat/$threadId'
     | '/chat'
+    | '/api/public/hooks/daily-discord'
     | '/api/public/hooks/ingest-cashapp'
   id:
     | '__root__'
@@ -201,6 +213,7 @@ export interface FileRouteTypes {
     | '/api/chat'
     | '/_authenticated/chat/$threadId'
     | '/_authenticated/chat/'
+    | '/api/public/hooks/daily-discord'
     | '/api/public/hooks/ingest-cashapp'
   fileRoutesById: FileRoutesById
 }
@@ -210,6 +223,7 @@ export interface RootRouteChildren {
   AuthRoute: typeof AuthRoute
   SitemapDotxmlRoute: typeof SitemapDotxmlRoute
   ApiChatRoute: typeof ApiChatRoute
+  ApiPublicHooksDailyDiscordRoute: typeof ApiPublicHooksDailyDiscordRoute
   ApiPublicHooksIngestCashappRoute: typeof ApiPublicHooksIngestCashappRoute
 }
 
@@ -320,6 +334,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicHooksIngestCashappRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/hooks/daily-discord': {
+      id: '/api/public/hooks/daily-discord'
+      path: '/api/public/hooks/daily-discord'
+      fullPath: '/api/public/hooks/daily-discord'
+      preLoaderRoute: typeof ApiPublicHooksDailyDiscordRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -356,6 +377,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthRoute: AuthRoute,
   SitemapDotxmlRoute: SitemapDotxmlRoute,
   ApiChatRoute: ApiChatRoute,
+  ApiPublicHooksDailyDiscordRoute: ApiPublicHooksDailyDiscordRoute,
   ApiPublicHooksIngestCashappRoute: ApiPublicHooksIngestCashappRoute,
 }
 export const routeTree = rootRouteImport
