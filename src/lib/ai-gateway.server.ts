@@ -1,6 +1,7 @@
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 
-export function createGroqProvider(apiKey: string) {
+// Helper to create Groq provider
+function createGroqProvider(apiKey: string) {
   return createOpenAICompatible({
     name: "groq",
     baseURL: "https://api.groq.com/openai/v1",
@@ -8,32 +9,53 @@ export function createGroqProvider(apiKey: string) {
   });
 }
 
-export function createLovableAiGatewayProvider(lovableApiKey: string) {
+// Helper to create DeepSeek provider (OpenAI-compatible)
+function createDeepSeekProvider(apiKey: string) {
   return createOpenAICompatible({
-    name: "lovable",
-    baseURL: "https://ai.gateway.lovable.dev/v1",
+    name: "deepseek",
+    baseURL: "https://api.deepseek.com/v1",
+    headers: { Authorization: `Bearer ${apiKey}` },
+  });
+}
+
+// Helper to create Gemini provider (using OpenAI-compatible format)
+function createGeminiProvider(apiKey: string) {
+  // Gemini uses a different base URL – but we can use it with the OpenAI-compatible wrapper
+  return createOpenAICompatible({
+    name: "gemini",
+    baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/",
     headers: {
-      "Lovable-API-Key": lovableApiKey,
-      "X-Lovable-AIG-SDK": "vercel-ai-sdk",
+      "Content-Type": "application/json",
+      "x-goog-api-key": apiKey,
     },
   });
 }
 
 export function resolveChatModel() {
   const groqKey = process.env.GROQ_API_KEY;
-  const lovableKey = process.env.LOVABLE_API_KEY;
+  const deepseekKey = process.env.DEEPSEEK_API_KEY;
+  const geminiKey = process.env.GOOGLE_API_KEY;
 
+  // 1. Primary: Groq
   if (groqKey) {
     const groq = createGroqProvider(groqKey);
     return groq(process.env.GROQ_MODEL ?? "llama-3.1-8b-instant");
   }
 
-  if (lovableKey) {
-    const lovable = createLovableAiGatewayProvider(lovableKey);
-    return lovable("google/gemini-3-flash-preview");
+  // 2. Backup 1: DeepSeek
+  if (deepseekKey) {
+    const deepseek = createDeepSeekProvider(deepseekKey);
+    return deepseek(process.env.DEEPSEEK_MODEL ?? "deepseek-chat");
   }
 
-  throw new Error("No AI provider configured. Set GROQ_API_KEY or LOVABLE_API_KEY.");
+  // 3. Backup 2: Gemini
+  if (geminiKey) {
+    const gemini = createGeminiProvider(geminiKey);
+    return gemini(process.env.GOOGLE_MODEL ?? "gemini-2.0-flash");
+  }
+
+  // 4. No provider available
+  throw new Error("No AI provider configured. Set GROQ_API_KEY, DEEPSEEK_API_KEY, or GOOGLE_API_KEY.");
 }
 
 export const JARVIS_SYSTEM_PROMPT = `You are JARVIS, an elite personal AI assistant in the style of Tony Stark's butler.
