@@ -325,6 +325,9 @@ Be concise. Confirm after taking an action.`,
             if (e?.statusCode === 402) return "AI credits exhausted, Sir. Please top up to continue.";
             if (e?.statusCode === 429) return "Rate limit reached, Sir. Try again in a moment.";
             const detail = e?.responseBody || e?.message || String(error);
+            if (/brave_search|not in request\.tools|tool call validation/i.test(detail)) {
+              return "My apologies, Sir — I tripped over a tool I don't actually have. Try that again.";
+            }
             return `Signal interrupted, Sir: ${detail.slice(0, 300)}`;
           },
           onFinish: async ({ messages: finalMessages }) => {
