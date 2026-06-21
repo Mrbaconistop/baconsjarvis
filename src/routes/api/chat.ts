@@ -1,88 +1,48 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { generateText } from "ai";
-import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
-import { createClient } from "@supabase/supabase-js";
 
 export const Route = createFileRoute("/api/chat")({
   server: {
     handlers: {
       POST: async ({ request }) => {
         try {
-          console.log("[JARVIS] Chat request received");
-
-          const auth = request.headers.get("authorization") ?? "";
-          const token = auth.replace(/^Bearer\s+/i, "");
-          if (!token) {
-            console.log("[JARVIS] No token");
-            return new Response("Unauthorized", { status: 401 });
-          }
-
+          // 1. Parse request
           const body = await request.json();
-          console.log("[JARVIS] Body:", JSON.stringify(body).slice(0, 200));
-          const { messages, threadId } = body || {};
-          if (!messages || !threadId) {
-            console.log("[JARVIS] Missing messages or threadId");
-            return new Response("Bad request", { status: 400 });
-          }
+          const { messages } = body || {};
+          const lastUser = messages?.filter((m: any) => m.role === "user").pop();
+          const prompt = lastUser?.parts?.map((p: any) => p.text).join(" ") || "Hello, JARVIS";
 
-          // Get last user message
-          const lastUser = messages.filter((m: any) => m.role === "user").pop();
-          const userPrompt = lastUser?.parts?.map((p: any) => p.text).join(" ") || "Hello";
+          // 2. Get Groq key
+          const groqKey = process.env.GROQ_API_KEY || "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";
 
-          console.log("[JARVIS] User prompt:", userPrompt);
-
-          // --- Hardcoded Groq ---
-          const groqKey = "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";
-          const groq = createOpenAICompatible({
-            name: "groq",
-            baseURL: "https://api.groq.com/openai/v1",
-            headers: { Authorization: `Bearer ${groqKey}` },
-          });
-          const model = groq("llama-3.1-8b-instant");
-
-          const systemPrompt = `
-You are JARVIS, Tony Stark's AI assistant.
-- Address the user as "Sir".
-- Be concise, efficient, and slightly witty.
-- Never say "as an AI".
-- Keep replies under 3 sentences unless asked.
-Current time: ${new Date().toISOString()}.
-`;
-
-          console.log("[JARVIS] Calling Groq...");
-          const { text } = await generateText({
-            model,
-            system: systemPrompt,
-            prompt: userPrompt,
-            maxTokens: 300,
-          });
-          console.log("[JARVIS] Groq reply:", text);
-
-          // Return as stream
-          const stream = new ReadableStream({
-            start(controller) {
-              const encoder = new TextEncoder();
-              const chunk = {
-                id: `msg-${Date.now()}`,
-                role: "assistant",
-                parts: [{ type: "text", text: text || "I'm having trouble, Sir." }],
-                createdAt: new Date().toISOString(),
-              };
-              controller.enqueue(encoder.encode(`data: ${JSON.stringify(chunk)}\n\n`));
-              controller.close();
-            },
-          });
-
-          return new Response(stream, {
+          // 3. Call Groq API directly
+          const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+            method: "POST",
             headers: {
-              "Content-Type": "text/event-stream",
-              "Cache-Control": "no-cache",
-              Connection: "keep-alive",
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${groqKey}`,
             },
+            body: JSON.stringify({
+              model: "llama-3.1-8b-instant",
+              messages: [
+                {
+                  role: "system",
+                  content:
+                    "You are JARVIS, Tony Stark's AI assistant. Be concise, witty, and address the user as 'Sir'.",
+                },
+                { role: "user", content: prompt },
+              ],
+              max_tokens: 200,
+            }),
           });
+
+          const data = await response.json();
+          const reply = data?.choices?.[0]?.message?.content || "I'm having trouble, Sir.";
+
+          // 4. Return simple JSON (no streaming)
+          return new Response(JSON.stringify({ reply }), { headers: { "Content-Type": "application/json" } });
         } catch (error: any) {
-          console.error("[JARVIS] Chat API error:", error);
-          return new Response(JSON.stringify({ error: "Internal error", details: error?.message || "Unknown" }), {
+          // Return error as JSON
+          return new Response(JSON.stringify({ error: error.message || "Unknown error" }), {
             status: 500,
             headers: { "Content-Type": "application/json" },
           });
