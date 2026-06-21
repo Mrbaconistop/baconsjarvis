@@ -72,12 +72,12 @@ function BriefingPage() {
               <WebhookRow
                 key={h.id}
                 hook={h}
-                onSave={async (patch) => { await save({ data: { ...h, ...patch } }); refresh(); toast.success("Saved"); }}
+                onSave={async (patch: any) => { await save({ data: { ...h, ...patch } }); refresh(); toast.success("Saved"); }}
                 onTest={async () => { try { await test({ data: { id: h.id } }); toast.success("Test sent"); } catch (e: any) { toast.error(e.message); } }}
                 onDelete={async () => { await del({ data: { id: h.id } }); refresh(); }}
               />
             ))}
-            <NewWebhook onCreate={async (vals) => { await save({ data: vals }); refresh(); toast.success("Webhook added"); }} />
+            <NewWebhook onCreate={async (vals: any) => { await save({ data: vals }); refresh(); toast.success("Webhook added"); }} />
           </div>
           <p className="mt-4 text-xs text-hud-dim">
             Create a webhook in your Discord channel (Edit Channel → Integrations → Webhooks) and paste the URL here. Daily delivery fires at 12:00 UTC.
