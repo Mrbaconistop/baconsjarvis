@@ -84,17 +84,19 @@ export const Route = createFileRoute("/api/chat")({
           }
         }
 
-        let chatModel;
-        try {
-          chatModel = resolveChatModel().model;
-        } catch (e: any) {
-          return new Response(e?.message ?? "Model unavailable", { status: 500 });
+        // === Get the primary AI provider from the failover chain ===
+        const providers = resolveChatModel();
+        if (!providers || providers.length === 0) {
+          return new Response("No AI providers available", { status: 500 });
         }
+        const primary = providers[0]; // Groq if available, else next
+        const chatModel = primary.getModel(primary.modelId);
 
+        // === Tools ===
         const tools = {
-          // === REMINDER TOOLS ===
+          // --- Reminder Tools ---
           create_reminder: tool({
-            description: "Create a one-off or recurring reminder for the user. Use ISO 8601 for datetime.",
+            description: "Create a one-off or recurring reminder. Use ISO 8601 for datetime.",
             inputSchema: z.object({
               title: z.string(),
               datetime_iso: z.string().describe("Absolute ISO 8601 datetime"),
@@ -123,7 +125,7 @@ export const Route = createFileRoute("/api/chat")({
             },
           }),
           list_reminders: tool({
-            description: "List the user's upcoming reminders (next 30 days).",
+            description: "List upcoming reminders (next 30 days).",
             inputSchema: z.object({}),
             execute: async () => {
               const { data } = await supabase
@@ -138,7 +140,7 @@ export const Route = createFileRoute("/api/chat")({
             },
           }),
           complete_reminder: tool({
-            description: "Mark a reminder as complete by id.",
+            description: "Mark a reminder as complete.",
             inputSchema: z.object({ id: z.string().uuid() }),
             execute: async ({ id }) => {
               const { error } = await supabase
@@ -150,12 +152,11 @@ export const Route = createFileRoute("/api/chat")({
             },
           }),
           search_reminders: tool({
-            description:
-              "Search the user's reminders by title, description, or status. Use this when the user asks about their schedule or upcoming tasks.",
+            description: "Search reminders by title, description, or status.",
             inputSchema: z.object({
-              query: z.string().nullable().optional().describe("Search term in title or description."),
-              completed: z.boolean().nullable().optional().describe("Filter by completed status."),
-              days_ahead: z.number().int().min(1).max(90).default(30).describe("How many days ahead to search."),
+              query: z.string().nullable().optional(),
+              completed: z.boolean().nullable().optional(),
+              days_ahead: z.number().int().min(1).max(90).default(30),
             }),
             execute: async ({ query, completed, days_ahead }) => {
               const now = new Date().toISOString();
@@ -168,9 +169,7 @@ export const Route = createFileRoute("/api/chat")({
                 .lte("datetime", future)
                 .order("datetime", { ascending: true })
                 .limit(30);
-              if (completed !== undefined && completed !== null) {
-                q = q.eq("is_completed", completed);
-              }
+              if (completed !== undefined && completed !== null) q = q.eq("is_completed", completed);
               const { data } = await q;
               let results = data ?? [];
               if (query) {
@@ -179,30 +178,18 @@ export const Route = createFileRoute("/api/chat")({
                   (r: any) => r.title?.toLowerCase().includes(qLower) || r.description?.toLowerCase().includes(qLower),
                 );
               }
-              return {
-                reminders: results,
-                count: results.length,
-                summary: `Found ${results.length} reminder(s)${query ? ` matching "${query}"` : ""}.`,
-              };
+              return { reminders: results, count: results.length };
             },
           }),
 
-          // === VAULT TOOLS ===
+          // --- Vault Tools ---
           save_vault_item: tool({
-            description:
-              "Save an item to the user's private vault. Use 'credential' for login info, 'contact' for people, 'note' for free-form notes.",
+            description: "Save an item to the vault. Use 'credential', 'note', or 'contact'.",
             inputSchema: z.object({
               kind: z.enum(["credential", "note", "contact"]),
               label: z.string(),
-              data: z
-                .record(z.string(), z.any())
-                .describe(
-                  "For credential: {username, password, url}. For contact: {name, email, phone, notes}. For note: {body}.",
-                ),
-              tags: z
-                .array(z.string())
-                .default([])
-                .describe("Tags for easier searching, e.g., ['banned', 'trident', 'account']."),
+              data: z.record(z.string(), z.any()),
+              tags: z.array(z.string()).default([]),
             }),
             execute: async ({ kind, label, data, tags }) => {
               const { data: row, error } = await supabase
@@ -215,7 +202,7 @@ export const Route = createFileRoute("/api/chat")({
             },
           }),
           list_vault: tool({
-            description: "List the user's vault items (labels only — never read back credentials by default).",
+            description: "List vault items (labels only).",
             inputSchema: z.object({ kind: z.enum(["credential", "note", "contact"]).nullable().optional() }),
             execute: async ({ kind }) => {
               let q = supabase.from("vault_items").select("id, kind, label, tags, updated_at").eq("user_id", userId);
@@ -225,12 +212,11 @@ export const Route = createFileRoute("/api/chat")({
             },
           }),
           unlock_vault_item: tool({
-            description:
-              "Reveal the contents of a vault item (credentials, account passwords, sensitive notes). REQUIRES a PIN from the user. If the user has not provided a PIN in this turn, ask them for it first (4–28 characters) — do NOT call this without one. Match by id (from list_vault) or by label substring.",
+            description: "Reveal vault item contents. Requires PIN.",
             inputSchema: z.object({
-              pin: z.string().min(4).max(28).describe("The PIN the user just typed."),
+              pin: z.string().min(4).max(28),
               id: z.string().uuid().nullable().optional(),
-              label: z.string().nullable().optional().describe("Case-insensitive substring match on label."),
+              label: z.string().nullable().optional(),
             }),
             execute: async ({ pin, id, label }) => {
               const { data: prof } = await supabase
@@ -238,8 +224,7 @@ export const Route = createFileRoute("/api/chat")({
                 .select("vault_pin_hash")
                 .eq("id", userId)
                 .maybeSingle();
-              if (!prof?.vault_pin_hash)
-                return { ok: false, error: "No PIN set. Ask the user to set one in Settings first." };
+              if (!prof?.vault_pin_hash) return { ok: false, error: "No PIN set." };
               const enc = new TextEncoder().encode(`${userId}:${pin}`);
               const buf = await crypto.subtle.digest("SHA-256", enc);
               const hash = Array.from(new Uint8Array(buf))
@@ -254,16 +239,15 @@ export const Route = createFileRoute("/api/chat")({
               else if (label) q = q.ilike("label", `%${label}%`);
               else return { ok: false, error: "Provide id or label." };
               const { data } = await q.limit(5);
-              if (!data?.length) return { ok: false, error: "No matching vault item." };
+              if (!data?.length) return { ok: false, error: "No matching item." };
               return { ok: true, items: data };
             },
           }),
           search_vault: tool({
-            description:
-              "Search the user's vault items by label, tags, or content. Use this when the user asks for a specific account, credential, note, or contact. Supports partial matches.",
+            description: "Search vault by label, tags, or data.",
             inputSchema: z.object({
-              query: z.string().describe("The search term (e.g., 'Baconator_beams', 'trident', 'banned')."),
-              kind: z.enum(["credential", "note", "contact"]).nullable().optional().describe("Filter by kind."),
+              query: z.string(),
+              kind: z.enum(["credential", "note", "contact"]).nullable().optional(),
             }),
             execute: async ({ query, kind }) => {
               let q = supabase
@@ -286,14 +270,13 @@ export const Route = createFileRoute("/api/chat")({
             },
           }),
 
-          // === FACT MEMORY TOOLS ===
+          // --- Fact Memory Tools ---
           remember_fact: tool({
-            description:
-              "Persist a key fact about the user so you remember it across conversations. Use sparingly for durable info: name, age, height, weight, birthday, location, friends/family names, interests, hobbies, goals, preferences, relationships. Categories: 'identity' (name/age/height/weight/birthday), 'people' (friend/family/coworker names + relationship), 'interest', 'preference', 'goal', 'general'.",
+            description: "Remember a fact about the user.",
             inputSchema: z.object({
               category: z.enum(["identity", "people", "interest", "preference", "goal", "general"]),
-              key: z.string().describe("Short stable key, e.g. 'height', 'best_friend', 'favorite_band'."),
-              value: z.string().describe("The fact value, e.g. '6ft 1in', 'Alex (best friend, loves climbing)'."),
+              key: z.string(),
+              value: z.string(),
             }),
             execute: async ({ category, key, value }) => {
               const { error } = await supabase
@@ -303,7 +286,7 @@ export const Route = createFileRoute("/api/chat")({
             },
           }),
           list_facts: tool({
-            description: "List facts you've remembered about the user, optionally filtered by category.",
+            description: "List remembered facts.",
             inputSchema: z.object({
               category: z
                 .enum(["identity", "people", "interest", "preference", "goal", "general"])
@@ -318,7 +301,7 @@ export const Route = createFileRoute("/api/chat")({
             },
           }),
           forget_fact: tool({
-            description: "Forget a remembered fact by id (from list_facts) or by category+key.",
+            description: "Forget a fact.",
             inputSchema: z.object({
               id: z.string().uuid().nullable().optional(),
               category: z.string().nullable().optional(),
@@ -334,10 +317,9 @@ export const Route = createFileRoute("/api/chat")({
             },
           }),
           search_facts: tool({
-            description:
-              "Search the user's remembered facts. Use this when the user asks about themselves (e.g., 'what do I like?', 'who is my best friend?').",
+            description: "Search remembered facts.",
             inputSchema: z.object({
-              query: z.string().nullable().optional().describe("Search term in key or value."),
+              query: z.string().nullable().optional(),
               category: z
                 .enum(["identity", "people", "interest", "preference", "goal", "general"])
                 .nullable()
@@ -362,21 +344,16 @@ export const Route = createFileRoute("/api/chat")({
                     f.category?.toLowerCase().includes(qLower),
                 );
               }
-              return {
-                facts: results,
-                count: results.length,
-                summary: `Found ${results.length} fact(s)${query ? ` matching "${query}"` : ""}.`,
-              };
+              return { facts: results, count: results.length };
             },
           }),
 
-          // === SPENDING / TRANSACTION TOOLS ===
+          // --- Transaction / Spending Tools ---
           log_transaction: tool({
-            description:
-              "Log a spending transaction the user mentioned (Cash App, card, cash, etc.). Use this any time the user says they spent/paid/bought something with an amount.",
+            description: "Log a transaction (spend or income).",
             inputSchema: z.object({
-              amount: z.number().describe("Dollar amount, e.g. 12.50. Use a negative number for refunds/income."),
-              merchant: z.string().nullable().optional().describe("Who they paid, e.g. 'Chipotle', 'Alex'."),
+              amount: z.number(),
+              merchant: z.string().nullable().optional(),
               category: z
                 .enum([
                   "food",
@@ -392,7 +369,7 @@ export const Route = createFileRoute("/api/chat")({
                 .default("other"),
               note: z.string().nullable().optional(),
               source: z.enum(["chat", "manual"]).default("chat"),
-              occurred_at: z.string().nullable().optional().describe("ISO datetime; defaults to now"),
+              occurred_at: z.string().nullable().optional(),
             }),
             execute: async ({ amount, merchant, category, note, source, occurred_at }) => {
               const cents = Math.round(amount * 100);
@@ -414,7 +391,7 @@ export const Route = createFileRoute("/api/chat")({
             },
           }),
           list_transactions: tool({
-            description: "List recent transactions, optionally filtered by category or days back.",
+            description: "List recent transactions.",
             inputSchema: z.object({
               days: z.number().int().min(1).max(365).default(30),
               category: z.string().nullable().optional(),
@@ -435,7 +412,7 @@ export const Route = createFileRoute("/api/chat")({
             },
           }),
           spending_summary: tool({
-            description: "Summarize spending totals grouped by category over a window.",
+            description: "Summarize spending by category over a window.",
             inputSchema: z.object({
               window: z.enum(["week", "month", "30d", "90d", "year"]).default("month"),
             }),
@@ -469,18 +446,11 @@ export const Route = createFileRoute("/api/chat")({
             },
           }),
           search_transactions: tool({
-            description:
-              "Search the user's spending transactions by merchant, category, or note. Use this when the user asks about spending, purchases, or specific transactions.",
+            description: "Search transactions by merchant, note, or category.",
             inputSchema: z.object({
-              query: z.string().nullable().optional().describe("Search term (merchant, note, or category)."),
-              category: z
-                .string()
-                .nullable()
-                .optional()
-                .describe(
-                  "Filter by category: food, transport, entertainment, bills, shopping, groceries, transfer, income, other.",
-                ),
-              days: z.number().int().min(1).max(365).default(90).describe("How many days back to search."),
+              query: z.string().nullable().optional(),
+              category: z.string().nullable().optional(),
+              days: z.number().int().min(1).max(365).default(90),
               limit: z.number().int().min(1).max(100).default(25),
             }),
             execute: async ({ query, category, days, limit }) => {
@@ -507,16 +477,11 @@ export const Route = createFileRoute("/api/chat")({
                     false,
                 );
               }
-              return {
-                transactions: results,
-                total_count: results.length,
-                total_spent: results.reduce((sum: number, t: any) => sum + Math.max(t.amount_cents, 0), 0) / 100,
-                summary: `Found ${results.length} transaction(s)${query ? ` matching "${query}"` : ""}${category ? ` in category "${category}"` : ""}.`,
-              };
+              return { transactions: results, total_count: results.length };
             },
           }),
           delete_transaction: tool({
-            description: "Delete a transaction by id (use list_transactions to find ids).",
+            description: "Delete a transaction by id.",
             inputSchema: z.object({ id: z.string().uuid() }),
             execute: async ({ id }) => {
               const { error } = await supabase.from("transactions").delete().eq("id", id).eq("user_id", userId);
@@ -524,12 +489,11 @@ export const Route = createFileRoute("/api/chat")({
             },
           }),
 
-          // === SOCIAL FEED TOOLS ===
+          // --- Social Feed Tools ---
           search_social: tool({
-            description:
-              "Search the user's social feeds for mentions, DMs, or posts by author, content, or platform. Use this when the user asks about what people are saying, mentions, or specific posts.",
+            description: "Search social feeds by author, content, platform, or sentiment.",
             inputSchema: z.object({
-              query: z.string().nullable().optional().describe("Search term in author name, handle, or content."),
+              query: z.string().nullable().optional(),
               platform: z.enum(["twitter", "linkedin", "instagram", "facebook"]).nullable().optional(),
               sentiment: z.enum(["positive", "neutral", "negative"]).nullable().optional(),
               days: z.number().int().min(1).max(30).default(14),
@@ -557,11 +521,7 @@ export const Route = createFileRoute("/api/chat")({
                     f.content?.toLowerCase().includes(qLower),
                 );
               }
-              return {
-                results,
-                count: results.length,
-                summary: `Found ${results.length} social post(s)${query ? ` matching "${query}"` : ""}.`,
-              };
+              return { results, count: results.length };
             },
           }),
         };
@@ -573,33 +533,22 @@ export const Route = createFileRoute("/api/chat")({
 
 Address the user as "${addressAs}".
 Current time: ${now.toISOString()} (${now.toString()}).
-You have tools to create reminders (one-off or recurring: daily/weekdays/weekly/monthly), list and complete reminders, save/list/search private vault items (credentials, notes, contacts), remember/list/search/forget personal facts about the user, log/list/search/summarize spending transactions, and search social feeds.
+You have tools for reminders, vault, facts, transactions, and social feeds. Use search tools when the user asks about specific items.
 
-VAULT SECURITY: list_vault only returns labels — never reveal credentials or sensitive data from it. When the user asks for an account/password/secret content, ALWAYS ask them to type their PIN (4–28 characters) in the next message, then call unlock_vault_item with that pin. Never invent a PIN, never reveal item contents without a successful unlock_vault_item call this turn, and never echo the PIN itself back.
+VAULT SECURITY: Never reveal credentials without a successful PIN unlock.
+When the user mentions routine, use create_reminder with recurrence.
+When the user shares personal info, call remember_fact.
 
-When the user mentions a routine ("every morning", "every weekday at 8am", "remind me daily"), use create_reminder with the recurrence field.
+MEMORY — MANDATORY: If the user says "remember", "don't forget", "note that", etc., you MUST call remember_fact BEFORE replying.
 
-When the user shares an account/login/contact, offer to save it to the vault with relevant tags (e.g., 'banned', 'trident', 'account'). Never echo a stored password back unprompted.
+RECALL — MANDATORY: The facts block below is your long-term memory. Use it to answer questions about the user.
 
-When the user reveals durable personal info (name, age, height, weight, birthday, friends/family names, interests, goals, preferences), silently call remember_fact so you recall it later. Update existing facts with the same category+key instead of creating duplicates. Only forget facts when asked.
-
-MEMORY — MANDATORY: If the user says any of "remember", "don't forget", "note that", "keep in mind", "save this", "make a note", or otherwise explicitly asks you to remember something, you MUST call the remember_fact tool BEFORE replying. Choose the best category ('identity' | 'people' | 'interest' | 'preference' | 'goal' | 'general'), pick a short snake_case key, and store the value verbatim from the user. Then briefly confirm what you saved. Never say "I'll remember that" without actually calling remember_fact in the same turn.
-
-RECALL — MANDATORY: The "Known facts about ${addressAs}" block below is your long-term memory of this user across ALL conversations. Treat every fact in it as something you personally know about ${addressAs}. When ${addressAs} asks about themselves ("what's my name", "how old am I", "what do I like", "who is X to me"), answer from these facts directly — never say you don't know or that you have no memory of past conversations. If a fact truly isn't listed, say so plainly and offer to remember it.
-
-Known facts about ${addressAs} (persisted across every conversation):
+Known facts about ${addressAs}:
 ${factsBlock}
 
-SEARCH TOOLS — Use these when Sir asks about specific things:
-- search_vault: For accounts, credentials, notes (e.g., "Baconator_beams banned on trident")
-- search_transactions: For spending history
-- search_social: For mentions, DMs, posts
-- search_reminders: For upcoming tasks
-- search_facts: For personal info about Sir
+SEARCH TOOLS: Use search_vault, search_transactions, search_social, search_reminders, search_facts when the user asks about specific things.
 
-TOOL DISCIPLINE — STRICT: You may ONLY call the tools explicitly provided to you in this turn (listed in the tools schema). NEVER invent, reference, or attempt to call any other tool such as 'brave_search', 'web_search', 'browser', 'python', 'code_interpreter', or anything else not in your tools list. You have no internet access. If a request needs information you don't have, answer from your own knowledge or ask ${addressAs} for the detail — do not try to call an external tool.
-
-Be concise. Confirm after taking an action. When searching, list all matching results clearly.`,
+Be concise. Confirm actions.`,
           messages: await convertToModelMessages(messages),
           tools,
           stopWhen: stepCountIs(8),
@@ -613,12 +562,11 @@ Be concise. Confirm after taking an action. When searching, list all matching re
           onError: (error: unknown) => {
             console.error("[chat stream response error]", error);
             const e = error as { statusCode?: number; message?: string; responseBody?: string } | null;
-            if (e?.statusCode === 402) return "AI credits exhausted, Sir. Please top up to continue.";
-            if (e?.statusCode === 429) return "Rate limit reached, Sir. Try again in a moment.";
-            const detail = e?.responseBody || e?.message || String(error);
-            if (/brave_search|not in request\.tools|tool call validation/i.test(detail)) {
-              return "My apologies, Sir — I tripped over a tool I don't actually have. Try that again.";
+            if (e?.statusCode === 402 || e?.statusCode === 429) {
+              // Try to switch to next provider? But we are in streaming, so we just return a friendly error.
+              return "Sir, I've hit a rate limit with the primary AI provider. Try again in a moment.";
             }
+            const detail = e?.responseBody || e?.message || String(error);
             return `Signal interrupted, Sir: ${detail.slice(0, 300)}`;
           },
           onFinish: async ({ messages: finalMessages }) => {
