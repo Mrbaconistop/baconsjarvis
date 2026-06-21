@@ -5,8 +5,13 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/jarvis/HudBits";
 import {
-  listWebhooks, saveWebhook, deleteWebhook, testWebhook, fireDailyNow,
-  getTodayCheckin, saveCheckin,
+  listWebhooks,
+  saveWebhook,
+  deleteWebhook,
+  testWebhook,
+  fireDailyNow,
+  getTodayCheckin,
+  saveCheckin,
 } from "@/lib/discord.functions";
 import { Trash2, Send, Zap, Plus } from "lucide-react";
 
@@ -72,15 +77,36 @@ function BriefingPage() {
               <WebhookRow
                 key={h.id}
                 hook={h}
-                onSave={async (patch: any) => { await save({ data: { ...h, ...patch } }); refresh(); toast.success("Saved"); }}
-                onTest={async () => { try { await test({ data: { id: h.id } }); toast.success("Test sent"); } catch (e: any) { toast.error(e.message); } }}
-                onDelete={async () => { await del({ data: { id: h.id } }); refresh(); }}
+                onSave={async (patch: any) => {
+                  await save({ data: { ...h, ...patch } });
+                  refresh();
+                  toast.success("Saved");
+                }}
+                onTest={async () => {
+                  try {
+                    await test({ data: { id: h.id } });
+                    toast.success("Test sent");
+                  } catch (e: any) {
+                    toast.error(e.message);
+                  }
+                }}
+                onDelete={async () => {
+                  await del({ data: { id: h.id } });
+                  refresh();
+                }}
               />
             ))}
-            <NewWebhook onCreate={async (vals: any) => { await save({ data: vals }); refresh(); toast.success("Webhook added"); }} />
+            <NewWebhook
+              onCreate={async (vals: any) => {
+                await save({ data: vals });
+                refresh();
+                toast.success("Webhook added");
+              }}
+            />
           </div>
           <p className="mt-4 text-xs text-hud-dim">
-            Create a webhook in your Discord channel (Edit Channel → Integrations → Webhooks) and paste the URL here. Daily delivery fires at 12:00 UTC.
+            Create a webhook in your Discord channel (Edit Channel → Integrations → Webhooks) and paste the URL here.
+            Daily delivery fires at 12:00 UTC.
           </p>
         </section>
       </div>
@@ -121,7 +147,9 @@ function CheckinCard({ initial, onSave }: { initial: any; onSave: (v: any) => Pr
               sleep_hours: sleep === "" ? null : Number(sleep),
               notes: notes || null,
             });
-          } finally { setSaving(false); }
+          } finally {
+            setSaving(false);
+          }
         }}
         className="mt-4 text-xs px-3 py-1.5 rounded-md border border-arc/30 bg-arc/10 hover:bg-arc/20 disabled:opacity-50"
       >
@@ -136,7 +164,10 @@ function Num({ label, value, onChange }: any) {
     <label className="block">
       <span className="font-mono text-[10px] tracking-wider text-hud-dim">{label.toUpperCase()}</span>
       <input
-        type="number" step="any" value={value} onChange={(e) => onChange(e.target.value)}
+        type="number"
+        step="any"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
         className="mt-1 w-full bg-background/40 border border-arc/20 rounded-md px-2 py-1.5 text-sm focus:outline-none focus:border-arc"
       />
     </label>
@@ -147,19 +178,23 @@ function Field({ label, value, onChange, placeholder }: any) {
     <label className="block">
       <span className="font-mono text-[10px] tracking-wider text-hud-dim">{label.toUpperCase()}</span>
       <input
-        value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
         className="mt-1 w-full bg-background/40 border border-arc/20 rounded-md px-2 py-1.5 text-sm focus:outline-none focus:border-arc"
       />
     </label>
   );
 }
 
+// Updated SECTIONS with @everyone toggle
 const SECTIONS = [
   ["include_email", "Email digest"],
   ["include_calendar", "Calendar"],
   ["include_reminders", "Reminders"],
   ["include_spending", "Spending"],
   ["include_checkin", "Check-in"],
+  ["include_mention_everyone", "@everyone ping"],
 ] as const;
 
 function WebhookRow({ hook, onSave, onTest, onDelete }: any) {
@@ -167,7 +202,7 @@ function WebhookRow({ hook, onSave, onTest, onDelete }: any) {
   const [name, setName] = useState(hook.name);
   const [url, setUrl] = useState(hook.url);
   const [enabled, setEnabled] = useState(hook.enabled);
-  const [flags, setFlags] = useState<any>(Object.fromEntries(SECTIONS.map(([k]) => [k, hook[k]])));
+  const [flags, setFlags] = useState<any>(Object.fromEntries(SECTIONS.map(([k]) => [k, hook[k] ?? false])));
 
   return (
     <div className="border border-arc/15 rounded-md bg-background/30">
@@ -177,11 +212,22 @@ function WebhookRow({ hook, onSave, onTest, onDelete }: any) {
           <div className="text-xs text-hud-dim truncate">{hook.url.replace(/\/[^/]+$/, "/•••")}</div>
         </button>
         <label className="flex items-center gap-2 text-xs">
-          <input type="checkbox" checked={enabled} onChange={async (e) => { setEnabled(e.target.checked); await onSave({ enabled: e.target.checked }); }} />
+          <input
+            type="checkbox"
+            checked={enabled}
+            onChange={async (e) => {
+              setEnabled(e.target.checked);
+              await onSave({ enabled: e.target.checked });
+            }}
+          />
           On
         </label>
-        <button onClick={onTest} className="p-1.5 rounded hover:bg-arc/10" title="Send test"><Send size={14} /></button>
-        <button onClick={onDelete} className="p-1.5 rounded hover:bg-critical/10 text-critical" title="Delete"><Trash2 size={14} /></button>
+        <button onClick={onTest} className="p-1.5 rounded hover:bg-arc/10" title="Send test">
+          <Send size={14} />
+        </button>
+        <button onClick={onDelete} className="p-1.5 rounded hover:bg-critical/10 text-critical" title="Delete">
+          <Trash2 size={14} />
+        </button>
       </div>
       {open && (
         <div className="border-t border-arc/10 p-3 space-y-3">
@@ -192,7 +238,11 @@ function WebhookRow({ hook, onSave, onTest, onDelete }: any) {
             <div className="flex flex-wrap gap-3">
               {SECTIONS.map(([k, lbl]) => (
                 <label key={k} className="flex items-center gap-2 text-xs">
-                  <input type="checkbox" checked={!!flags[k]} onChange={(e) => setFlags({ ...flags, [k]: e.target.checked })} />
+                  <input
+                    type="checkbox"
+                    checked={!!flags[k]}
+                    onChange={(e) => setFlags({ ...flags, [k]: e.target.checked })}
+                  />
                   {lbl}
                 </label>
               ))}
@@ -215,11 +265,15 @@ function NewWebhook({ onCreate }: any) {
   const [name, setName] = useState("Daily Briefing");
   const [url, setUrl] = useState("");
 
-  if (!open) return (
-    <button onClick={() => setOpen(true)} className="w-full flex items-center justify-center gap-2 py-2.5 text-xs text-arc border border-dashed border-arc/30 rounded-md hover:bg-arc/5">
-      <Plus size={14} /> Add Discord webhook
-    </button>
-  );
+  if (!open)
+    return (
+      <button
+        onClick={() => setOpen(true)}
+        className="w-full flex items-center justify-center gap-2 py-2.5 text-xs text-arc border border-dashed border-arc/30 rounded-md hover:bg-arc/5"
+      >
+        <Plus size={14} /> Add Discord webhook
+      </button>
+    );
   return (
     <div className="border border-arc/20 rounded-md p-3 space-y-3 bg-background/30">
       <Field label="Name" value={name} onChange={setName} />
@@ -227,17 +281,34 @@ function NewWebhook({ onCreate }: any) {
       <div className="flex gap-2">
         <button
           onClick={async () => {
-            if (!url.includes("discord.com/api/webhooks/")) { toast.error("That doesn't look like a Discord webhook URL"); return; }
+            if (!url.includes("discord.com/api/webhooks/")) {
+              toast.error("That doesn't look like a Discord webhook URL");
+              return;
+            }
             await onCreate({
-              name, url, enabled: true,
-              include_email: true, include_calendar: true, include_reminders: true,
-              include_checkin: true, include_spending: true,
+              name,
+              url,
+              enabled: true,
+              include_email: true,
+              include_calendar: true,
+              include_reminders: true,
+              include_checkin: true,
+              include_spending: true,
+              include_mention_everyone: false,
             });
-            setOpen(false); setUrl("");
+            setOpen(false);
+            setUrl("");
           }}
           className="text-xs px-3 py-1.5 rounded-md border border-arc/30 bg-arc/10 hover:bg-arc/20"
-        >Create</button>
-        <button onClick={() => setOpen(false)} className="text-xs px-3 py-1.5 rounded-md border border-arc/20 hover:bg-arc/5">Cancel</button>
+        >
+          Create
+        </button>
+        <button
+          onClick={() => setOpen(false)}
+          className="text-xs px-3 py-1.5 rounded-md border border-arc/20 hover:bg-arc/5"
+        >
+          Cancel
+        </button>
       </div>
     </div>
   );
