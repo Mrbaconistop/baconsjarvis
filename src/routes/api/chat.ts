@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { convertToModelMessages, streamText, tool, stepCountIs, type UIMessage } from "ai";
 import { z } from "zod";
 import { createClient } from "@supabase/supabase-js";
-import { JARVIS_SYSTEM_PROMPT, resolveChatModel } from "@/lib/ai-gateway.server";
+import { JARVIS_SYSTEM_PROMPT, resolveChatModels } from "@/lib/ai-gateway.server";
 
 type Body = { messages?: UIMessage[]; threadId?: string };
 
@@ -82,10 +82,12 @@ export const Route = createFileRoute("/api/chat")({
 
         const now = new Date();
 
-        // === Tools (same as before) ===
+        // ============================================================
+        // TOOLS (full list – same as before)
+        // ============================================================
         const tools = {
           create_reminder: tool({
-            description: "Create a one-off or recurring reminder.",
+            description: "Create a one-off or recurring reminder for the user. Use ISO 8601 for datetime.",
             inputSchema: z.object({
               title: z.string(),
               datetime_iso: z.string().describe("Absolute ISO 8601 datetime"),
@@ -114,7 +116,7 @@ export const Route = createFileRoute("/api/chat")({
             },
           }),
           list_reminders: tool({
-            description: "List upcoming reminders.",
+            description: "List the user's upcoming reminders (next 30 days).",
             inputSchema: z.object({}),
             execute: async () => {
               const { data } = await supabase
@@ -129,7 +131,7 @@ export const Route = createFileRoute("/api/chat")({
             },
           }),
           complete_reminder: tool({
-            description: "Mark a reminder complete.",
+            description: "Mark a reminder as complete by id.",
             inputSchema: z.object({ id: z.string().uuid() }),
             execute: async ({ id }) => {
               const { error } = await supabase
@@ -141,11 +143,16 @@ export const Route = createFileRoute("/api/chat")({
             },
           }),
           save_vault_item: tool({
-            description: "Save an item to vault.",
+            description:
+              "Save an item to the user's private vault. Use 'credential' for login info, 'contact' for people, 'note' for free-form notes.",
             inputSchema: z.object({
               kind: z.enum(["credential", "note", "contact"]),
               label: z.string(),
-              data: z.record(z.string(), z.any()),
+              data: z
+                .record(z.string(), z.any())
+                .describe(
+                  "For credential: {username, password, url}. For contact: {name, email, phone, notes}. For note: {body}.",
+                ),
               tags: z.array(z.string()).default([]),
             }),
             execute: async ({ kind, label, data, tags }) => {
@@ -159,7 +166,7 @@ export const Route = createFileRoute("/api/chat")({
             },
           }),
           list_vault: tool({
-            description: "List vault items.",
+            description: "List the user's vault items (labels only — never read back credentials by default).",
             inputSchema: z.object({ kind: z.enum(["credential", "note", "contact"]).nullable().optional() }),
             execute: async ({ kind }) => {
               let q = supabase.from("vault_items").select("id, kind, label, tags, updated_at").eq("user_id", userId);
@@ -169,11 +176,11 @@ export const Route = createFileRoute("/api/chat")({
             },
           }),
           unlock_vault_item: tool({
-            description: "Reveal vault item with PIN.",
+            description: "Reveal the contents of a vault item. REQUIRES a PIN from the user.",
             inputSchema: z.object({
-              pin: z.string().min(4).max(28),
+              pin: z.string().min(4).max(28).describe("The PIN the user just typed."),
               id: z.string().uuid().nullable().optional(),
-              label: z.string().nullable().optional(),
+              label: z.string().nullable().optional().describe("Case-insensitive substring match on label."),
             }),
             execute: async ({ pin, id, label }) => {
               const { data: prof } = await supabase
@@ -201,11 +208,11 @@ export const Route = createFileRoute("/api/chat")({
             },
           }),
           remember_fact: tool({
-            description: "Remember a fact about the user.",
+            description: "Persist a key fact about the user so you remember it across conversations.",
             inputSchema: z.object({
               category: z.enum(["identity", "people", "interest", "preference", "goal", "general"]),
-              key: z.string(),
-              value: z.string(),
+              key: z.string().describe("Short stable key, e.g. 'height', 'best_friend'."),
+              value: z.string().describe("The fact value."),
             }),
             execute: async ({ category, key, value }) => {
               const { error } = await supabase
@@ -215,7 +222,7 @@ export const Route = createFileRoute("/api/chat")({
             },
           }),
           list_facts: tool({
-            description: "List remembered facts.",
+            description: "List facts you've remembered about the user.",
             inputSchema: z.object({
               category: z
                 .enum(["identity", "people", "interest", "preference", "goal", "general"])
@@ -230,7 +237,7 @@ export const Route = createFileRoute("/api/chat")({
             },
           }),
           forget_fact: tool({
-            description: "Forget a fact.",
+            description: "Forget a remembered fact.",
             inputSchema: z.object({
               id: z.string().uuid().nullable().optional(),
               category: z.string().nullable().optional(),
@@ -246,9 +253,9 @@ export const Route = createFileRoute("/api/chat")({
             },
           }),
           log_transaction: tool({
-            description: "Log a transaction.",
+            description: "Log a spending transaction the user mentioned.",
             inputSchema: z.object({
-              amount: z.number(),
+              amount: z.number().describe("Dollar amount, e.g. 12.50."),
               merchant: z.string().nullable().optional(),
               category: z
                 .enum([
@@ -308,8 +315,10 @@ export const Route = createFileRoute("/api/chat")({
             },
           }),
           spending_summary: tool({
-            description: "Summarize spending.",
-            inputSchema: z.object({ window: z.enum(["week", "month", "30d", "90d", "year"]).default("month") }),
+            description: "Summarize spending totals grouped by category over a window.",
+            inputSchema: z.object({
+              window: z.enum(["week", "month", "30d", "90d", "year"]).default("month"),
+            }),
             execute: async ({ window }) => {
               const now = new Date();
               const since = new Date(now);
@@ -340,7 +349,7 @@ export const Route = createFileRoute("/api/chat")({
             },
           }),
           delete_transaction: tool({
-            description: "Delete a transaction.",
+            description: "Delete a transaction by id.",
             inputSchema: z.object({ id: z.string().uuid() }),
             execute: async ({ id }) => {
               const { error } = await supabase.from("transactions").delete().eq("id", id).eq("user_id", userId);
@@ -349,7 +358,9 @@ export const Route = createFileRoute("/api/chat")({
           }),
         };
 
-        // === Build system prompt ===
+        // ============================================================
+        // SYSTEM PROMPT
+        // ============================================================
         const systemPrompt = `${JARVIS_SYSTEM_PROMPT}
 
 Address the user as "${addressAs}".
@@ -369,28 +380,23 @@ ${factsBlock}
 
 Be concise. Confirm actions.`;
 
-        // === Try providers with failover ===
-        const providers = [
-          { name: "Groq", key: process.env.GROQ_API_KEY, model: process.env.GROQ_MODEL ?? "llama-3.1-8b-instant" },
-          { name: "DeepSeek", key: process.env.DEEPSEEK_API_KEY, model: process.env.DEEPSEEK_MODEL ?? "deepseek-chat" },
-          { name: "Gemini", key: process.env.GOOGLE_API_KEY, model: process.env.GOOGLE_MODEL ?? "gemini-2.0-flash" },
-        ];
-
+        // ============================================================
+        // FAILOVER LOOP – Try each provider
+        // ============================================================
+        const providers = resolveChatModels();
         let result = null;
-        let lastError = null;
+        let lastError: Error | null = null;
 
         for (const provider of providers) {
-          if (!provider.key) continue;
           try {
-            const chatModel = resolveChatModel(); // This will use the first available
             result = streamText({
-              model: chatModel,
+              model: provider.model, // <-- Directly use the model
               system: systemPrompt,
               messages: await convertToModelMessages(messages),
               tools,
               stopWhen: stepCountIs(8),
               onError: ({ error }) => {
-                console.error(`[chat streamText error] ${provider.name}:`, error);
+                console.error(`[chat] ${provider.name} error:`, error);
               },
             });
             console.log(`[JARVIS] Using ${provider.name}`);
@@ -403,9 +409,7 @@ Be concise. Confirm actions.`;
         }
 
         if (!result) {
-          // All providers failed
-          const errorMsg = lastError?.message || "All AI providers failed";
-          console.error("[JARVIS] All providers failed:", errorMsg);
+          console.error("[JARVIS] All providers failed:", lastError);
           return new Response(JSON.stringify({ error: "All AI providers are currently unavailable" }), {
             status: 503,
             headers: { "Content-Type": "application/json" },

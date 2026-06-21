@@ -1,61 +1,75 @@
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 
-// Helper to create Groq provider
-function createGroqProvider(apiKey: string) {
-  return createOpenAICompatible({
-    name: "groq",
-    baseURL: "https://api.groq.com/openai/v1",
-    headers: { Authorization: `Bearer ${apiKey}` },
-  });
-}
+type Provider = {
+  name: string;
+  model: any; // LanguageModel
+};
 
-// Helper to create DeepSeek provider (OpenAI-compatible)
-function createDeepSeekProvider(apiKey: string) {
-  return createOpenAICompatible({
-    name: "deepseek",
-    baseURL: "https://api.deepseek.com/v1",
-    headers: { Authorization: `Bearer ${apiKey}` },
-  });
-}
+export function resolveChatModels(): Provider[] {
+  const providers: Provider[] = [];
 
-// Helper to create Gemini provider (using OpenAI-compatible format)
-function createGeminiProvider(apiKey: string) {
-  // Gemini uses a different base URL – but we can use it with the OpenAI-compatible wrapper
-  return createOpenAICompatible({
-    name: "gemini",
-    baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/",
-    headers: {
-      "Content-Type": "application/json",
-      "x-goog-api-key": apiKey,
+  // 1. Groq (Primary)
+  const groqKey = process.env.GROQ_API_KEY;
+  if (groqKey) {
+    try {
+      const groq = createOpenAICompatible({
+        name: "groq",
+        baseURL: "https://api.groq.com/openai/v1",
+        headers: { Authorization: `Bearer ${groqKey}` },
+      });
+      const model = groq(process.env.GROQ_MODEL ?? "llama-3.1-8b-instant");
+      providers.push({ name: "groq", model });
+    } catch (e) {
+      console.warn("Failed to create Groq provider:", e);
+    }
+  }
+
+  // 2. DeepSeek (Backup 1)
+  const deepseekKey = process.env.DEEPSEEK_API_KEY;
+  if (deepseekKey) {
+    try {
+      const deepseek = createOpenAICompatible({
+        name: "deepseek",
+        baseURL: "https://api.deepseek.com/v1",
+        headers: { Authorization: `Bearer ${deepseekKey}` },
+      });
+      const model = deepseek(process.env.DEEPSEEK_MODEL ?? "deepseek-chat");
+      providers.push({ name: "deepseek", model });
+    } catch (e) {
+      console.warn("Failed to create DeepSeek provider:", e);
+    }
+  }
+
+  // 3. Gemini (Backup 2)
+  const geminiKey = process.env.GOOGLE_API_KEY;
+  if (geminiKey) {
+    try {
+      const gemini = createOpenAICompatible({
+        name: "gemini",
+        baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/",
+        headers: {
+          "Content-Type": "application/json",
+          "x-goog-api-key": geminiKey,
+        },
+      });
+      const model = gemini(process.env.GOOGLE_MODEL ?? "gemini-2.0-flash");
+      providers.push({ name: "gemini", model });
+    } catch (e) {
+      console.warn("Failed to create Gemini provider:", e);
+    }
+  }
+
+  // 4. Fallback (Always available – no API key needed)
+  providers.push({
+    name: "fallback",
+    model: {
+      doGenerate: async () => ({
+        text: "I'm currently offline, Sir. Please check my API keys.",
+      }),
     },
   });
-}
 
-export function resolveChatModel() {
-  const groqKey = process.env.GROQ_API_KEY;
-  const deepseekKey = process.env.DEEPSEEK_API_KEY;
-  const geminiKey = process.env.GOOGLE_API_KEY;
-
-  // 1. Primary: Groq
-  if (groqKey) {
-    const groq = createGroqProvider(groqKey);
-    return groq(process.env.GROQ_MODEL ?? "llama-3.1-8b-instant");
-  }
-
-  // 2. Backup 1: DeepSeek
-  if (deepseekKey) {
-    const deepseek = createDeepSeekProvider(deepseekKey);
-    return deepseek(process.env.DEEPSEEK_MODEL ?? "deepseek-chat");
-  }
-
-  // 3. Backup 2: Gemini
-  if (geminiKey) {
-    const gemini = createGeminiProvider(geminiKey);
-    return gemini(process.env.GOOGLE_MODEL ?? "gemini-2.0-flash");
-  }
-
-  // 4. No provider available
-  throw new Error("No AI provider configured. Set GROQ_API_KEY, DEEPSEEK_API_KEY, or GOOGLE_API_KEY.");
+  return providers;
 }
 
 export const JARVIS_SYSTEM_PROMPT = `You are JARVIS, an elite personal AI assistant in the style of Tony Stark's butler.

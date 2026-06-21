@@ -60,9 +60,8 @@ Otherwise set "reminder" to null. "reply" is always present.`;
 
     for (const provider of providers) {
       try {
-        const model = provider.getModel(provider.modelId);
         const { text } = await generateText({
-          model,
+          model: provider.model, // <-- Directly use the model
           system: systemPrompt,
           prompt: data.text,
           maxTokens: 800,
@@ -147,9 +146,8 @@ Return only the reply text. No quotes, no preamble.`;
 
     for (const provider of providers) {
       try {
-        const model = provider.getModel(provider.modelId);
         const { text } = await generateText({
-          model,
+          model: provider.model,
           system: systemPrompt,
           prompt,
           maxTokens: 200,
@@ -220,9 +218,8 @@ ${(feeds ?? []).map((f: any) => `- [${f.platform}/${f.priority}/${f.sentiment_la
 
     for (const provider of providers) {
       try {
-        const model = provider.getModel(provider.modelId);
         const { text } = await generateText({
-          model,
+          model: provider.model,
           system: systemPrompt,
           prompt,
           maxTokens: 300,
