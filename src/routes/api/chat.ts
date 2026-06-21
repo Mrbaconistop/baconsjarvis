@@ -1,82 +1,27 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { generateText, createOpenAICompatible } from "ai";
+import { generateText } from "ai";
+import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { createClient } from "@supabase/supabase-js";
-
-const JARVIS_SYSTEM_PROMPT = `
-You are JARVIS, Tony Stark's AI assistant.
-- Address the user as "Sir".
-- Be concise, efficient, and slightly witty.
-- Never say "as an AI".
-- Keep replies under 3 sentences unless asked.
-`;
-
-function getProviders() {
-  const chain: any[] = [];
-
-  // Groq
-  const groqKey = process.env.GROQ_API_KEY;
-  if (groqKey) {
-    try {
-      const groq = createOpenAICompatible({
-        name: "groq",
-        baseURL: "https://api.groq.com/openai/v1",
-        headers: { Authorization: `Bearer ${groqKey}` },
-      });
-      chain.push({
-        name: "groq",
-        getModel: (modelId: string) => groq(modelId),
-        modelId: process.env.GROQ_MODEL ?? "llama-3.1-8b-instant",
-      });
-    } catch (e) {
-      console.warn("Groq init failed:", e);
-    }
-  }
-
-  // DeepSeek
-  const deepseekKey = process.env.DEEPSEEK_API_KEY;
-  if (deepseekKey) {
-    try {
-      const deepseek = createOpenAICompatible({
-        name: "deepseek",
-        baseURL: "https://api.deepseek.com/v1",
-        headers: { Authorization: `Bearer ${deepseekKey}` },
-      });
-      chain.push({
-        name: "deepseek",
-        getModel: (modelId: string) => deepseek(modelId),
-        modelId: process.env.DEEPSEEK_MODEL ?? "deepseek-chat",
-      });
-    } catch (e) {
-      console.warn("DeepSeek init failed:", e);
-    }
-  }
-
-  // Fallback
-  chain.push({
-    name: "fallback",
-    getModel: () => ({
-      doGenerate: async () => ({
-        text: "I'm currently offline, Sir. Please check my API keys.",
-      }),
-    }),
-    modelId: "fallback",
-  });
-
-  return chain;
-}
 
 export const Route = createFileRoute("/api/chat")({
   server: {
     handlers: {
       POST: async ({ request }) => {
         try {
+          console.log("[JARVIS] Chat request received");
+
           const auth = request.headers.get("authorization") ?? "";
           const token = auth.replace(/^Bearer\s+/i, "");
-          if (!token) return new Response("Unauthorized", { status: 401 });
+          if (!token) {
+            console.log("[JARVIS] No token");
+            return new Response("Unauthorized", { status: 401 });
+          }
 
           const body = await request.json();
+          console.log("[JARVIS] Body:", JSON.stringify(body).slice(0, 200));
           const { messages, threadId } = body || {};
           if (!messages || !threadId) {
+            console.log("[JARVIS] Missing messages or threadId");
             return new Response("Bad request", { status: 400 });
           }
 
@@ -84,44 +29,43 @@ export const Route = createFileRoute("/api/chat")({
           const lastUser = messages.filter((m: any) => m.role === "user").pop();
           const userPrompt = lastUser?.parts?.map((p: any) => p.text).join(" ") || "Hello";
 
-          const systemPrompt = `${JARVIS_SYSTEM_PROMPT}\nCurrent time: ${new Date().toISOString()}. Be concise.`;
+          console.log("[JARVIS] User prompt:", userPrompt);
 
-          const providers = getProviders();
-          if (!Array.isArray(providers) || providers.length === 0) {
-            return new Response(JSON.stringify({ error: "No AI providers available" }), {
-              status: 500,
-              headers: { "Content-Type": "application/json" },
-            });
-          }
+          // --- Hardcoded Groq ---
+          const groqKey = "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";
+          const groq = createOpenAICompatible({
+            name: "groq",
+            baseURL: "https://api.groq.com/openai/v1",
+            headers: { Authorization: `Bearer ${groqKey}` },
+          });
+          const model = groq("llama-3.1-8b-instant");
 
-          let reply = "I'm offline, Sir.";
+          const systemPrompt = `
+You are JARVIS, Tony Stark's AI assistant.
+- Address the user as "Sir".
+- Be concise, efficient, and slightly witty.
+- Never say "as an AI".
+- Keep replies under 3 sentences unless asked.
+Current time: ${new Date().toISOString()}.
+`;
 
-          for (const provider of providers) {
-            try {
-              const model = provider.getModel(provider.modelId);
-              const { text } = await generateText({
-                model,
-                system: systemPrompt,
-                prompt: userPrompt,
-                maxTokens: 300,
-              });
-              reply = text;
-              console.log(`[JARVIS] Used ${provider.name}`);
-              break;
-            } catch (e) {
-              console.warn(`[JARVIS] ${provider.name} failed:`, e);
-              continue;
-            }
-          }
+          console.log("[JARVIS] Calling Groq...");
+          const { text } = await generateText({
+            model,
+            system: systemPrompt,
+            prompt: userPrompt,
+            maxTokens: 300,
+          });
+          console.log("[JARVIS] Groq reply:", text);
 
-          // Stream response
+          // Return as stream
           const stream = new ReadableStream({
             start(controller) {
               const encoder = new TextEncoder();
               const chunk = {
                 id: `msg-${Date.now()}`,
                 role: "assistant",
-                parts: [{ type: "text", text: reply }],
+                parts: [{ type: "text", text: text || "I'm having trouble, Sir." }],
                 createdAt: new Date().toISOString(),
               };
               controller.enqueue(encoder.encode(`data: ${JSON.stringify(chunk)}\n\n`));
@@ -137,8 +81,8 @@ export const Route = createFileRoute("/api/chat")({
             },
           });
         } catch (error: any) {
-          console.error("Chat API error:", error);
-          return new Response(JSON.stringify({ error: "Internal error", details: error?.message }), {
+          console.error("[JARVIS] Chat API error:", error);
+          return new Response(JSON.stringify({ error: "Internal error", details: error?.message || "Unknown" }), {
             status: 500,
             headers: { "Content-Type": "application/json" },
           });
