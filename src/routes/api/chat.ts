@@ -31,10 +31,17 @@ export const Route = createFileRoute("/api/chat")({
         const userId = userData?.user?.id;
         if (!userId) return new Response("Unauthorized", { status: 401 });
 
-        // Verify thread ownership
-        const { data: thread } = await supabase.from("chat_threads")
+        // Verify thread ownership — auto-create with the client-supplied id if missing
+        // (handles stale tabs, deleted threads, or direct-link navigation before creation finishes)
+        let { data: thread } = await supabase.from("chat_threads")
           .select("id, title").eq("id", threadId).eq("user_id", userId).maybeSingle();
-        if (!thread) return new Response("Thread not found", { status: 404 });
+        if (!thread) {
+          const { data: created, error: createErr } = await supabase.from("chat_threads")
+            .insert({ id: threadId, user_id: userId, title: "New conversation" })
+            .select("id, title").single();
+          if (createErr || !created) return new Response("Thread not found", { status: 404 });
+          thread = created;
+        }
 
         // Load profile for address-as
         const { data: profile } = await supabase.from("profiles")
@@ -294,7 +301,9 @@ When the user reveals durable personal info (name, age, height, weight, birthday
 
 MEMORY — MANDATORY: If the user says any of "remember", "don't forget", "note that", "keep in mind", "save this", "make a note", or otherwise explicitly asks you to remember something, you MUST call the remember_fact tool BEFORE replying. Choose the best category ('identity' | 'people' | 'interest' | 'preference' | 'goal' | 'general'), pick a short snake_case key, and store the value verbatim from the user. Then briefly confirm what you saved. Never say "I'll remember that" without actually calling remember_fact in the same turn.
 
-Known facts about ${addressAs}:
+RECALL — MANDATORY: The "Known facts about ${addressAs}" block below is your long-term memory of this user across ALL conversations. Treat every fact in it as something you personally know about ${addressAs}. When ${addressAs} asks about themselves ("what's my name", "how old am I", "what do I like", "who is X to me"), answer from these facts directly — never say you don't know or that you have no memory of past conversations. If a fact truly isn't listed, say so plainly and offer to remember it.
+
+Known facts about ${addressAs} (persisted across every conversation):
 ${factsBlock}
 
 Be concise. Confirm after taking an action.`,
