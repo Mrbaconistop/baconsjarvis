@@ -21,9 +21,11 @@ import { Route as AuthenticatedSpendingRouteImport } from './routes/_authenticat
 import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
 import { Route as AuthenticatedPulseRouteImport } from './routes/_authenticated/pulse'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
+import { Route as AuthenticatedBriefingRouteImport } from './routes/_authenticated/briefing'
 import { Route as AuthenticatedChatIndexRouteImport } from './routes/_authenticated/chat.index'
 import { Route as AuthenticatedChatThreadIdRouteImport } from './routes/_authenticated/chat.$threadId'
 import { Route as ApiPublicHooksIngestCashappRouteImport } from './routes/api/public/hooks/ingest-cashapp'
+import { Route as ApiPublicHooksDailyDiscordRouteImport } from './routes/api/public/hooks/daily-discord'
 
 const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
   id: '/sitemap.xml',
@@ -84,6 +86,11 @@ const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
   path: '/dashboard',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedBriefingRoute = AuthenticatedBriefingRouteImport.update({
+  id: '/briefing',
+  path: '/briefing',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedChatIndexRoute = AuthenticatedChatIndexRouteImport.update({
   id: '/chat/',
   path: '/chat/',
@@ -101,11 +108,18 @@ const ApiPublicHooksIngestCashappRoute =
     path: '/api/public/hooks/ingest-cashapp',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiPublicHooksDailyDiscordRoute =
+  ApiPublicHooksDailyDiscordRouteImport.update({
+    id: '/api/public/hooks/daily-discord',
+    path: '/api/public/hooks/daily-discord',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
+  '/briefing': typeof AuthenticatedBriefingRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/pulse': typeof AuthenticatedPulseRoute
   '/settings': typeof AuthenticatedSettingsRoute
@@ -116,12 +130,14 @@ export interface FileRoutesByFullPath {
   '/api/chat': typeof ApiChatRoute
   '/chat/$threadId': typeof AuthenticatedChatThreadIdRoute
   '/chat/': typeof AuthenticatedChatIndexRoute
+  '/api/public/hooks/daily-discord': typeof ApiPublicHooksDailyDiscordRoute
   '/api/public/hooks/ingest-cashapp': typeof ApiPublicHooksIngestCashappRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
+  '/briefing': typeof AuthenticatedBriefingRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/pulse': typeof AuthenticatedPulseRoute
   '/settings': typeof AuthenticatedSettingsRoute
@@ -132,6 +148,7 @@ export interface FileRoutesByTo {
   '/api/chat': typeof ApiChatRoute
   '/chat/$threadId': typeof AuthenticatedChatThreadIdRoute
   '/chat': typeof AuthenticatedChatIndexRoute
+  '/api/public/hooks/daily-discord': typeof ApiPublicHooksDailyDiscordRoute
   '/api/public/hooks/ingest-cashapp': typeof ApiPublicHooksIngestCashappRoute
 }
 export interface FileRoutesById {
@@ -140,6 +157,7 @@ export interface FileRoutesById {
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
   '/auth': typeof AuthRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
+  '/_authenticated/briefing': typeof AuthenticatedBriefingRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
   '/_authenticated/pulse': typeof AuthenticatedPulseRoute
   '/_authenticated/settings': typeof AuthenticatedSettingsRoute
@@ -150,6 +168,7 @@ export interface FileRoutesById {
   '/api/chat': typeof ApiChatRoute
   '/_authenticated/chat/$threadId': typeof AuthenticatedChatThreadIdRoute
   '/_authenticated/chat/': typeof AuthenticatedChatIndexRoute
+  '/api/public/hooks/daily-discord': typeof ApiPublicHooksDailyDiscordRoute
   '/api/public/hooks/ingest-cashapp': typeof ApiPublicHooksIngestCashappRoute
 }
 export interface FileRouteTypes {
@@ -158,6 +177,7 @@ export interface FileRouteTypes {
     | '/'
     | '/auth'
     | '/sitemap.xml'
+    | '/briefing'
     | '/dashboard'
     | '/pulse'
     | '/settings'
@@ -168,12 +188,14 @@ export interface FileRouteTypes {
     | '/api/chat'
     | '/chat/$threadId'
     | '/chat/'
+    | '/api/public/hooks/daily-discord'
     | '/api/public/hooks/ingest-cashapp'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/auth'
     | '/sitemap.xml'
+    | '/briefing'
     | '/dashboard'
     | '/pulse'
     | '/settings'
@@ -184,6 +206,7 @@ export interface FileRouteTypes {
     | '/api/chat'
     | '/chat/$threadId'
     | '/chat'
+    | '/api/public/hooks/daily-discord'
     | '/api/public/hooks/ingest-cashapp'
   id:
     | '__root__'
@@ -191,6 +214,7 @@ export interface FileRouteTypes {
     | '/_authenticated'
     | '/auth'
     | '/sitemap.xml'
+    | '/_authenticated/briefing'
     | '/_authenticated/dashboard'
     | '/_authenticated/pulse'
     | '/_authenticated/settings'
@@ -201,6 +225,7 @@ export interface FileRouteTypes {
     | '/api/chat'
     | '/_authenticated/chat/$threadId'
     | '/_authenticated/chat/'
+    | '/api/public/hooks/daily-discord'
     | '/api/public/hooks/ingest-cashapp'
   fileRoutesById: FileRoutesById
 }
@@ -210,6 +235,7 @@ export interface RootRouteChildren {
   AuthRoute: typeof AuthRoute
   SitemapDotxmlRoute: typeof SitemapDotxmlRoute
   ApiChatRoute: typeof ApiChatRoute
+  ApiPublicHooksDailyDiscordRoute: typeof ApiPublicHooksDailyDiscordRoute
   ApiPublicHooksIngestCashappRoute: typeof ApiPublicHooksIngestCashappRoute
 }
 
@@ -299,6 +325,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedDashboardRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/briefing': {
+      id: '/_authenticated/briefing'
+      path: '/briefing'
+      fullPath: '/briefing'
+      preLoaderRoute: typeof AuthenticatedBriefingRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/chat/': {
       id: '/_authenticated/chat/'
       path: '/chat'
@@ -320,10 +353,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicHooksIngestCashappRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/hooks/daily-discord': {
+      id: '/api/public/hooks/daily-discord'
+      path: '/api/public/hooks/daily-discord'
+      fullPath: '/api/public/hooks/daily-discord'
+      preLoaderRoute: typeof ApiPublicHooksDailyDiscordRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 interface AuthenticatedRouteRouteChildren {
+  AuthenticatedBriefingRoute: typeof AuthenticatedBriefingRoute
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
   AuthenticatedPulseRoute: typeof AuthenticatedPulseRoute
   AuthenticatedSettingsRoute: typeof AuthenticatedSettingsRoute
@@ -336,6 +377,7 @@ interface AuthenticatedRouteRouteChildren {
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
+  AuthenticatedBriefingRoute: AuthenticatedBriefingRoute,
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
   AuthenticatedPulseRoute: AuthenticatedPulseRoute,
   AuthenticatedSettingsRoute: AuthenticatedSettingsRoute,
@@ -356,18 +398,9 @@ const rootRouteChildren: RootRouteChildren = {
   AuthRoute: AuthRoute,
   SitemapDotxmlRoute: SitemapDotxmlRoute,
   ApiChatRoute: ApiChatRoute,
+  ApiPublicHooksDailyDiscordRoute: ApiPublicHooksDailyDiscordRoute,
   ApiPublicHooksIngestCashappRoute: ApiPublicHooksIngestCashappRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}
