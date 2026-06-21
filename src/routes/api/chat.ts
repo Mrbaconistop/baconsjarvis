@@ -1,8 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { convertToModelMessages, generateText, streamText, tool, stepCountIs, type UIMessage } from "ai";
+import { convertToModelMessages, generateText, tool, stepCountIs, type UIMessage } from "ai";
 import { z } from "zod";
 import { createClient } from "@supabase/supabase-js";
-import { JARVIS_SYSTEM_PROMPT, generateWithFailover } from "@/lib/ai-gateway.server";
+import { JARVIS_SYSTEM_PROMPT, resolveChatModel } from "@/lib/ai-gateway.server";
 
 type Body = { messages?: UIMessage[]; threadId?: string };
 
@@ -84,9 +84,8 @@ export const Route = createFileRoute("/api/chat")({
           }
         }
 
-        // ----- Tools -----
+        // ----- Tools (same as before) -----
         const tools = {
-          // Same tools as before – keeping them for tool calls
           create_reminder: tool({
             description: "Create a reminder.",
             inputSchema: z.object({
@@ -174,7 +173,6 @@ export const Route = createFileRoute("/api/chat")({
             },
           }),
 
-          // Vault tools (shortened for brevity – include all the ones from the previous version)
           save_vault_item: tool({
             description: "Save an item to vault.",
             inputSchema: z.object({
@@ -262,7 +260,6 @@ export const Route = createFileRoute("/api/chat")({
             },
           }),
 
-          // Fact tools
           remember_fact: tool({
             description: "Remember a fact.",
             inputSchema: z.object({
@@ -340,7 +337,6 @@ export const Route = createFileRoute("/api/chat")({
             },
           }),
 
-          // Transaction tools
           log_transaction: tool({
             description: "Log a transaction.",
             inputSchema: z.object({
@@ -479,7 +475,6 @@ export const Route = createFileRoute("/api/chat")({
             },
           }),
 
-          // Social
           search_social: tool({
             description: "Search social feeds.",
             inputSchema: z.object({
@@ -516,7 +511,7 @@ export const Route = createFileRoute("/api/chat")({
           }),
         };
 
-        // ----- Build the system prompt -----
+        // ----- Build system prompt -----
         const now = new Date();
         const systemPrompt = `${JARVIS_SYSTEM_PROMPT}
 
@@ -539,20 +534,51 @@ SEARCH TOOLS: Use search_vault, search_transactions, search_social, search_remin
 
 Be concise. Confirm actions.`;
 
-        // ----- Generate response with failover -----
-        // Convert messages to a single prompt for the fallback generator
-        // We'll use the last user message as the prompt
+        // ----- Get the last user message -----
         const userMessages = messages.filter((m) => m.role === "user");
         const lastUserMsg = userMessages[userMessages.length - 1];
         const userPrompt = lastUserMsg
           ? (lastUserMsg.parts as any[]).map((p) => (p.type === "text" ? p.text : "")).join(" ")
           : "";
 
+        // ----- Try providers sequentially -----
+        const providers = resolveChatModel();
         let assistantText = "";
-        try {
-          assistantText = await generateWithFailover(userPrompt, systemPrompt, { maxTokens: 1024, temperature: 0.7 });
-        } catch (error) {
-          console.error("All providers failed:", error);
+        let lastError: Error | null = null;
+
+        for (const provider of providers) {
+          try {
+            const model = provider.getModel(provider.modelId);
+            const { text } = await generateText({
+              model,
+              system: systemPrompt,
+              prompt: userPrompt,
+              maxTokens: 1024,
+              temperature: 0.7,
+            });
+            assistantText = text;
+            console.log(`[JARVIS] Chat used provider: ${provider.name} (${provider.modelId})`);
+            break; // success, exit loop
+          } catch (error: any) {
+            console.warn(`[JARVIS] Chat provider ${provider.name} failed:`, error.message);
+            lastError = error;
+            // Continue to next provider if rate limit or quota error
+            if (
+              error.message?.toLowerCase().includes("rate limit") ||
+              error.message?.toLowerCase().includes("quota") ||
+              error.status === 429 ||
+              error.status === 402
+            ) {
+              continue;
+            }
+            // For other errors, we still try the next provider
+            continue;
+          }
+        }
+
+        // If all providers failed, use a fallback message
+        if (!assistantText) {
+          console.error("[JARVIS] All providers failed:", lastError);
           assistantText = "I'm having trouble connecting to my core systems, Sir. Try again in a moment.";
         }
 
@@ -565,11 +591,10 @@ Be concise. Confirm actions.`;
         });
         await supabase.from("chat_threads").update({ updated_at: new Date().toISOString() }).eq("id", threadId);
 
-        // Return the response as a stream (single chunk)
+        // Return as a stream (single chunk)
         const stream = new ReadableStream({
           start(controller) {
             const encoder = new TextEncoder();
-            // Format as a UIMessage stream chunk
             const chunk = {
               id: `msg-${Date.now()}`,
               role: "assistant",
