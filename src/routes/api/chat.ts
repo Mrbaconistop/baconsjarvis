@@ -31,10 +31,17 @@ export const Route = createFileRoute("/api/chat")({
         const userId = userData?.user?.id;
         if (!userId) return new Response("Unauthorized", { status: 401 });
 
-        // Verify thread ownership
-        const { data: thread } = await supabase.from("chat_threads")
+        // Verify thread ownership — auto-create with the client-supplied id if missing
+        // (handles stale tabs, deleted threads, or direct-link navigation before creation finishes)
+        let { data: thread } = await supabase.from("chat_threads")
           .select("id, title").eq("id", threadId).eq("user_id", userId).maybeSingle();
-        if (!thread) return new Response("Thread not found", { status: 404 });
+        if (!thread) {
+          const { data: created, error: createErr } = await supabase.from("chat_threads")
+            .insert({ id: threadId, user_id: userId, title: "New conversation" })
+            .select("id, title").single();
+          if (createErr || !created) return new Response("Thread not found", { status: 404 });
+          thread = created;
+        }
 
         // Load profile for address-as
         const { data: profile } = await supabase.from("profiles")
