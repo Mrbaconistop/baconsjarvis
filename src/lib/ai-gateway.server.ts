@@ -3,7 +3,6 @@ import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 export function resolveChatModel() {
   const chain: any[] = [];
 
-  // 1. Groq
   const groqKey = process.env.GROQ_API_KEY;
   if (groqKey) {
     try {
@@ -17,12 +16,9 @@ export function resolveChatModel() {
         getModel: (modelId: string) => groq(modelId),
         modelId: process.env.GROQ_MODEL ?? "llama-3.1-8b-instant",
       });
-    } catch (e) {
-      console.warn("Groq init failed:", e);
-    }
+    } catch (e) {}
   }
 
-  // 2. DeepSeek
   const deepseekKey = process.env.DEEPSEEK_API_KEY;
   if (deepseekKey) {
     try {
@@ -36,17 +32,14 @@ export function resolveChatModel() {
         getModel: (modelId: string) => deepseek(modelId),
         modelId: process.env.DEEPSEEK_MODEL ?? "deepseek-chat",
       });
-    } catch (e) {
-      console.warn("DeepSeek init failed:", e);
-    }
+    } catch (e) {}
   }
 
-  // 3. Fallback – ALWAYS included
   chain.push({
     name: "fallback",
     getModel: () => ({
       doGenerate: async () => ({
-        text: "I'm currently offline, Sir. Please check my API keys.",
+        text: "I'm offline, Sir.",
       }),
     }),
     modelId: "fallback",

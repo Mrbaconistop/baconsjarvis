@@ -1,7 +1,69 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { generateText } from "ai";
+import { generateText, createOpenAICompatible } from "ai";
 import { createClient } from "@supabase/supabase-js";
-import { JARVIS_SYSTEM_PROMPT, resolveChatModel } from "@/lib/ai-gateway.server";
+
+const JARVIS_SYSTEM_PROMPT = `
+You are JARVIS, Tony Stark's AI assistant.
+- Address the user as "Sir".
+- Be concise, efficient, and slightly witty.
+- Never say "as an AI".
+- Keep replies under 3 sentences unless asked.
+`;
+
+function getProviders() {
+  const chain: any[] = [];
+
+  // Groq
+  const groqKey = process.env.GROQ_API_KEY;
+  if (groqKey) {
+    try {
+      const groq = createOpenAICompatible({
+        name: "groq",
+        baseURL: "https://api.groq.com/openai/v1",
+        headers: { Authorization: `Bearer ${groqKey}` },
+      });
+      chain.push({
+        name: "groq",
+        getModel: (modelId: string) => groq(modelId),
+        modelId: process.env.GROQ_MODEL ?? "llama-3.1-8b-instant",
+      });
+    } catch (e) {
+      console.warn("Groq init failed:", e);
+    }
+  }
+
+  // DeepSeek
+  const deepseekKey = process.env.DEEPSEEK_API_KEY;
+  if (deepseekKey) {
+    try {
+      const deepseek = createOpenAICompatible({
+        name: "deepseek",
+        baseURL: "https://api.deepseek.com/v1",
+        headers: { Authorization: `Bearer ${deepseekKey}` },
+      });
+      chain.push({
+        name: "deepseek",
+        getModel: (modelId: string) => deepseek(modelId),
+        modelId: process.env.DEEPSEEK_MODEL ?? "deepseek-chat",
+      });
+    } catch (e) {
+      console.warn("DeepSeek init failed:", e);
+    }
+  }
+
+  // Fallback
+  chain.push({
+    name: "fallback",
+    getModel: () => ({
+      doGenerate: async () => ({
+        text: "I'm currently offline, Sir. Please check my API keys.",
+      }),
+    }),
+    modelId: "fallback",
+  });
+
+  return chain;
+}
 
 export const Route = createFileRoute("/api/chat")({
   server: {
@@ -22,11 +84,9 @@ export const Route = createFileRoute("/api/chat")({
           const lastUser = messages.filter((m: any) => m.role === "user").pop();
           const userPrompt = lastUser?.parts?.map((p: any) => p.text).join(" ") || "Hello";
 
-          // Build system prompt
           const systemPrompt = `${JARVIS_SYSTEM_PROMPT}\nCurrent time: ${new Date().toISOString()}. Be concise.`;
 
-          // Get providers – ensure it's an array
-          const providers = resolveChatModel();
+          const providers = getProviders();
           if (!Array.isArray(providers) || providers.length === 0) {
             return new Response(JSON.stringify({ error: "No AI providers available" }), {
               status: 500,
@@ -36,7 +96,6 @@ export const Route = createFileRoute("/api/chat")({
 
           let reply = "I'm offline, Sir.";
 
-          // Try each provider in order
           for (const provider of providers) {
             try {
               const model = provider.getModel(provider.modelId);
@@ -55,7 +114,7 @@ export const Route = createFileRoute("/api/chat")({
             }
           }
 
-          // Return as stream (single chunk)
+          // Stream response
           const stream = new ReadableStream({
             start(controller) {
               const encoder = new TextEncoder();
