@@ -2,7 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { generateText } from "ai";
 import { z } from "zod";
-import { JARVIS_SYSTEM_PROMPT, getGroqModel } from "./ai-gateway.server";
+import { JARVIS_SYSTEM_PROMPT, resolveChatModel } from "./ai-gateway.server";
 
 async function loadContext(supabase: any, userId: string) {
   const { data: profile } = await supabase.from("profiles").select("address_as, name").eq("id", userId).maybeSingle();
@@ -53,48 +53,45 @@ You receive a command. Return JSON only matching this shape (no markdown, no com
 If the command sets a reminder, populate "reminder" with a resolved absolute ISO datetime.
 Otherwise set "reminder" to null. "reply" is always present.`;
 
+    // Use the user's preferred AI provider
+    const model = await resolveChatModel(userId, supabase);
+
+    const { text } = await generateText({
+      model,
+      system: systemPrompt,
+      prompt: data.text,
+      maxTokens: 800,
+      temperature: 0.7,
+    });
+
+    let parsed: z.infer<typeof planSchema>;
     try {
-      const model = getGroqModel();
-      const { text } = await generateText({
-        model,
-        system: systemPrompt,
-        prompt: data.text,
-        maxTokens: 800,
-        temperature: 0.7,
-      });
-
-      let parsed: z.infer<typeof planSchema>;
-      try {
-        const jsonMatch = text.match(/\{[\s\S]*\}/);
-        parsed = planSchema.parse(JSON.parse(jsonMatch ? jsonMatch[0] : text));
-      } catch {
-        return { reply: text.slice(0, 400), created: null as null | { id: string } };
-      }
-
-      let created: { id: string } | null = null;
-      if (parsed.intent === "create_reminder" && parsed.reminder) {
-        const dt = new Date(parsed.reminder.datetime_iso);
-        if (!isNaN(dt.getTime())) {
-          const { data: row } = await supabase
-            .from("reminders")
-            .insert({
-              user_id: userId,
-              title: parsed.reminder.title,
-              datetime: dt.toISOString(),
-              priority: parsed.reminder.priority,
-              source_type: "voice",
-            })
-            .select("id")
-            .single();
-          created = row ?? null;
-        }
-      }
-
-      return { reply: parsed.reply, created };
-    } catch (error: any) {
-      console.error("runCommand error:", error);
-      return { reply: "I'm having trouble, Sir. Try again in a moment.", created: null };
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      parsed = planSchema.parse(JSON.parse(jsonMatch ? jsonMatch[0] : text));
+    } catch {
+      return { reply: text.slice(0, 400), created: null as null | { id: string } };
     }
+
+    let created: { id: string } | null = null;
+    if (parsed.intent === "create_reminder" && parsed.reminder) {
+      const dt = new Date(parsed.reminder.datetime_iso);
+      if (!isNaN(dt.getTime())) {
+        const { data: row } = await supabase
+          .from("reminders")
+          .insert({
+            user_id: userId,
+            title: parsed.reminder.title,
+            datetime: dt.toISOString(),
+            priority: parsed.reminder.priority,
+            source_type: "voice",
+          })
+          .select("id")
+          .single();
+        created = row ?? null;
+      }
+    }
+
+    return { reply: parsed.reply, created };
   });
 
 /* ---------- Draft a reply to a social feed item ---------- */
@@ -124,20 +121,17 @@ Return only the reply text. No quotes, no preamble.`;
 
     const prompt = `Original from ${feed.author_name} (${feed.author_handle ?? ""}):\n"""${feed.content}"""`;
 
-    try {
-      const model = getGroqModel();
-      const { text } = await generateText({
-        model,
-        system: systemPrompt,
-        prompt,
-        maxTokens: 200,
-        temperature: 0.7,
-      });
-      return { draft: text.trim() };
-    } catch (error: any) {
-      console.error("draftReply error:", error);
-      return { draft: "I'm unable to draft a reply right now, Sir." };
-    }
+    // Use the user's preferred AI provider
+    const model = await resolveChatModel(userId, supabase);
+
+    const { text } = await generateText({
+      model,
+      system: systemPrompt,
+      prompt,
+      maxTokens: 200,
+      temperature: 0.7,
+    });
+    return { draft: text.trim() };
   });
 
 /* ---------- Morning briefing ---------- */
@@ -180,37 +174,25 @@ ${(upcoming ?? []).map((r: any) => `- ${r.title} @ ${r.datetime} [${r.priority}]
 Social signals (last 24h):
 ${(feeds ?? []).map((f: any) => `- [${f.platform}/${f.priority}/${f.sentiment_label}] ${f.author_name}: ${f.content}`).join("\n") || "(none)"}`;
 
-    try {
-      const model = getGroqModel();
-      const { text } = await generateText({
-        model,
-        system: systemPrompt,
-        prompt,
-        maxTokens: 300,
-        temperature: 0.6,
-      });
+    // Use the user's preferred AI provider
+    const model = await resolveChatModel(userId, supabase);
 
-      await supabase.from("notifications").insert({
-        user_id: userId,
-        type: "briefing",
-        priority: "normal",
-        title: "Morning briefing",
-        message: text.trim(),
-        action_payload: [{ type: "dismiss", label: "Acknowledged" }],
-      });
+    const { text } = await generateText({
+      model,
+      system: systemPrompt,
+      prompt,
+      maxTokens: 300,
+      temperature: 0.6,
+    });
 
-      return { briefing: text.trim() };
-    } catch (error: any) {
-      console.error("morningBriefing error:", error);
-      const fallback = "I'm unable to generate the briefing right now, Sir.";
-      await supabase.from("notifications").insert({
-        user_id: userId,
-        type: "briefing",
-        priority: "normal",
-        title: "Morning briefing",
-        message: fallback,
-        action_payload: [{ type: "dismiss", label: "Acknowledged" }],
-      });
-      return { briefing: fallback };
-    }
+    await supabase.from("notifications").insert({
+      user_id: userId,
+      type: "briefing",
+      priority: "normal",
+      title: "Morning briefing",
+      message: text.trim(),
+      action_payload: [{ type: "dismiss", label: "Acknowledged" }],
+    });
+
+    return { briefing: text.trim() };
   });

@@ -1,7 +1,9 @@
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
-import { createClient } from "@supabase/supabase-js";
 
-// Helper to create Groq provider
+// ============================================================
+// Provider factories
+// ============================================================
+
 function createGroqProvider(apiKey: string) {
   return createOpenAICompatible({
     name: "groq",
@@ -10,7 +12,6 @@ function createGroqProvider(apiKey: string) {
   });
 }
 
-// Helper to create DeepSeek provider
 function createDeepSeekProvider(apiKey: string) {
   return createOpenAICompatible({
     name: "deepseek",
@@ -19,7 +20,6 @@ function createDeepSeekProvider(apiKey: string) {
   });
 }
 
-// Helper to create Gemini provider
 function createGeminiProvider(apiKey: string) {
   return createOpenAICompatible({
     name: "gemini",
@@ -31,7 +31,10 @@ function createGeminiProvider(apiKey: string) {
   });
 }
 
-// Get the model for a specific provider (without DB lookup)
+// ============================================================
+// Get model for a given provider
+// ============================================================
+
 export function getModelForProvider(provider: string) {
   if (provider === "groq") {
     const key = process.env.GROQ_API_KEY;
@@ -57,30 +60,41 @@ export function getModelForProvider(provider: string) {
     const groq = createGroqProvider(fallbackKey);
     return groq(process.env.GROQ_MODEL ?? "llama-3.1-8b-instant");
   }
-  throw new Error(`No valid AI provider configured for: ${provider}`);
+  throw new Error(`No valid AI provider for: ${provider}`);
 }
 
-// Resolve model for a user – fetches their preference from DB
-export async function resolveChatModel(userId: string) {
-  // Create a Supabase admin client to read the user's profile
-  const supabaseAdmin = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
+// ============================================================
+// Resolve model for a user (using authenticated supabase client)
+// ============================================================
 
-  // Get user's ai_provider preference
-  const { data: profile, error } = await supabaseAdmin
-    .from("profiles")
-    .select("ai_provider")
-    .eq("id", userId)
-    .maybeSingle();
+export async function resolveChatModel(userId: string, supabaseClient: any) {
+  try {
+    const { data: profile, error } = await supabaseClient
+      .from("profiles")
+      .select("ai_provider")
+      .eq("id", userId)
+      .maybeSingle();
 
-  if (error) {
-    console.warn("Failed to fetch ai_provider, using default:", error);
+    if (error) {
+      if (error.message?.includes("column") && error.message?.includes("does not exist")) {
+        console.warn("ai_provider column missing – using default");
+        return getModelForProvider("groq");
+      }
+      throw error;
+    }
+
+    const provider = profile?.ai_provider || "groq";
+    console.log(`[JARVIS] Using AI provider: ${provider}`);
+    return getModelForProvider(provider);
+  } catch (error) {
+    console.warn("Failed to fetch user AI preference, using default:", error);
+    return getModelForProvider("groq");
   }
-
-  const provider = profile?.ai_provider || process.env.SELECTED_AI_PROVIDER || "groq";
-  return getModelForProvider(provider);
 }
+
+// ============================================================
+// System prompt
+// ============================================================
 
 export const JARVIS_SYSTEM_PROMPT = `You are JARVIS, an elite personal AI assistant in the style of Tony Stark's butler.
 

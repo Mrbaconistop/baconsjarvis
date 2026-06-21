@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { convertToModelMessages, streamText, tool, stepCountIs, type UIMessage } from "ai";
 import { z } from "zod";
 import { createClient } from "@supabase/supabase-js";
-import { JARVIS_SYSTEM_PROMPT, resolveChatModels } from "@/lib/ai-gateway.server";
+import { JARVIS_SYSTEM_PROMPT, resolveChatModel } from "@/lib/ai-gateway.server";
 
 type Body = { messages?: UIMessage[]; threadId?: string };
 
@@ -384,102 +384,46 @@ ${factsBlock}
 
 Be concise. Confirm actions.`;
 
-          // ============================================================
-          // FAILOVER LOOP – Try each real provider
-          // ============================================================
-          const providers = resolveChatModels();
+// ============================================================
+// GET THE AI MODEL (User's preferred provider)
+// ============================================================
+const chatModel = await resolveChatModel(userId, supabase);
 
-          // If no providers at all, return a proper error
-          if (providers.length === 0) {
-            return new Response(
-              JSON.stringify({ error: "No AI providers configured. Please set GROQ_API_KEY or another key." }),
-              { status: 503, headers: { "Content-Type": "application/json" } },
-            );
-          }
+// ============================================================
+// STREAM THE RESPONSE
+// ============================================================
+const result = streamText({
+  model: chatModel,
+  system: systemPrompt,
+  messages: await convertToModelMessages(messages),
+  tools,
+  stopWhen: stepCountIs(8),
+  onError: ({ error }) => {
+    console.error("[chat streamText error]", error);
+  },
+});
 
-          let result = null;
-          let lastError: Error | null = null;
-
-          for (const provider of providers) {
-            try {
-              result = streamText({
-                model: provider.model,
-                system: systemPrompt,
-                messages: await convertToModelMessages(messages),
-                tools,
-                stopWhen: stepCountIs(8),
-                onError: ({ error }) => {
-                  console.error(`[chat] ${provider.name} error:`, error);
-                },
-              });
-              console.log(`[JARVIS] Using ${provider.name}`);
-              break;
-            } catch (error: any) {
-              console.warn(`[JARVIS] ${provider.name} failed:`, error.message);
-              lastError = error;
-              continue;
-            }
-          }
-
-          if (!result) {
-            console.error("[JARVIS] All providers failed:", lastError);
-            // Return a friendly fallback message
-            const fallbackText = "I'm having trouble connecting to my core systems, Sir. Try again in a moment.";
-            // Create a stream with a single chunk fallback
-            const fallbackStream = new ReadableStream({
-              start(controller) {
-                const encoder = new TextEncoder();
-                const chunk = {
-                  id: `msg-${Date.now()}`,
-                  role: "assistant",
-                  parts: [{ type: "text", text: fallbackText }],
-                  createdAt: new Date().toISOString(),
-                };
-                controller.enqueue(encoder.encode(`data: ${JSON.stringify(chunk)}\n\n`));
-                controller.close();
-              },
-            });
-            return new Response(fallbackStream, {
-              headers: {
-                "Content-Type": "text/event-stream",
-                "Cache-Control": "no-cache",
-                Connection: "keep-alive",
-              },
-            });
-          }
-
-          return result.toUIMessageStreamResponse({
-            originalMessages: messages,
-            onError: (error: unknown) => {
-              console.error("[chat stream response error]", error);
-              const e = error as { statusCode?: number; message?: string; responseBody?: string } | null;
-              if (e?.statusCode === 402 || e?.statusCode === 429) {
-                return "Sir, I've hit a rate limit. Try again in a moment.";
-              }
-              const detail = e?.responseBody || e?.message || String(error);
-              return `Signal interrupted, Sir: ${detail.slice(0, 300)}`;
-            },
-            onFinish: async ({ messages: finalMessages }) => {
-              const assistant = finalMessages[finalMessages.length - 1];
-              if (assistant && assistant.role === "assistant") {
-                await supabase.from("chat_messages").insert({
-                  thread_id: threadId,
-                  user_id: userId,
-                  role: "assistant",
-                  parts: assistant.parts as any,
-                });
-                await supabase.from("chat_threads").update({ updated_at: new Date().toISOString() }).eq("id", threadId);
-              }
-            },
-          });
-        } catch (error: any) {
-          console.error("[JARVIS] Unhandled error in /api/chat:", error);
-          return new Response(
-            JSON.stringify({ error: "Internal server error", details: error?.message || "Unknown" }),
-            { status: 500, headers: { "Content-Type": "application/json" } },
-          );
-        }
-      },
-    },
+return result.toUIMessageStreamResponse({
+  originalMessages: messages,
+  onError: (error: unknown) => {
+    console.error("[chat stream response error]", error);
+    const e = error as { statusCode?: number; message?: string; responseBody?: string } | null;
+    if (e?.statusCode === 402 || e?.statusCode === 429) {
+      return "Sir, I've hit a rate limit. Try again in a moment.";
+    }
+    const detail = e?.responseBody || e?.message || String(error);
+    return `Signal interrupted, Sir: ${detail.slice(0, 300)}`;
+  },
+  onFinish: async ({ messages: finalMessages }) => {
+    const assistant = finalMessages[finalMessages.length - 1];
+    if (assistant && assistant.role === "assistant") {
+      await supabase.from("chat_messages").insert({
+        thread_id: threadId,
+        user_id: userId,
+        role: "assistant",
+        parts: assistant.parts as any,
+      });
+      await supabase.from("chat_threads").update({ updated_at: new Date().toISOString() }).eq("id", threadId);
+    }
   },
 });

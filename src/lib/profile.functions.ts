@@ -35,9 +35,7 @@ export const getAiProvider = createServerFn({ method: "GET" })
     try {
       const { data, error } = await supabase.from("profiles").select("ai_provider").eq("id", userId).maybeSingle();
       if (error) {
-        // Column missing – fallback to default
         if (error.message?.includes("column") && error.message?.includes("does not exist")) {
-          console.warn("ai_provider column missing – using default");
           return { provider: "groq" };
         }
         throw error;
@@ -57,7 +55,6 @@ export const updateAiProvider = createServerFn({ method: "POST" })
     try {
       const { error } = await supabase.from("profiles").update({ ai_provider: data.provider }).eq("id", userId);
       if (error) {
-        // Column missing – ignore silently
         if (error.message?.includes("column") && error.message?.includes("does not exist")) {
           console.warn("ai_provider column missing – update skipped");
           return { ok: true, provider: data.provider };

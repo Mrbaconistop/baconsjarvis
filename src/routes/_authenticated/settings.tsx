@@ -57,10 +57,14 @@ function SettingsPage() {
 
   const aiMutation = useMutation({
     mutationFn: (provider: string) => updateProvider({ data: { provider: provider as any } }),
-    onSuccess: () => {
+    onSuccess: (result) => {
       qc.invalidateQueries({ queryKey: ["ai-provider"] });
-      toast.success("AI provider updated! Reloading...");
-      setTimeout(() => window.location.reload(), 1000);
+      if (result?.ok) {
+        toast.success("AI provider updated! Reloading...");
+        setTimeout(() => window.location.reload(), 1000);
+      } else {
+        toast.error("Failed to update provider");
+      }
     },
     onError: (error: any) => {
       toast.error(error?.message || "Failed to update provider");
