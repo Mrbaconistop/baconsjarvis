@@ -2,15 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { generateText } from "ai";
 import { z } from "zod";
-import { createLovableAiGatewayProvider, JARVIS_SYSTEM_PROMPT } from "./ai-gateway.server";
-
-const MODEL = "google/gemini-3-flash-preview";
-
-function gateway() {
-  const key = process.env.LOVABLE_API_KEY;
-  if (!key) throw new Error("LOVABLE_API_KEY missing");
-  return createLovableAiGatewayProvider(key);
-}
+import { resolveChatModel, JARVIS_SYSTEM_PROMPT } from "./ai-gateway.server";
 
 async function loadContext(supabase: any, userId: string) {
   const { data: profile } = await supabase.from("profiles").select("address_as, name").eq("id", userId).maybeSingle();
@@ -25,9 +17,7 @@ async function loadContext(supabase: any, userId: string) {
     .maybeSingle();
   return {
     addressAs: profile?.address_as ?? "Sir",
-    nextEvent: nextEvent
-      ? { title: nextEvent.title, datetime: nextEvent.datetime as string }
-      : null,
+    nextEvent: nextEvent ? { title: nextEvent.title, datetime: nextEvent.datetime as string } : null,
   };
 }
 
@@ -38,7 +28,8 @@ export const runCommand = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     const { supabase, userId } = context as any;
     const ctx = await loadContext(supabase, userId);
-    const provider = gateway();
+
+    const { model } = resolveChatModel(); // Uses Groq if GROQ_API_KEY is set
 
     const planSchema = z.object({
       intent: z.enum(["create_reminder", "summarise", "draft_reply", "answer"]),
@@ -54,7 +45,7 @@ export const runCommand = createServerFn({ method: "POST" })
     });
 
     const { text } = await generateText({
-      model: provider(MODEL),
+      model,
       system: `${JARVIS_SYSTEM_PROMPT}
 
 Address the user as "${ctx.addressAs}". Today is ${new Date().toISOString()}.
@@ -102,7 +93,9 @@ Otherwise set "reminder" to null. "reply" is always present.`,
 export const draftReply = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: unknown) =>
-    z.object({ feedId: z.string().uuid(), tone: z.enum(["measured", "warm", "decline", "thank"]).default("measured") }).parse(input),
+    z
+      .object({ feedId: z.string().uuid(), tone: z.enum(["measured", "warm", "decline", "thank"]).default("measured") })
+      .parse(input),
   )
   .handler(async ({ data, context }) => {
     const { supabase, userId } = context as any;
@@ -114,9 +107,11 @@ export const draftReply = createServerFn({ method: "POST" })
       .single();
     if (!feed) throw new Error("Not found");
     const ctx = await loadContext(supabase, userId);
-    const provider = gateway();
+
+    const { model } = resolveChatModel(); // Uses Groq
+
     const { text } = await generateText({
-      model: provider(MODEL),
+      model,
       system: `${JARVIS_SYSTEM_PROMPT}
 
 You are drafting a reply on ${ctx.addressAs}'s behalf for ${feed.platform}.
@@ -135,18 +130,27 @@ export const morningBriefing = createServerFn({ method: "POST" })
     const ctx = await loadContext(supabase, userId);
     const since = new Date(Date.now() - 24 * 3600_000).toISOString();
     const [{ data: feeds }, { data: upcoming }] = await Promise.all([
-      supabase.from("social_feeds").select("platform, author_name, content, sentiment_label, priority")
-        .eq("user_id", userId).gte("received_at", since).order("received_at", { ascending: false }).limit(40),
-      supabase.from("reminders").select("title, datetime, priority")
-        .eq("user_id", userId).eq("is_completed", false)
+      supabase
+        .from("social_feeds")
+        .select("platform, author_name, content, sentiment_label, priority")
+        .eq("user_id", userId)
+        .gte("received_at", since)
+        .order("received_at", { ascending: false })
+        .limit(40),
+      supabase
+        .from("reminders")
+        .select("title, datetime, priority")
+        .eq("user_id", userId)
+        .eq("is_completed", false)
         .gte("datetime", new Date().toISOString())
         .lte("datetime", new Date(Date.now() + 36 * 3600_000).toISOString())
         .order("datetime", { ascending: true }),
     ]);
 
-    const provider = gateway();
+    const { model } = resolveChatModel(); // Uses Groq
+
     const { text } = await generateText({
-      model: provider(MODEL),
+      model,
       system: `${JARVIS_SYSTEM_PROMPT}
 
 Address the user as "${ctx.addressAs}". Produce a morning briefing in exactly this structure:
