@@ -25,10 +25,18 @@ export const Route = createFileRoute("/api/chat")({
           // Build system prompt
           const systemPrompt = `${JARVIS_SYSTEM_PROMPT}\nCurrent time: ${new Date().toISOString()}. Be concise.`;
 
-          // Try providers
+          // Get providers – ensure it's an array
           const providers = resolveChatModel();
+          if (!Array.isArray(providers) || providers.length === 0) {
+            return new Response(JSON.stringify({ error: "No AI providers available" }), {
+              status: 500,
+              headers: { "Content-Type": "application/json" },
+            });
+          }
+
           let reply = "I'm offline, Sir.";
 
+          // Try each provider in order
           for (const provider of providers) {
             try {
               const model = provider.getModel(provider.modelId);
