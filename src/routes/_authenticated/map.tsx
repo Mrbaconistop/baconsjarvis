@@ -5,6 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { mapBus, type MapAction } from "@/lib/mapBus";
 import { Crosshair, Layers, X, Search, MapPin, Trash2, Save } from "lucide-react";
 import { toast } from "sonner";
+import { geocodeAddress } from "@/lib/maps.functions"; // server function
 
 declare global {
   interface Window {
@@ -58,10 +59,7 @@ function MapPage() {
   const { data: places = [] } = useQuery({
     queryKey: ["map_places"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("map_places")
-        .select("*")
-        .order("created_at", { ascending: false });
+      const { data, error } = await supabase.from("map_places").select("*").order("created_at", { ascending: false });
       if (error) throw error;
       return data ?? [];
     },
@@ -166,19 +164,28 @@ function MapPage() {
     qc.invalidateQueries({ queryKey: ["map_places"] });
   }
 
+  // ✅ REPLACED with server-side geocoder
   async function doSearch(e: React.FormEvent) {
     e.preventDefault();
     if (!search.trim() || !mapRef.current) return;
-    const g = window.google;
-    const svc = new g.maps.Geocoder();
+
     try {
-      const res = await svc.geocode({ address: search });
-      const top = res.results?.[0];
-      if (!top) return toast.error("No results");
-      const loc = top.geometry.location;
+      const result = await geocodeAddress({ data: { address: search } });
+      if (!result.ok) {
+        toast.error(result.error || "No results");
+        return;
+      }
+
+      const g = window.google;
+      const loc = new g.maps.LatLng(result.lat, result.lng);
       mapRef.current.panTo(loc);
       mapRef.current.setZoom(14);
-      const m = new g.maps.Marker({ position: loc, map: mapRef.current, title: top.formatted_address });
+
+      const m = new g.maps.Marker({
+        position: loc,
+        map: mapRef.current,
+        title: result.formatted || search,
+      });
       markersRef.current.push(m);
     } catch (err: any) {
       toast.error(err?.message ?? "Search failed");
@@ -232,10 +239,13 @@ function MapPage() {
       >
         <Search size={14} className="text-arc" />
         <input
+          id="map-search"
+          name="map-search"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search place or address…"
           className="flex-1 bg-transparent text-sm outline-none placeholder:text-hud-dim"
+          autoComplete="off"
         />
         {search && (
           <button type="button" onClick={() => setSearch("")} className="text-hud-dim hover:text-foreground">
@@ -301,15 +311,28 @@ function escapeHtml(s: string) {
 
 function decodePolyline(encoded: string) {
   const points: { lat: number; lng: number }[] = [];
-  let index = 0, lat = 0, lng = 0;
+  let index = 0,
+    lat = 0,
+    lng = 0;
   while (index < encoded.length) {
-    let b, shift = 0, result = 0;
-    do { b = encoded.charCodeAt(index++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
-    const dlat = (result & 1) ? ~(result >> 1) : (result >> 1);
+    let b,
+      shift = 0,
+      result = 0;
+    do {
+      b = encoded.charCodeAt(index++) - 63;
+      result |= (b & 0x1f) << shift;
+      shift += 5;
+    } while (b >= 0x20);
+    const dlat = result & 1 ? ~(result >> 1) : result >> 1;
     lat += dlat;
-    shift = 0; result = 0;
-    do { b = encoded.charCodeAt(index++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
-    const dlng = (result & 1) ? ~(result >> 1) : (result >> 1);
+    shift = 0;
+    result = 0;
+    do {
+      b = encoded.charCodeAt(index++) - 63;
+      result |= (b & 0x1f) << shift;
+      shift += 5;
+    } while (b >= 0x20);
+    const dlng = result & 1 ? ~(result >> 1) : result >> 1;
     lng += dlng;
     points.push({ lat: lat * 1e-5, lng: lng * 1e-5 });
   }
