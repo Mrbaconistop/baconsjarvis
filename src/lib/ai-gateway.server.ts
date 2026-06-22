@@ -61,7 +61,11 @@ export async function getModelForUser(userId: string, supabase: any) {
     config[f.key] = f.value;
   });
 
-  const provider = config.provider ?? process.env.CHAT_PROVIDER ?? "system";
+  const provider = (config.provider ?? process.env.CHAT_PROVIDER ?? "system") as
+    | "groq"
+    | "deepseek"
+    | "lovable"
+    | "system";
   const apiKey = config.api_key;
 
   // If provider is "system" or not set, we don't override
