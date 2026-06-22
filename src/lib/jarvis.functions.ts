@@ -2,7 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { generateText } from "ai";
 import { z } from "zod";
-import { resolveChatModel, JARVIS_SYSTEM_PROMPT } from "./ai-gateway.server";
+import { getModelForUser, JARVIS_SYSTEM_PROMPT } from "./ai-gateway.server";
 
 async function loadContext(supabase: any, userId: string) {
   const { data: profile } = await supabase.from("profiles").select("address_as, name").eq("id", userId).maybeSingle();
@@ -29,7 +29,7 @@ export const runCommand = createServerFn({ method: "POST" })
     const { supabase, userId } = context as any;
     const ctx = await loadContext(supabase, userId);
 
-    const { model } = resolveChatModel(); // Uses Groq if GROQ_API_KEY is set
+    const { model } = await getModelForUser(userId, supabase);
 
     const planSchema = z.object({
       intent: z.enum(["create_reminder", "summarise", "draft_reply", "answer"]),
@@ -108,7 +108,7 @@ export const draftReply = createServerFn({ method: "POST" })
     if (!feed) throw new Error("Not found");
     const ctx = await loadContext(supabase, userId);
 
-    const { model } = resolveChatModel(); // Uses Groq
+    const { model } = await getModelForUser(userId, supabase);
 
     const { text } = await generateText({
       model,
@@ -147,7 +147,7 @@ export const morningBriefing = createServerFn({ method: "POST" })
         .order("datetime", { ascending: true }),
     ]);
 
-    const { model } = resolveChatModel(); // Uses Groq
+    const { model } = await getModelForUser(userId, supabase);
 
     const { text } = await generateText({
       model,

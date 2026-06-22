@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { convertToModelMessages, streamText, tool, stepCountIs, type UIMessage } from "ai";
 import { z } from "zod";
 import { createClient } from "@supabase/supabase-js";
-import { JARVIS_SYSTEM_PROMPT, resolveChatModel } from "@/lib/ai-gateway.server";
+import { JARVIS_SYSTEM_PROMPT, getModelForUser } from "@/lib/ai-gateway.server";
 
 type Body = { messages?: UIMessage[]; threadId?: string };
 
@@ -84,12 +84,8 @@ export const Route = createFileRoute("/api/chat")({
           }
         }
 
-        let chatModel;
-        try {
-          chatModel = resolveChatModel().model;
-        } catch (e: any) {
-          return new Response(e?.message ?? "Model unavailable", { status: 500 });
-        }
+        // Get the model with user overrides
+        const { model: chatModel } = await getModelForUser(userId, supabase);
 
         const tools = {
           // === REMINDER TOOLS ===

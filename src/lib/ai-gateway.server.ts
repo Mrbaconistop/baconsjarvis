@@ -8,29 +8,65 @@ export function createGroqProvider(apiKey: string) {
   });
 }
 
-/**
- * Picks the chat model based on env:
- * - If GROQ_API_KEY is set (and CHAT_PROVIDER !== "lovable"), use Groq.
- *   Model: GROQ_MODEL (default "llama-3.3-70b-versatile").
- * - Otherwise use Lovable AI Gateway with google/gemini-3-flash-preview.
- */
-export function resolveChatModel() {
-  const provider = (process.env.CHAT_PROVIDER ?? "").toLowerCase();
-  const groqKey = process.env.GROQ_API_KEY;
-  const useGroq = provider === "groq" || (provider !== "lovable" && !!groqKey);
+export function createDeepSeekProvider(apiKey: string) {
+  return createOpenAICompatible({
+    name: "deepseek",
+    baseURL: "https://api.deepseek.com/v1",
+    headers: { Authorization: `Bearer ${apiKey}` },
+  });
+}
 
-  if (useGroq) {
-    if (!groqKey) throw new Error("CHAT_PROVIDER=groq but GROQ_API_KEY is not set");
-    const groq = createGroqProvider(groqKey);
+/**
+ * Resolve a chat model, optionally overriding the provider and API key.
+ * If no overrides are given, falls back to environment variables.
+ */
+export function resolveChatModel(opts?: { provider?: "groq" | "deepseek" | "lovable" | "system"; apiKey?: string }) {
+  const provider = opts?.provider ?? process.env.CHAT_PROVIDER?.toLowerCase() ?? "lovable";
+  const apiKey = opts?.apiKey;
+
+  // --- Groq ---
+  if (provider === "groq") {
+    const key = apiKey ?? process.env.GROQ_API_KEY;
+    if (!key) throw new Error("Groq API key is not set");
+    const groq = createGroqProvider(key);
     const modelId = process.env.GROQ_MODEL ?? "llama-3.3-70b-versatile";
     return { model: groq(modelId), provider: "groq" as const, modelId };
   }
 
+  // --- DeepSeek ---
+  if (provider === "deepseek") {
+    const key = apiKey ?? process.env.DEEPSEEK_API_KEY;
+    if (!key) throw new Error("DeepSeek API key is not set");
+    const deepseek = createDeepSeekProvider(key);
+    const modelId = process.env.DEEPSEEK_MODEL ?? "deepseek-chat";
+    return { model: deepseek(modelId), provider: "deepseek" as const, modelId };
+  }
+
+  // --- Lovable (fallback) ---
   const key = process.env.LOVABLE_API_KEY;
   if (!key) throw new Error("Missing LOVABLE_API_KEY");
   const gateway = createLovableAiGatewayProvider(key);
   const modelId = "google/gemini-3-flash-preview";
   return { model: gateway(modelId), provider: "lovable" as const, modelId };
+}
+
+/**
+ * Fetch the user's custom LLM configuration from user_facts and resolve the model.
+ */
+export async function getModelForUser(userId: string, supabase: any) {
+  const { data } = await supabase.from("user_facts").select("key, value").eq("user_id", userId).eq("category", "llm");
+
+  const config: Record<string, string> = {};
+  (data ?? []).forEach((f: any) => {
+    config[f.key] = f.value;
+  });
+
+  const provider = config.provider ?? process.env.CHAT_PROVIDER ?? "system";
+  const apiKey = config.api_key;
+
+  // If provider is "system" or not set, we don't override
+  const effectiveProvider = provider === "system" ? undefined : provider;
+  return resolveChatModel({ provider: effectiveProvider, apiKey });
 }
 
 const LOVABLE_AIG_RUN_ID_HEADER = "X-Lovable-AIG-Run-ID";
