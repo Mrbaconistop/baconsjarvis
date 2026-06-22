@@ -241,6 +241,51 @@ export type Database = {
         }
         Relationships: []
       }
+      map_places: {
+        Row: {
+          address: string | null
+          category: string | null
+          color: string | null
+          created_at: string
+          id: string
+          label: string
+          lat: number
+          lng: number
+          notes: string | null
+          place_id: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          address?: string | null
+          category?: string | null
+          color?: string | null
+          created_at?: string
+          id?: string
+          label: string
+          lat: number
+          lng: number
+          notes?: string | null
+          place_id?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          address?: string | null
+          category?: string | null
+          color?: string | null
+          created_at?: string
+          id?: string
+          label?: string
+          lat?: number
+          lng?: number
+          notes?: string | null
+          place_id?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       notifications: {
         Row: {
           action_payload: Json
