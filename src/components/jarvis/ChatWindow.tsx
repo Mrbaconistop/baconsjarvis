@@ -2,10 +2,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, type UIMessage } from "ai";
 import { supabase } from "@/integrations/supabase/client";
-import { Send, Square, Bell, Vault, ListChecks, CheckCircle2, Wrench } from "lucide-react";
+import { Send, Square, Bell, Vault, ListChecks, CheckCircle2, Wrench, MapPin } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useQueryClient } from "@tanstack/react-query";
+import { applyClientAction } from "@/lib/mapBus";
 
 const TOOL_META: Record<string, { icon: any; label: string }> = {
   "tool-create_reminder": { icon: Bell, label: "Setting reminder" },
@@ -13,6 +14,13 @@ const TOOL_META: Record<string, { icon: any; label: string }> = {
   "tool-complete_reminder": { icon: CheckCircle2, label: "Completing reminder" },
   "tool-save_vault_item": { icon: Vault, label: "Saving to vault" },
   "tool-list_vault": { icon: Vault, label: "Reading vault" },
+  "tool-search_places": { icon: MapPin, label: "Searching places" },
+  "tool-geocode_address": { icon: MapPin, label: "Geocoding" },
+  "tool-save_place": { icon: MapPin, label: "Saving place" },
+  "tool-list_saved_places": { icon: MapPin, label: "Reading saved places" },
+  "tool-delete_saved_place": { icon: MapPin, label: "Deleting place" },
+  "tool-show_on_map": { icon: MapPin, label: "Showing on map" },
+  "tool-get_directions": { icon: MapPin, label: "Getting directions" },
 };
 
 export function ChatWindow({ threadId, initial }: { threadId: string; initial: UIMessage[] }) {
@@ -39,10 +47,28 @@ export function ChatWindow({ threadId, initial }: { threadId: string; initial: U
       qc.invalidateQueries({ queryKey: ["threads"] });
       qc.invalidateQueries({ queryKey: ["reminders"] });
       qc.invalidateQueries({ queryKey: ["vault"] });
+      qc.invalidateQueries({ queryKey: ["map_places"] });
     },
   });
 
   const busy = status === "submitted" || status === "streaming";
+
+  // Forward any tool client_action payloads (e.g. flyTo, drawRoute) to the live map.
+  const dispatchedRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    for (const m of messages) {
+      for (let i = 0; i < m.parts.length; i++) {
+        const p: any = m.parts[i];
+        if (typeof p?.type === "string" && p.type.startsWith("tool-") && p.output?.client_action) {
+          const key = `${m.id}:${i}`;
+          if (!dispatchedRef.current.has(key)) {
+            dispatchedRef.current.add(key);
+            applyClientAction(p.output.client_action);
+          }
+        }
+      }
+    }
+  }, [messages]);
 
   useEffect(() => { taRef.current?.focus(); }, [threadId, busy]);
   useEffect(() => {

@@ -1,6 +1,6 @@
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import { ReactNode, useEffect, useState } from "react";
-import { LayoutDashboard, Clock, Globe, Activity, Settings, LogOut, MessageSquare, KeyRound, Wallet, Bell } from "lucide-react";
+import { LayoutDashboard, Clock, Globe, Activity, Settings, LogOut, MessageSquare, KeyRound, Wallet, Bell, Map as MapIcon } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
 import { JarvisOrb } from "./JarvisOrb";
@@ -12,6 +12,7 @@ const NAV = [
   { to: "/vault", label: "Vault", icon: KeyRound, tag: "03" },
   { to: "/spending", label: "Spending", icon: Wallet, tag: "04" },
   { to: "/briefing", label: "Briefing", icon: Bell, tag: "05" },
+  { to: "/map", label: "Map", icon: MapIcon, tag: "09" },
   { to: "/world", label: "World", icon: Globe, tag: "06" },
   { to: "/pulse", label: "Pulse", icon: Activity, tag: "07" },
   { to: "/settings", label: "Settings", icon: Settings, tag: "08" },

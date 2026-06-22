@@ -560,6 +560,184 @@ export const Route = createFileRoute("/api/chat")({
               };
             },
           }),
+
+          // === MAP TOOLS ===
+          search_places: tool({
+            description: "Search Google Places for a place by name or query. Returns up to 5 candidates with coordinates.",
+            inputSchema: z.object({ query: z.string() }),
+            execute: async ({ query }) => {
+              try {
+                const r = await fetch("https://connector-gateway.lovable.dev/google_maps/places/v1/places:searchText", {
+                  method: "POST",
+                  headers: {
+                    Authorization: `Bearer ${process.env.LOVABLE_API_KEY}`,
+                    "X-Connection-Api-Key": process.env.GOOGLE_MAPS_API_KEY!,
+                    "Content-Type": "application/json",
+                    "X-Goog-FieldMask": "places.id,places.displayName,places.formattedAddress,places.location",
+                  },
+                  body: JSON.stringify({ textQuery: query, maxResultCount: 5 }),
+                });
+                const j: any = await r.json();
+                const places = (j.places ?? []).map((p: any) => ({
+                  id: p.id,
+                  name: p.displayName?.text,
+                  address: p.formattedAddress,
+                  lat: p.location?.latitude,
+                  lng: p.location?.longitude,
+                }));
+                return { ok: true, places };
+              } catch (e: any) {
+                return { ok: false, error: e?.message ?? "search failed" };
+              }
+            },
+          }),
+          geocode_address: tool({
+            description: "Convert an address or place name into latitude/longitude using Google Geocoding.",
+            inputSchema: z.object({ address: z.string() }),
+            execute: async ({ address }) => {
+              const r = await fetch(
+                `https://connector-gateway.lovable.dev/google_maps/maps/api/geocode/json?address=${encodeURIComponent(address)}`,
+                {
+                  headers: {
+                    Authorization: `Bearer ${process.env.LOVABLE_API_KEY}`,
+                    "X-Connection-Api-Key": process.env.GOOGLE_MAPS_API_KEY!,
+                  },
+                },
+              );
+              const j: any = await r.json();
+              const top = j.results?.[0];
+              if (!top) return { ok: false, error: j.status || "no results" };
+              return {
+                ok: true,
+                lat: top.geometry.location.lat,
+                lng: top.geometry.location.lng,
+                formatted: top.formatted_address,
+                place_id: top.place_id,
+              };
+            },
+          }),
+          save_place: tool({
+            description:
+              "Save a location to the user's map. Provide either lat+lng or address (which will be geocoded). Drops a pin live if the Map page is open.",
+            inputSchema: z.object({
+              label: z.string(),
+              address: z.string().nullable().optional(),
+              lat: z.number().nullable().optional(),
+              lng: z.number().nullable().optional(),
+              notes: z.string().nullable().optional(),
+              category: z.string().nullable().optional(),
+            }),
+            execute: async ({ label, address, lat, lng, notes, category }) => {
+              let finalLat = lat, finalLng = lng, finalAddr = address ?? null;
+              if ((finalLat == null || finalLng == null) && address) {
+                const r = await fetch(
+                  `https://connector-gateway.lovable.dev/google_maps/maps/api/geocode/json?address=${encodeURIComponent(address)}`,
+                  {
+                    headers: {
+                      Authorization: `Bearer ${process.env.LOVABLE_API_KEY}`,
+                      "X-Connection-Api-Key": process.env.GOOGLE_MAPS_API_KEY!,
+                    },
+                  },
+                );
+                const j: any = await r.json();
+                const top = j.results?.[0];
+                if (!top) return { ok: false, error: "Could not geocode that address." };
+                finalLat = top.geometry.location.lat;
+                finalLng = top.geometry.location.lng;
+                finalAddr = top.formatted_address;
+              }
+              if (finalLat == null || finalLng == null) return { ok: false, error: "Need lat/lng or address." };
+              const { data, error } = await supabase
+                .from("map_places")
+                .insert({
+                  user_id: userId,
+                  label,
+                  address: finalAddr,
+                  lat: finalLat,
+                  lng: finalLng,
+                  notes: notes ?? null,
+                  category: category ?? null,
+                })
+                .select("id, label, lat, lng, address")
+                .single();
+              if (error) return { ok: false, error: error.message };
+              return {
+                ok: true,
+                place: data,
+                client_action: { type: "flyTo", lat: finalLat, lng: finalLng, zoom: 14, label },
+              };
+            },
+          }),
+          list_saved_places: tool({
+            description: "List the user's saved map places.",
+            inputSchema: z.object({}),
+            execute: async () => {
+              const { data } = await supabase
+                .from("map_places")
+                .select("id, label, address, lat, lng, category, notes")
+                .eq("user_id", userId)
+                .order("created_at", { ascending: false })
+                .limit(50);
+              return { places: data ?? [] };
+            },
+          }),
+          delete_saved_place: tool({
+            description: "Delete a saved map place by id.",
+            inputSchema: z.object({ id: z.string().uuid() }),
+            execute: async ({ id }) => {
+              const { error } = await supabase.from("map_places").delete().eq("id", id).eq("user_id", userId);
+              return { ok: !error, error: error?.message };
+            },
+          }),
+          show_on_map: tool({
+            description:
+              "Pan and zoom the live Map page to a coordinate. Requires the user to have the Map page open. Use after geocode_address or search_places.",
+            inputSchema: z.object({
+              lat: z.number(),
+              lng: z.number(),
+              zoom: z.number().int().min(2).max(20).default(14),
+              label: z.string().nullable().optional(),
+            }),
+            execute: async ({ lat, lng, zoom, label }) => ({
+              ok: true,
+              client_action: { type: "flyTo", lat, lng, zoom, label: label ?? undefined },
+            }),
+          }),
+          get_directions: tool({
+            description:
+              "Get driving/walking/transit directions between two addresses. Returns distance, duration, and draws the route on the live Map page if open.",
+            inputSchema: z.object({
+              origin: z.string(),
+              destination: z.string(),
+              mode: z.enum(["DRIVE", "WALK", "BICYCLE", "TRANSIT"]).default("DRIVE"),
+            }),
+            execute: async ({ origin, destination, mode }) => {
+              const r = await fetch("https://connector-gateway.lovable.dev/google_maps/routes/directions/v2:computeRoutes", {
+                method: "POST",
+                headers: {
+                  Authorization: `Bearer ${process.env.LOVABLE_API_KEY}`,
+                  "X-Connection-Api-Key": process.env.GOOGLE_MAPS_API_KEY!,
+                  "Content-Type": "application/json",
+                  "X-Goog-FieldMask": "routes.duration,routes.distanceMeters,routes.polyline.encodedPolyline",
+                },
+                body: JSON.stringify({
+                  origin: { address: origin },
+                  destination: { address: destination },
+                  travelMode: mode,
+                }),
+              });
+              const j: any = await r.json();
+              const route = j.routes?.[0];
+              if (!route) return { ok: false, error: j?.error?.message || "no route" };
+              const km = (route.distanceMeters / 1000).toFixed(1);
+              return {
+                ok: true,
+                distance_km: Number(km),
+                duration: route.duration,
+                client_action: { type: "drawRoute", polyline: route.polyline?.encodedPolyline, label: `${origin} → ${destination}` },
+              };
+            },
+          }),
         };
 
         const now = new Date();
