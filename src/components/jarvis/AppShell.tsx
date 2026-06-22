@@ -1,6 +1,18 @@
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import { ReactNode, useEffect, useState } from "react";
-import { LayoutDashboard, Clock, Globe, Activity, Settings, LogOut, MessageSquare, KeyRound, Wallet, Bell, Map as MapIcon } from "lucide-react";
+import {
+  LayoutDashboard,
+  Clock,
+  Globe,
+  Activity,
+  Settings,
+  LogOut,
+  MessageSquare,
+  KeyRound,
+  Wallet,
+  Bell,
+  Map as MapIcon,
+} from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
 import { JarvisOrb } from "./JarvisOrb";
@@ -76,7 +88,20 @@ export function AppShell({ children }: { children: ReactNode }) {
         <div className="px-5 py-4 border-t border-arc/10 space-y-2">
           <div className="font-mono text-[10px] text-hud-dim">SYSTEM TIME</div>
           <div className="font-mono text-sm text-arc text-glow">{time.toLocaleTimeString()}</div>
-          <div className="font-mono text-[10px] text-hud-dim">{time.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}</div>
+          <div className="font-mono text-[10px] text-hud-dim">
+            {time.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}
+          </div>
+
+          {/* ✨ NEW LINK */}
+          <a
+            href="https://baconanalyzer.lovable.app"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-3 block text-xs text-hud-dim hover:text-arc transition"
+          >
+            📊 Check out Bacon's stock analyzer!
+          </a>
+
           <button
             onClick={signOut}
             className="mt-3 w-full flex items-center gap-2 text-xs text-hud-dim hover:text-critical transition"
