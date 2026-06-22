@@ -1,6 +1,6 @@
 import { createFileRoute, useRouter, Link } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { supabase } from "@/integrations/supabase/client";
 
 import { Button } from "@/components/ui/button";
@@ -35,8 +35,18 @@ function SpendingError({ error, reset }: { error: Error; reset: () => void }) {
           <pre className="mt-2 whitespace-pre-wrap break-words font-mono">{msg}</pre>
         </details>
         <div className="flex gap-2">
-          <Button size="sm" onClick={() => { router.invalidate(); reset(); }}>Retry</Button>
-          <Button asChild variant="outline" size="sm"><Link to="/dashboard">Back to dashboard</Link></Button>
+          <Button
+            size="sm"
+            onClick={() => {
+              router.invalidate();
+              reset();
+            }}
+          >
+            Retry
+          </Button>
+          <Button asChild variant="outline" size="sm">
+            <Link to="/dashboard">Back to dashboard</Link>
+          </Button>
         </div>
       </Card>
     </div>
@@ -50,7 +60,8 @@ export const Route = createFileRoute("/_authenticated/spending")({
     <Card className="p-6 max-w-xl">
       <h1 className="text-2xl font-light">No spending records found</h1>
       <p className="text-sm text-muted-foreground mt-2">
-        I couldn't find any transactions for your account yet. Log one in chat or use the Add button on the Spending page once it loads.
+        I couldn't find any transactions for your account yet. Log one in chat or use the Add button on the Spending
+        page once it loads.
       </p>
     </Card>
   ),
@@ -66,7 +77,17 @@ type Tx = {
   occurred_at: string;
 };
 
-const CATEGORIES = ["food", "transport", "entertainment", "bills", "shopping", "groceries", "transfer", "income", "other"];
+const CATEGORIES = [
+  "food",
+  "transport",
+  "entertainment",
+  "bills",
+  "shopping",
+  "groceries",
+  "transfer",
+  "income",
+  "other",
+];
 
 function fmt(cents: number) {
   const v = Math.abs(cents) / 100;
@@ -78,33 +99,56 @@ function SpendingPage() {
   const [syncing, setSyncing] = useState(false);
   const [adding, setAdding] = useState(false);
 
-  const { data: txs = [], error: txError, isLoading, refetch } = useQuery({
+  const {
+    data: txs = [],
+    error: txError,
+    isLoading,
+    refetch,
+  } = useQuery({
     queryKey: ["transactions"],
     queryFn: async () => {
       const since = new Date(Date.now() - 90 * 86400000).toISOString();
-      const { data, error } = await supabase.from("transactions")
-        .select("*").gte("occurred_at", since)
-        .order("occurred_at", { ascending: false }).limit(200);
+      const { data, error } = await supabase
+        .from("transactions")
+        .select("*")
+        .gte("occurred_at", since)
+        .order("occurred_at", { ascending: false })
+        .limit(200);
       if (error) throw error;
       return data as Tx[];
     },
     retry: 1,
   });
 
-  const now = Date.now();
-  const week = txs.filter(t => now - new Date(t.occurred_at).getTime() < 7 * 86400000);
-  const month = txs.filter(t => new Date(t.occurred_at).getMonth() === new Date().getMonth() && new Date(t.occurred_at).getFullYear() === new Date().getFullYear());
-  const last30 = txs.filter(t => now - new Date(t.occurred_at).getTime() < 30 * 86400000);
+  // ✅ Memoized computed values
+  const now = useMemo(() => Date.now(), []);
+  const week = useMemo(() => txs.filter((t) => now - new Date(t.occurred_at).getTime() < 7 * 86400000), [txs, now]);
+  const month = useMemo(
+    () =>
+      txs.filter(
+        (t) =>
+          new Date(t.occurred_at).getMonth() === new Date().getMonth() &&
+          new Date(t.occurred_at).getFullYear() === new Date().getFullYear(),
+      ),
+    [txs],
+  );
+  const last30 = useMemo(() => txs.filter((t) => now - new Date(t.occurred_at).getTime() < 30 * 86400000), [txs, now]);
 
   const sum = (arr: Tx[]) => arr.reduce((s, t) => s + Math.max(t.amount_cents, 0), 0);
-  const byCat: Record<string, number> = {};
-  for (const t of last30) byCat[t.category] = (byCat[t.category] ?? 0) + Math.max(t.amount_cents, 0);
-  const catMax = Math.max(1, ...Object.values(byCat));
+
+  const byCat = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const t of last30) map[t.category] = (map[t.category] ?? 0) + Math.max(t.amount_cents, 0);
+    return map;
+  }, [last30]);
+  const catMax = useMemo(() => Math.max(1, ...Object.values(byCat)), [byCat]);
 
   async function sync() {
     setSyncing(true);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
       const res = await fetch("/api/public/hooks/ingest-cashapp", {
         method: "POST",
         headers: { Authorization: `Bearer ${session?.access_token}` },
@@ -129,7 +173,9 @@ function SpendingPage() {
   async function addManual(form: FormData) {
     const amount = parseFloat(String(form.get("amount") ?? "0"));
     if (!isFinite(amount) || amount === 0) return toast.error("Enter an amount");
-    const { data: { user } } = await supabase.auth.getUser();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
     if (!user) return;
     const { error } = await supabase.from("transactions").insert({
       user_id: user.id,
@@ -148,71 +194,92 @@ function SpendingPage() {
   }
 
   return (
-    
-      <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-light tracking-wide">Spending</h1>
-            <p className="text-sm text-muted-foreground">Cash App receipts auto-import hourly. Chat me amounts and I'll log them too.</p>
-          </div>
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={() => setAdding(v => !v)}><Plus className="w-4 h-4 mr-1" />Add</Button>
-            <Button size="sm" onClick={sync} disabled={syncing}>
-              <RefreshCw className={`w-4 h-4 mr-1 ${syncing ? "animate-spin" : ""}`} />
-              {syncing ? "Syncing…" : "Sync Cash App"}
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-light tracking-wide">Spending</h1>
+          <p className="text-sm text-muted-foreground">
+            Cash App receipts auto-import hourly. Chat me amounts and I'll log them too.
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={() => setAdding((v) => !v)}>
+            <Plus className="w-4 h-4 mr-1" />
+            Add
+          </Button>
+          <Button size="sm" onClick={sync} disabled={syncing}>
+            <RefreshCw className={`w-4 h-4 mr-1 ${syncing ? "animate-spin" : ""}`} />
+            {syncing ? "Syncing…" : "Sync Cash App"}
+          </Button>
+        </div>
+      </div>
+
+      {txError && (
+        <Card className="p-4 border-amber-500/40">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="w-4 h-4 text-amber-400 mt-0.5" />
+            <div className="flex-1">
+              <div className="text-sm font-medium">Couldn't load transactions</div>
+              <div className="text-xs text-muted-foreground mt-1">{(txError as Error).message}</div>
+            </div>
+            <Button size="sm" variant="outline" onClick={() => refetch()}>
+              Retry
             </Button>
           </div>
-        </div>
+        </Card>
+      )}
 
-        {txError && (
-          <Card className="p-4 border-amber-500/40">
-            <div className="flex items-start gap-3">
-              <AlertTriangle className="w-4 h-4 text-amber-400 mt-0.5" />
-              <div className="flex-1">
-                <div className="text-sm font-medium">Couldn't load transactions</div>
-                <div className="text-xs text-muted-foreground mt-1">{(txError as Error).message}</div>
-              </div>
-              <Button size="sm" variant="outline" onClick={() => refetch()}>Retry</Button>
-            </div>
+      {isLoading && !txError && <div className="text-sm text-muted-foreground">Loading ledger…</div>}
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {[
+          { label: "This week", v: sum(week) },
+          { label: "This month", v: sum(month) },
+          { label: "Last 30 days", v: sum(last30) },
+        ].map((s) => (
+          <Card key={s.label} className="p-5">
+            <div className="text-xs uppercase tracking-widest text-muted-foreground">{s.label}</div>
+            <div className="text-3xl font-light mt-1">${(s.v / 100).toFixed(2)}</div>
           </Card>
-        )}
+        ))}
+      </div>
 
-        {isLoading && !txError && (
-          <div className="text-sm text-muted-foreground">Loading ledger…</div>
-        )}
+      {adding && (
+        <Card className="p-4">
+          <form
+            className="grid grid-cols-2 md:grid-cols-5 gap-3"
+            onSubmit={(e) => {
+              e.preventDefault();
+              addManual(new FormData(e.currentTarget));
+            }}
+          >
+            <input
+              name="amount"
+              placeholder="Amount"
+              type="number"
+              step="0.01"
+              className="px-3 py-2 rounded bg-background border"
+              required
+            />
+            <input name="merchant" placeholder="Merchant" className="px-3 py-2 rounded bg-background border" />
+            <select name="category" className="px-3 py-2 rounded bg-background border" defaultValue="other">
+              {CATEGORIES.map((c) => (
+                <option key={c}>{c}</option>
+              ))}
+            </select>
+            <input name="note" placeholder="Note" className="px-3 py-2 rounded bg-background border" />
+            <Button type="submit">Save</Button>
+          </form>
+        </Card>
+      )}
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {[
-            { label: "This week", v: sum(week) },
-            { label: "This month", v: sum(month) },
-            { label: "Last 30 days", v: sum(last30) },
-          ].map(s => (
-            <Card key={s.label} className="p-5">
-              <div className="text-xs uppercase tracking-widest text-muted-foreground">{s.label}</div>
-              <div className="text-3xl font-light mt-1">${(s.v / 100).toFixed(2)}</div>
-            </Card>
-          ))}
-        </div>
-
-        {adding && (
-          <Card className="p-4">
-            <form className="grid grid-cols-2 md:grid-cols-5 gap-3" onSubmit={(e) => { e.preventDefault(); addManual(new FormData(e.currentTarget)); }}>
-              <input name="amount" placeholder="Amount" type="number" step="0.01" className="px-3 py-2 rounded bg-background border" required />
-              <input name="merchant" placeholder="Merchant" className="px-3 py-2 rounded bg-background border" />
-              <select name="category" className="px-3 py-2 rounded bg-background border" defaultValue="other">
-                {CATEGORIES.map(c => <option key={c}>{c}</option>)}
-              </select>
-              <input name="note" placeholder="Note" className="px-3 py-2 rounded bg-background border" />
-              <Button type="submit">Save</Button>
-            </form>
-          </Card>
-        )}
-
-        <Card className="p-5">
-          <h2 className="text-sm uppercase tracking-widest text-muted-foreground mb-3">Last 30 days by category</h2>
-          {Object.keys(byCat).length === 0 && <p className="text-sm text-muted-foreground">No spending yet.</p>}
-          <div className="space-y-2">
-            {Object.entries(byCat).sort((a, b) => b[1] - a[1]).map(([cat, cents]) => (
+      <Card className="p-5">
+        <h2 className="text-sm uppercase tracking-widest text-muted-foreground mb-3">Last 30 days by category</h2>
+        {Object.keys(byCat).length === 0 && <p className="text-sm text-muted-foreground">No spending yet.</p>}
+        <div className="space-y-2">
+          {Object.entries(byCat)
+            .sort((a, b) => b[1] - a[1])
+            .map(([cat, cents]) => (
               <div key={cat} className="space-y-1">
                 <div className="flex justify-between text-sm">
                   <span className="capitalize">{cat}</span>
@@ -223,31 +290,38 @@ function SpendingPage() {
                 </div>
               </div>
             ))}
-          </div>
-        </Card>
+        </div>
+      </Card>
 
-        <Card className="p-0 overflow-hidden">
-          <div className="px-5 py-3 border-b text-sm uppercase tracking-widest text-muted-foreground">Recent transactions</div>
-          <div className="divide-y">
-            {txs.length === 0 && <div className="p-5 text-sm text-muted-foreground">Nothing logged yet.</div>}
-            {txs.map(t => (
-              <div key={t.id} className="flex items-center px-5 py-3 gap-4">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium truncate">{t.merchant ?? "—"}</span>
-                    <span className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-muted text-muted-foreground">{t.category}</span>
-                    <span className="text-[10px] uppercase tracking-wider text-muted-foreground">{t.source}</span>
-                  </div>
-                  {t.note && <div className="text-xs text-muted-foreground truncate">{t.note}</div>}
-                  <div className="text-xs text-muted-foreground">{new Date(t.occurred_at).toLocaleString()}</div>
+      <Card className="p-0 overflow-hidden">
+        <div className="px-5 py-3 border-b text-sm uppercase tracking-widest text-muted-foreground">
+          Recent transactions
+        </div>
+        <div className="divide-y">
+          {txs.length === 0 && <div className="p-5 text-sm text-muted-foreground">Nothing logged yet.</div>}
+          {txs.map((t) => (
+            <div key={t.id} className="flex items-center px-5 py-3 gap-4">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="font-medium truncate">{t.merchant ?? "—"}</span>
+                  <span className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
+                    {t.category}
+                  </span>
+                  <span className="text-[10px] uppercase tracking-wider text-muted-foreground">{t.source}</span>
                 </div>
-                <div className={`tabular-nums font-medium ${t.amount_cents < 0 ? "text-emerald-500" : ""}`}>{fmt(t.amount_cents)}</div>
-                <Button variant="ghost" size="icon" onClick={() => del(t.id)}><Trash2 className="w-4 h-4" /></Button>
+                {t.note && <div className="text-xs text-muted-foreground truncate">{t.note}</div>}
+                <div className="text-xs text-muted-foreground">{new Date(t.occurred_at).toLocaleString()}</div>
               </div>
-            ))}
-          </div>
-        </Card>
-      </div>
-    
+              <div className={`tabular-nums font-medium ${t.amount_cents < 0 ? "text-emerald-500" : ""}`}>
+                {fmt(t.amount_cents)}
+              </div>
+              <Button variant="ghost" size="icon" onClick={() => del(t.id)}>
+                <Trash2 className="w-4 h-4" />
+              </Button>
+            </div>
+          ))}
+        </div>
+      </Card>
+    </div>
   );
 }

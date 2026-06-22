@@ -16,11 +16,26 @@ export function createDeepSeekProvider(apiKey: string) {
   });
 }
 
+// ✅ NEW: LM Studio provider (local server)
+export function createLMStudioProvider(apiKey?: string) {
+  const baseURL = process.env.LM_STUDIO_BASE_URL ?? "http://localhost:1234/v1";
+  const headers: Record<string, string> = {};
+  if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
+  return createOpenAICompatible({
+    name: "lmstudio",
+    baseURL,
+    headers,
+  });
+}
+
 /**
  * Resolve a chat model, optionally overriding the provider and API key.
  * If no overrides are given, falls back to environment variables.
  */
-export function resolveChatModel(opts?: { provider?: "groq" | "deepseek" | "lovable" | "system"; apiKey?: string }) {
+export function resolveChatModel(opts?: {
+  provider?: "groq" | "deepseek" | "lovable" | "system" | "lmstudio";
+  apiKey?: string;
+}) {
   const provider = opts?.provider ?? process.env.CHAT_PROVIDER?.toLowerCase() ?? "lovable";
   const apiKey = opts?.apiKey;
 
@@ -40,6 +55,13 @@ export function resolveChatModel(opts?: { provider?: "groq" | "deepseek" | "lova
     const deepseek = createDeepSeekProvider(key);
     const modelId = process.env.DEEPSEEK_MODEL ?? "deepseek-chat";
     return { model: deepseek(modelId), provider: "deepseek" as const, modelId };
+  }
+
+  // --- LM Studio (NEW) ---
+  if (provider === "lmstudio") {
+    const lmstudio = createLMStudioProvider(apiKey);
+    const modelId = process.env.LM_STUDIO_MODEL ?? "local-model";
+    return { model: lmstudio(modelId), provider: "lmstudio" as const, modelId };
   }
 
   // --- Lovable (fallback) ---
@@ -65,7 +87,8 @@ export async function getModelForUser(userId: string, supabase: any) {
     | "groq"
     | "deepseek"
     | "lovable"
-    | "system";
+    | "system"
+    | "lmstudio"; // ✅ added "lmstudio"
   const apiKey = config.api_key;
 
   // If provider is "system" or not set, we don't override

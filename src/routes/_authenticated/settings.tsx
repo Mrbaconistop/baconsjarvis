@@ -36,7 +36,7 @@ function SettingsPage() {
   });
 
   const [connecting, setConnecting] = useState(false);
-  const [provider, setProvider] = useState<"groq" | "deepseek" | "lovable" | "system">("system");
+  const [provider, setProvider] = useState<"groq" | "deepseek" | "lovable" | "system" | "lmstudio">("system");
   const [apiKey, setApiKey] = useState("");
   const [savingLlm, setSavingLlm] = useState(false);
 
@@ -110,6 +110,7 @@ function SettingsPage() {
                 <option value="groq">Groq</option>
                 <option value="deepseek">DeepSeek</option>
                 <option value="lovable">Lovable</option>
+                <option value="lmstudio">LM Studio (local)</option>
               </select>
             </div>
             {provider !== "system" && (
