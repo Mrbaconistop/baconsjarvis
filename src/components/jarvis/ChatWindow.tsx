@@ -47,10 +47,28 @@ export function ChatWindow({ threadId, initial }: { threadId: string; initial: U
       qc.invalidateQueries({ queryKey: ["threads"] });
       qc.invalidateQueries({ queryKey: ["reminders"] });
       qc.invalidateQueries({ queryKey: ["vault"] });
+      qc.invalidateQueries({ queryKey: ["map_places"] });
     },
   });
 
   const busy = status === "submitted" || status === "streaming";
+
+  // Forward any tool client_action payloads (e.g. flyTo, drawRoute) to the live map.
+  const dispatchedRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    for (const m of messages) {
+      for (let i = 0; i < m.parts.length; i++) {
+        const p: any = m.parts[i];
+        if (typeof p?.type === "string" && p.type.startsWith("tool-") && p.output?.client_action) {
+          const key = `${m.id}:${i}`;
+          if (!dispatchedRef.current.has(key)) {
+            dispatchedRef.current.add(key);
+            applyClientAction(p.output.client_action);
+          }
+        }
+      }
+    }
+  }, [messages]);
 
   useEffect(() => { taRef.current?.focus(); }, [threadId, busy]);
   useEffect(() => {
