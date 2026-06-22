@@ -58,7 +58,9 @@ export const updateLLMConfig = createServerFn({ method: "POST" })
 
     // Insert new ones if provider is not "system"
     if (data.provider !== "system") {
-      const facts = [{ user_id: userId, category: "llm", key: "provider", value: data.provider }];
+      const facts: Array<{ user_id: string; category: string; key: string; value: string }> = [
+        { user_id: userId, category: "llm", key: "provider", value: data.provider },
+      ];
       if (data.apiKey) {
         facts.push({ user_id: userId, category: "llm", key: "api_key", value: data.apiKey });
       }
