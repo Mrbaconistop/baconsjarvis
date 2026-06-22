@@ -20,6 +20,7 @@ import { Route as AuthenticatedTimeRouteImport } from './routes/_authenticated/t
 import { Route as AuthenticatedSpendingRouteImport } from './routes/_authenticated/spending'
 import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
 import { Route as AuthenticatedPulseRouteImport } from './routes/_authenticated/pulse'
+import { Route as AuthenticatedMapRouteImport } from './routes/_authenticated/map'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
 import { Route as AuthenticatedBriefingRouteImport } from './routes/_authenticated/briefing'
 import { Route as AuthenticatedChatIndexRouteImport } from './routes/_authenticated/chat.index'
@@ -81,6 +82,11 @@ const AuthenticatedPulseRoute = AuthenticatedPulseRouteImport.update({
   path: '/pulse',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedMapRoute = AuthenticatedMapRouteImport.update({
+  id: '/map',
+  path: '/map',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
   id: '/dashboard',
   path: '/dashboard',
@@ -121,6 +127,7 @@ export interface FileRoutesByFullPath {
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/briefing': typeof AuthenticatedBriefingRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
+  '/map': typeof AuthenticatedMapRoute
   '/pulse': typeof AuthenticatedPulseRoute
   '/settings': typeof AuthenticatedSettingsRoute
   '/spending': typeof AuthenticatedSpendingRoute
@@ -139,6 +146,7 @@ export interface FileRoutesByTo {
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/briefing': typeof AuthenticatedBriefingRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
+  '/map': typeof AuthenticatedMapRoute
   '/pulse': typeof AuthenticatedPulseRoute
   '/settings': typeof AuthenticatedSettingsRoute
   '/spending': typeof AuthenticatedSpendingRoute
@@ -159,6 +167,7 @@ export interface FileRoutesById {
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/_authenticated/briefing': typeof AuthenticatedBriefingRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
+  '/_authenticated/map': typeof AuthenticatedMapRoute
   '/_authenticated/pulse': typeof AuthenticatedPulseRoute
   '/_authenticated/settings': typeof AuthenticatedSettingsRoute
   '/_authenticated/spending': typeof AuthenticatedSpendingRoute
@@ -179,6 +188,7 @@ export interface FileRouteTypes {
     | '/sitemap.xml'
     | '/briefing'
     | '/dashboard'
+    | '/map'
     | '/pulse'
     | '/settings'
     | '/spending'
@@ -197,6 +207,7 @@ export interface FileRouteTypes {
     | '/sitemap.xml'
     | '/briefing'
     | '/dashboard'
+    | '/map'
     | '/pulse'
     | '/settings'
     | '/spending'
@@ -216,6 +227,7 @@ export interface FileRouteTypes {
     | '/sitemap.xml'
     | '/_authenticated/briefing'
     | '/_authenticated/dashboard'
+    | '/_authenticated/map'
     | '/_authenticated/pulse'
     | '/_authenticated/settings'
     | '/_authenticated/spending'
@@ -318,6 +330,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedPulseRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/map': {
+      id: '/_authenticated/map'
+      path: '/map'
+      fullPath: '/map'
+      preLoaderRoute: typeof AuthenticatedMapRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/dashboard': {
       id: '/_authenticated/dashboard'
       path: '/dashboard'
@@ -366,6 +385,7 @@ declare module '@tanstack/react-router' {
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedBriefingRoute: typeof AuthenticatedBriefingRoute
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
+  AuthenticatedMapRoute: typeof AuthenticatedMapRoute
   AuthenticatedPulseRoute: typeof AuthenticatedPulseRoute
   AuthenticatedSettingsRoute: typeof AuthenticatedSettingsRoute
   AuthenticatedSpendingRoute: typeof AuthenticatedSpendingRoute
@@ -379,6 +399,7 @@ interface AuthenticatedRouteRouteChildren {
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedBriefingRoute: AuthenticatedBriefingRoute,
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
+  AuthenticatedMapRoute: AuthenticatedMapRoute,
   AuthenticatedPulseRoute: AuthenticatedPulseRoute,
   AuthenticatedSettingsRoute: AuthenticatedSettingsRoute,
   AuthenticatedSpendingRoute: AuthenticatedSpendingRoute,

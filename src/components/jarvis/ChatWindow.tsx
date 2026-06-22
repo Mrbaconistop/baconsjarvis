@@ -2,10 +2,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, type UIMessage } from "ai";
 import { supabase } from "@/integrations/supabase/client";
-import { Send, Square, Bell, Vault, ListChecks, CheckCircle2, Wrench } from "lucide-react";
+import { Send, Square, Bell, Vault, ListChecks, CheckCircle2, Wrench, MapPin } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useQueryClient } from "@tanstack/react-query";
+import { applyClientAction } from "@/lib/mapBus";
 
 const TOOL_META: Record<string, { icon: any; label: string }> = {
   "tool-create_reminder": { icon: Bell, label: "Setting reminder" },
@@ -13,6 +14,13 @@ const TOOL_META: Record<string, { icon: any; label: string }> = {
   "tool-complete_reminder": { icon: CheckCircle2, label: "Completing reminder" },
   "tool-save_vault_item": { icon: Vault, label: "Saving to vault" },
   "tool-list_vault": { icon: Vault, label: "Reading vault" },
+  "tool-search_places": { icon: MapPin, label: "Searching places" },
+  "tool-geocode_address": { icon: MapPin, label: "Geocoding" },
+  "tool-save_place": { icon: MapPin, label: "Saving place" },
+  "tool-list_saved_places": { icon: MapPin, label: "Reading saved places" },
+  "tool-delete_saved_place": { icon: MapPin, label: "Deleting place" },
+  "tool-show_on_map": { icon: MapPin, label: "Showing on map" },
+  "tool-get_directions": { icon: MapPin, label: "Getting directions" },
 };
 
 export function ChatWindow({ threadId, initial }: { threadId: string; initial: UIMessage[] }) {
