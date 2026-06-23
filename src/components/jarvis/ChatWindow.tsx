@@ -41,6 +41,7 @@ export function ChatWindow({ threadId, initial }: { threadId: string; initial: U
   const [input, setInput] = useState("");
   const [isListening, setIsListening] = useState(false);
   const [micSupported, setMicSupported] = useState<boolean | null>(null);
+  const [transcript, setTranscript] = useState("");
   const taRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<any>(null);
@@ -58,7 +59,7 @@ export function ChatWindow({ threadId, initial }: { threadId: string; initial: U
     }
   }, []);
 
-  // Create recognition instance only once
+  // Initialize recognition only once
   useEffect(() => {
     if (micSupported === false) return;
     const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -70,10 +71,10 @@ export function ChatWindow({ threadId, initial }: { threadId: string; initial: U
     recognition.lang = "en-US";
 
     recognition.onresult = (event: any) => {
-      const transcript = event.results[0][0].transcript;
-      console.log("[Voice] 📝 Transcript:", transcript);
-      setInput(transcript);
-      toast.success("Spoken, Sir. Review and send.");
+      const transcriptText = event.results[0][0].transcript;
+      console.log("[Voice] 📝 Transcript:", transcriptText);
+      setInput(transcriptText);
+      toast.success("Spoken, Sir. Ready to send.");
     };
 
     recognition.onend = () => {
@@ -107,7 +108,7 @@ export function ChatWindow({ threadId, initial }: { threadId: string; initial: U
     };
   }, [micSupported]);
 
-  // Request microphone permission explicitly (to trigger the prompt)
+  // Request mic permission explicitly (triggers the browser prompt)
   async function requestMicPermission(): Promise<boolean> {
     try {
       console.log("[Voice] 📢 Requesting microphone permission...");
@@ -143,7 +144,7 @@ export function ChatWindow({ threadId, initial }: { threadId: string; initial: U
       toast.info("Listening, Sir…");
     } catch (err: any) {
       console.error("[Voice] ❌ Failed to start recognition:", err);
-      if (err.message.includes("permission")) {
+      if (err.message?.includes("permission")) {
         const granted = await requestMicPermission();
         if (granted) {
           try {
@@ -162,6 +163,7 @@ export function ChatWindow({ threadId, initial }: { threadId: string; initial: U
     }
   }
 
+  // Stop listening
   function stopListening() {
     if (recognitionRef.current) {
       try {
@@ -174,6 +176,7 @@ export function ChatWindow({ threadId, initial }: { threadId: string; initial: U
     console.log("[Voice] 🛑 Listening stopped");
   }
 
+  // Toggle mic
   function toggleMic() {
     if (isListening) {
       stopListening();
@@ -186,7 +189,7 @@ export function ChatWindow({ threadId, initial }: { threadId: string; initial: U
     startListening();
   }
 
-  // Transport
+  // --- Chat logic (unchanged) ---
   const transport = useMemo(
     () =>
       new DefaultChatTransport({
