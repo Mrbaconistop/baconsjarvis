@@ -87,12 +87,13 @@ export function AppShell({ children }: { children: ReactNode }) {
 
         <div className="px-5 py-4 border-t border-arc/10 space-y-2">
           <div className="font-mono text-[10px] text-hud-dim">SYSTEM TIME</div>
-          <div className="font-mono text-sm text-arc text-glow">{time.toLocaleTimeString()}</div>
-          <div className="font-mono text-[10px] text-hud-dim">
+          {/* ✅ Add suppressHydrationWarning to the time display */}
+          <div className="font-mono text-sm text-arc text-glow" suppressHydrationWarning>
+            {time.toLocaleTimeString()}
+          </div>
+          <div className="font-mono text-[10px] text-hud-dim" suppressHydrationWarning>
             {time.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}
           </div>
-
-          {/* ✨ NEW LINK */}
           <a
             href="https://baconanalyzer.lovable.app"
             target="_blank"
@@ -101,7 +102,6 @@ export function AppShell({ children }: { children: ReactNode }) {
           >
             📊 Check out Bacon's stock analyzer!
           </a>
-
           <button
             onClick={signOut}
             className="mt-3 w-full flex items-center gap-2 text-xs text-hud-dim hover:text-critical transition"
