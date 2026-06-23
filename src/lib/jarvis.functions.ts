@@ -177,3 +177,117 @@ ${(feeds ?? []).map((f: any) => `- [${f.platform}/${f.priority}/${f.sentiment_la
 
     return { briefing: text.trim() };
   });
+
+// ============================================================
+// 🌤️ WEATHER FUNCTIONS
+// ============================================================
+
+/* ---------- Get the user's saved weather location ---------- */
+export const getWeatherLocation = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { supabase, userId } = context as any;
+    const { data } = await supabase
+      .from("user_facts")
+      .select("value")
+      .eq("user_id", userId)
+      .eq("category", "preference")
+      .eq("key", "weather_place_id")
+      .maybeSingle();
+
+    if (!data) return null;
+
+    const { data: place } = await supabase
+      .from("map_places")
+      .select("id, label, address, lat, lng")
+      .eq("id", data.value)
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    return place || null;
+  });
+
+/* ---------- Set the user's weather location ---------- */
+export const setWeatherLocation = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) => z.object({ placeId: z.string().uuid() }).parse(input))
+  .handler(async ({ data, context }) => {
+    const { supabase, userId } = context as any;
+    const { error } = await supabase.from("user_facts").upsert(
+      {
+        user_id: userId,
+        category: "preference",
+        key: "weather_place_id",
+        value: data.placeId,
+      },
+      { onConflict: "user_id,category,key" },
+    );
+    if (error) throw error;
+    return { ok: true };
+  });
+
+/* ---------- Fetch weather for the user's saved location (or London fallback) ---------- */
+export const getWeather = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { supabase, userId } = context as any;
+    const API_KEY = process.env.OPENWEATHER_API_KEY;
+    if (!API_KEY) throw new Error("OpenWeatherMap API key is missing");
+
+    let lat: number | null = null;
+    let lon: number | null = null;
+    let cityName = "London";
+
+    // 1. Try to get user's saved weather location
+    const { data: pref } = await supabase
+      .from("user_facts")
+      .select("value")
+      .eq("user_id", userId)
+      .eq("category", "preference")
+      .eq("key", "weather_place_id")
+      .maybeSingle();
+
+    if (pref) {
+      const { data: place } = await supabase
+        .from("map_places")
+        .select("lat, lng, label")
+        .eq("id", pref.value)
+        .eq("user_id", userId)
+        .maybeSingle();
+      if (place) {
+        lat = place.lat;
+        lon = place.lng;
+        cityName = place.label;
+      }
+    }
+
+    // 2. Build the API URL
+    let url: string;
+    if (lat !== null && lon !== null) {
+      url = `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${API_KEY}&units=metric`;
+    } else {
+      // Fallback to London
+      url = `https://api.openweathermap.org/data/2.5/weather?q=London&appid=${API_KEY}&units=metric`;
+      cityName = "London";
+    }
+
+    const response = await fetch(url);
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Weather API error: ${response.status} ${errorText}`);
+    }
+    const data = await response.json();
+
+    const weather = {
+      temperature: data.main.temp,
+      description: data.weather[0].description,
+      icon: data.weather[0].icon,
+      city: cityName,
+      country: data.sys.country,
+      humidity: data.main.humidity,
+      windSpeed: data.wind.speed,
+      feelsLike: data.main.feels_like,
+    };
+
+    return weather;
+  });
