@@ -2,11 +2,12 @@ import { useEffect, useMemo, useRef, useState, memo } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, type UIMessage } from "ai";
 import { supabase } from "@/integrations/supabase/client";
-import { Send, Square, Bell, Vault, ListChecks, CheckCircle2, Wrench, MapPin } from "lucide-react";
+import { Send, Square, Bell, Vault, ListChecks, CheckCircle2, Wrench, MapPin, Mic, MicOff } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useQueryClient } from "@tanstack/react-query";
 import { applyClientAction } from "@/lib/mapBus";
+import { toast } from "sonner";
 
 const TOOL_META: Record<string, { icon: any; label: string }> = {
   "tool-create_reminder": { icon: Bell, label: "Setting reminder" },
@@ -26,8 +27,55 @@ const TOOL_META: Record<string, { icon: any; label: string }> = {
 export function ChatWindow({ threadId, initial }: { threadId: string; initial: UIMessage[] }) {
   const qc = useQueryClient();
   const [input, setInput] = useState("");
+  const [isListening, setIsListening] = useState(false);
   const taRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const recognitionRef = useRef<any>(null);
+
+  // Initialize speech recognition
+  useEffect(() => {
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SR) {
+      // Speech recognition not supported – we'll still show the mic but it will be disabled
+      return;
+    }
+    const recognition = new SR();
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    recognition.lang = "en-US";
+
+    recognition.onresult = (event: any) => {
+      const transcript = event.results[0][0].transcript;
+      setInput(transcript);
+      // Auto‑submit after a short pause? No – let user review and send.
+      toast.success("Spoken, Sir. Review and send.");
+    };
+
+    recognition.onend = () => {
+      setIsListening(false);
+    };
+
+    recognition.onerror = (event: any) => {
+      if (event.error === "not-allowed") {
+        toast.error("Microphone access denied, Sir.");
+      } else if (event.error === "no-speech") {
+        toast.error("No speech detected, Sir.");
+      } else {
+        toast.error(`Voice error: ${event.error}`);
+      }
+      setIsListening(false);
+    };
+
+    recognitionRef.current = recognition;
+
+    return () => {
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.abort();
+        } catch {}
+      }
+    };
+  }, []);
 
   const transport = useMemo(
     () =>
@@ -89,6 +137,31 @@ export function ChatWindow({ threadId, initial }: { threadId: string; initial: U
     await sendMessage({ text });
   }
 
+  function toggleMic() {
+    const recognition = recognitionRef.current;
+    if (!recognition) {
+      toast.error("Voice input not supported in this browser, Sir.");
+      return;
+    }
+
+    if (isListening) {
+      try {
+        recognition.stop();
+      } catch {}
+      setIsListening(false);
+      return;
+    }
+
+    try {
+      recognition.start();
+      setIsListening(true);
+      toast.info("Listening, Sir…");
+    } catch (err: any) {
+      toast.error(err.message || "Could not start voice input");
+      setIsListening(false);
+    }
+  }
+
   return (
     <div className="flex flex-col h-full">
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 py-6 space-y-5">
@@ -114,6 +187,19 @@ export function ChatWindow({ threadId, initial }: { threadId: string; initial: U
 
       <div className="border-t border-arc/15 bg-background/40 backdrop-blur px-4 py-3">
         <div className="flex items-end gap-2 max-w-4xl mx-auto">
+          <button
+            onClick={toggleMic}
+            className={`p-3 rounded-lg border transition ${
+              isListening
+                ? "bg-critical/20 border-critical/40 text-critical animate-critical-pulse"
+                : "border-arc/30 hover:bg-arc/10 text-hud-dim"
+            }`}
+            aria-label="Voice input"
+            title={isListening ? "Stop listening" : "Speak your message"}
+          >
+            {isListening ? <MicOff size={16} /> : <Mic size={16} />}
+          </button>
+
           <textarea
             ref={taRef}
             rows={1}
@@ -125,9 +211,12 @@ export function ChatWindow({ threadId, initial }: { threadId: string; initial: U
                 submit();
               }
             }}
-            placeholder='Speak freely, Sir. e.g. "Remind me to drink water every weekday at 10am"'
+            placeholder={
+              isListening ? "Listening…" : 'Speak freely, Sir. e.g. "Remind me to drink water every weekday at 10am"'
+            }
             className="flex-1 resize-none bg-background/60 border border-arc/25 rounded-lg px-4 py-3 font-mono text-sm focus:border-arc focus:outline-none max-h-40"
           />
+
           {busy ? (
             <button
               onClick={stop}
@@ -152,7 +241,7 @@ export function ChatWindow({ threadId, initial }: { threadId: string; initial: U
   );
 }
 
-// ✅ Memoized MessageBubble to prevent unnecessary re-renders
+// Memoized MessageBubble
 const MessageBubble = memo(function MessageBubble({ msg }: { msg: UIMessage }) {
   const isUser = msg.role === "user";
   return (
