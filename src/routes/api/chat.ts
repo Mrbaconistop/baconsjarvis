@@ -712,17 +712,14 @@ export const Route = createFileRoute("/api/chat")({
             },
           }),
 
-          // ==================== WEATHER TOOLS (NEW) ====================
+          // ==================== WEATHER TOOLS ====================
           get_current_weather: tool({
             description: "Get the current weather for the user's saved location.",
             inputSchema: z.object({}),
             execute: async () => {
               try {
                 const weather = await getWeather({ context: { supabase, userId } } as any);
-                return {
-                  ok: true,
-                  weather,
-                };
+                return { ok: true, weather };
               } catch (e: any) {
                 return { ok: false, error: e.message };
               }
@@ -734,10 +731,7 @@ export const Route = createFileRoute("/api/chat")({
             execute: async () => {
               try {
                 const forecast = await getWeatherForecast({ context: { supabase, userId } } as any);
-                return {
-                  ok: true,
-                  forecast,
-                };
+                return { ok: true, forecast };
               } catch (e: any) {
                 return { ok: false, error: e.message };
               }
@@ -749,13 +743,45 @@ export const Route = createFileRoute("/api/chat")({
             execute: async () => {
               try {
                 const narrative = await getWeatherNarrative({ context: { supabase, userId } } as any);
-                return {
-                  ok: true,
-                  narrative,
-                };
+                return { ok: true, narrative };
               } catch (e: any) {
                 return { ok: false, error: e.message };
               }
+            },
+          }),
+          // ✅ NEW: Set weather location from chat
+          set_weather_location: tool({
+            description:
+              "Change the user's saved weather location to a saved map place. Use this when the user asks to set their weather location to a specific place (e.g., 'Home', 'London').",
+            inputSchema: z.object({
+              placeLabel: z.string().describe("The label of the saved place (case-insensitive, partial match allowed)"),
+            }),
+            execute: async ({ placeLabel }) => {
+              const { data: places, error } = await supabase
+                .from("map_places")
+                .select("id, label")
+                .eq("user_id", userId)
+                .ilike("label", `%${placeLabel}%`)
+                .limit(1);
+
+              if (error) return { ok: false, error: error.message };
+              if (!places || places.length === 0) {
+                return { ok: false, error: `No saved place found with label containing "${placeLabel}".` };
+              }
+
+              const place = places[0];
+              const { error: updateError } = await supabase.from("user_facts").upsert(
+                {
+                  user_id: userId,
+                  category: "preference",
+                  key: "weather_place_id",
+                  value: place.id,
+                },
+                { onConflict: "user_id,category,key" },
+              );
+
+              if (updateError) return { ok: false, error: updateError.message };
+              return { ok: true, message: `Weather location set to "${place.label}".` };
             },
           }),
         };
@@ -775,11 +801,13 @@ MEMORY: If the user asks to remember something, call remember_fact.
 FACTS BLOCK (most recent, truncated):
 ${factsBlock}
 
-WEATHER: You have three weather tools:
+WEATHER: You have four weather tools:
 - get_current_weather: tells current temperature, conditions, etc.
 - get_weather_forecast: gives a 5‑day forecast.
-- get_weather_narrative: gives a natural‑language description (like "It's a beautiful day for a walk").
-When the user asks about weather, pick the appropriate tool. If they ask for a general description, use get_weather_narrative. If they ask for specific numbers (temperature, humidity), use get_current_weather or get_weather_forecast.
+- get_weather_narrative: gives a natural‑language description.
+- set_weather_location: change the user's saved location to a saved map place (use when the user asks to change the weather location).
+
+When the user asks about weather, pick the appropriate tool. If they ask for a general description, use get_weather_narrative. If they ask for specific numbers (temperature, humidity), use get_current_weather or get_weather_forecast. If they ask to change the location (e.g., "set my weather to Home"), use set_weather_location.
 
 TOOL DISCIPLINE: Only call tools explicitly provided. Do not invent tools.
 Be concise. Confirm actions.`,
