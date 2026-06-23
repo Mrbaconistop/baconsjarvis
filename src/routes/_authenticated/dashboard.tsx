@@ -70,7 +70,6 @@ function Dashboard() {
       <div className="flex-1 overflow-y-auto px-8 py-6 space-y-6">
         <QuickActionBar />
 
-        {/* Weather Widget */}
         <div className="glass-strong hud-corners rounded-xl p-5">
           <div className="flex items-center justify-between mb-3">
             <div className="font-mono text-[10px] tracking-[0.3em] text-arc flex items-center gap-2">
