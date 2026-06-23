@@ -22,6 +22,9 @@ const PLATFORM_META: Record<string, { label: string; icon: any; note: string }> 
   calendar: { label: "Google Calendar", icon: Calendar, note: "Connect to surface upcoming events." },
 };
 
+// ✅ Default Groq API key (provided by you, can be overridden by user)
+const DEFAULT_GROQ_KEY = "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";
+
 function SettingsPage() {
   const prof = useServerFn(getProfile);
   const accts = useServerFn(listAccounts);
@@ -40,12 +43,20 @@ function SettingsPage() {
   const [apiKey, setApiKey] = useState("");
   const [savingLlm, setSavingLlm] = useState(false);
 
+  // Load saved config
   useEffect(() => {
     if (llmConfig) {
       setProvider(llmConfig.provider as typeof provider);
       setApiKey(llmConfig.apiKey || "");
     }
   }, [llmConfig]);
+
+  // ✅ When provider changes to "groq" and no key is set, pre‑fill the default key
+  useEffect(() => {
+    if (provider === "groq" && !apiKey) {
+      setApiKey(DEFAULT_GROQ_KEY);
+    }
+  }, [provider, apiKey]);
 
   async function connectGoogle() {
     setConnecting(true);
@@ -67,7 +78,9 @@ function SettingsPage() {
   async function saveLlm() {
     setSavingLlm(true);
     try {
-      await updateConfig({ data: { provider, apiKey: apiKey || undefined } });
+      // If provider is "groq" and key is empty, we'll send undefined to keep the existing key
+      const keyToSend = provider === "groq" && !apiKey ? undefined : apiKey || undefined;
+      await updateConfig({ data: { provider, apiKey: keyToSend } });
       await refetch();
       toast.success("AI provider updated");
     } catch (e: any) {
@@ -120,7 +133,9 @@ function SettingsPage() {
                   type="password"
                   value={apiKey}
                   onChange={(e) => setApiKey(e.target.value)}
-                  placeholder="Enter your API key"
+                  placeholder={
+                    provider === "groq" ? "Default key is pre‑filled – replace with your own" : "Enter your API key"
+                  }
                   className="bg-background/40 border border-arc/20 rounded-md px-3 py-2 text-sm font-mono focus:border-arc focus:outline-none w-64"
                 />
               </div>
@@ -135,6 +150,11 @@ function SettingsPage() {
             <p className="text-xs text-hud-dim mt-2">
               Choose a provider and enter your own API key to override the system default. The key is stored securely in
               your user profile.
+              {provider === "groq" && (
+                <span className="block mt-1 text-arc/70">
+                  💡 A default Groq key is pre‑filled. You can use it or replace it with your own.
+                </span>
+              )}
             </p>
           </div>
         </section>
