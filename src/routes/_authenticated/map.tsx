@@ -5,7 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { mapBus, type MapAction } from "@/lib/mapBus";
 import { Crosshair, Layers, X, Search, MapPin, Trash2, Save } from "lucide-react";
 import { toast } from "sonner";
-import { geocodeAddress } from "@/lib/maps.functions"; // server function
+import { geocodeAddress } from "@/lib/maps.functions";
 
 declare global {
   interface Window {
@@ -26,22 +26,43 @@ const TRACKING_ID = (import.meta as any).env.VITE_LOVABLE_CONNECTOR_GOOGLE_MAPS_
 
 function loadMapsJS(): Promise<void> {
   return new Promise((resolve, reject) => {
-    if (window.google?.maps) return resolve();
+    if (window.google?.maps?.Map) {
+      resolve();
+      return;
+    }
+
     if (window.__jarvisMapLoaded) {
-      const t = setInterval(() => {
-        if (window.google?.maps) {
-          clearInterval(t);
+      const checkInterval = setInterval(() => {
+        if (window.google?.maps?.Map) {
+          clearInterval(checkInterval);
           resolve();
         }
       }, 50);
       return;
     }
+
     window.__jarvisMapLoaded = true;
-    window.initJarvisMap = () => resolve();
+
+    window.initJarvisMap = () => {
+      if (window.google?.maps?.Map) {
+        resolve();
+      } else {
+        const checkInterval = setInterval(() => {
+          if (window.google?.maps?.Map) {
+            clearInterval(checkInterval);
+            resolve();
+          }
+        }, 50);
+      }
+    };
+
     const s = document.createElement("script");
     s.src = `https://maps.googleapis.com/maps/api/js?key=${BROWSER_KEY}&loading=async&libraries=places&callback=initJarvisMap${TRACKING_ID ? `&channel=${TRACKING_ID}` : ""}`;
     s.async = true;
-    s.onerror = reject;
+    s.onerror = (err) => {
+      window.__jarvisMapLoaded = false;
+      reject(err);
+    };
     document.head.appendChild(s);
   });
 }
@@ -68,10 +89,15 @@ function MapPage() {
   // Init map
   useEffect(() => {
     let cancelled = false;
+    let mounted = true;
+
     if (!BROWSER_KEY) return;
-    loadMapsJS()
-      .then(() => {
-        if (cancelled || !containerRef.current) return;
+
+    const initMap = async () => {
+      try {
+        await loadMapsJS();
+        if (cancelled || !mounted || !containerRef.current) return;
+
         const g = window.google;
         mapRef.current = new g.maps.Map(containerRef.current, {
           center: { lat: 40.7128, lng: -74.006 },
@@ -81,10 +107,18 @@ function MapPage() {
           styles: JARVIS_MAP_STYLE,
         });
         setReady(true);
-      })
-      .catch((e) => toast.error(`Map failed to load: ${e?.message ?? e}`));
+      } catch (e) {
+        if (mounted) {
+          toast.error(`Map failed to load: ${e?.message ?? e}`);
+        }
+      }
+    };
+
+    initMap();
+
     return () => {
       cancelled = true;
+      mounted = false;
     };
   }, []);
 
@@ -164,7 +198,6 @@ function MapPage() {
     qc.invalidateQueries({ queryKey: ["map_places"] });
   }
 
-  // ✅ REPLACED with server-side geocoder
   async function doSearch(e: React.FormEvent) {
     e.preventDefault();
     if (!search.trim() || !mapRef.current) return;
