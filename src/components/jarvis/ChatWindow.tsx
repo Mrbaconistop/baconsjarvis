@@ -28,6 +28,8 @@ export function ChatWindow({ threadId, initial }: { threadId: string; initial: U
   const qc = useQueryClient();
   const [input, setInput] = useState("");
   const [isListening, setIsListening] = useState(false);
+  const [autoSendTimer, setAutoSendTimer] = useState<NodeJS.Timeout | null>(null);
+  const [countdown, setCountdown] = useState(0);
   const taRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<any>(null);
@@ -36,7 +38,7 @@ export function ChatWindow({ threadId, initial }: { threadId: string; initial: U
   useEffect(() => {
     const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SR) {
-      // Speech recognition not supported – we'll still show the mic but it will be disabled
+      // Speech recognition not supported
       return;
     }
     const recognition = new SR();
@@ -47,8 +49,25 @@ export function ChatWindow({ threadId, initial }: { threadId: string; initial: U
     recognition.onresult = (event: any) => {
       const transcript = event.results[0][0].transcript;
       setInput(transcript);
-      // Auto‑submit after a short pause? No – let user review and send.
-      toast.success("Spoken, Sir. Review and send.");
+      toast.success("Spoken, Sir. Auto‑sending in 2 seconds…");
+      // Start auto‑send countdown
+      if (autoSendTimer) clearTimeout(autoSendTimer);
+      setCountdown(2);
+      const timer = setInterval(() => {
+        setCountdown((prev) => Math.max(prev - 1, 0));
+      }, 1000);
+      // Actually submit after 2 seconds
+      const sendTimer = setTimeout(() => {
+        setCountdown(0);
+        if (transcript.trim()) {
+          setInput("");
+          sendMessage({ text: transcript.trim() });
+          toast.info("Sent, Sir.");
+        }
+      }, 2000);
+      setAutoSendTimer(sendTimer);
+      // Clean up interval after send
+      setTimeout(() => clearInterval(timer), 2200);
     };
 
     recognition.onend = () => {
@@ -74,8 +93,9 @@ export function ChatWindow({ threadId, initial }: { threadId: string; initial: U
           recognitionRef.current.abort();
         } catch {}
       }
+      if (autoSendTimer) clearTimeout(autoSendTimer);
     };
-  }, []);
+  }, [autoSendTimer]);
 
   const transport = useMemo(
     () =>
@@ -149,6 +169,12 @@ export function ChatWindow({ threadId, initial }: { threadId: string; initial: U
         recognition.stop();
       } catch {}
       setIsListening(false);
+      if (autoSendTimer) {
+        clearTimeout(autoSendTimer);
+        setAutoSendTimer(null);
+        setCountdown(0);
+        toast.info("Cancelled auto‑send.");
+      }
       return;
     }
 
@@ -232,7 +258,7 @@ export function ChatWindow({ threadId, initial }: { threadId: string; initial: U
               className="p-3 rounded-lg bg-arc text-arc-foreground shadow-arc hover:opacity-90 disabled:opacity-40 transition"
               aria-label="Send"
             >
-              <Send size={16} />
+              {countdown > 0 ? <span className="font-mono text-xs">{countdown}</span> : <Send size={16} />}
             </button>
           )}
         </div>
@@ -241,7 +267,7 @@ export function ChatWindow({ threadId, initial }: { threadId: string; initial: U
   );
 }
 
-// Memoized MessageBubble
+// Memoized MessageBubble (unchanged)
 const MessageBubble = memo(function MessageBubble({ msg }: { msg: UIMessage }) {
   const isUser = msg.role === "user";
   return (
