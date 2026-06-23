@@ -3,6 +3,7 @@ import { convertToModelMessages, streamText, tool, stepCountIs, type UIMessage }
 import { z } from "zod";
 import { createClient } from "@supabase/supabase-js";
 import { JARVIS_SYSTEM_PROMPT, getModelForUser } from "@/lib/ai-gateway.server";
+import { getWeather, getWeatherForecast, getWeatherNarrative } from "@/lib/jarvis.functions";
 
 type Body = { messages?: UIMessage[]; threadId?: string };
 
@@ -54,7 +55,7 @@ export const Route = createFileRoute("/api/chat")({
           .maybeSingle();
         const addressAs = profile?.address_as ?? "Sir";
 
-        // ✅ OPTIMIZED: Load only 10 most recent facts, truncate long values
+        // Load only 10 most recent facts, truncated
         const { data: factRows } = await supabase
           .from("user_facts")
           .select("category, key, value")
@@ -93,8 +94,9 @@ export const Route = createFileRoute("/api/chat")({
         // Get the model
         const { model: chatModel } = await getModelForUser(userId, supabase);
 
-        // ---- Tools (definitions unchanged) ----
+        // ---- Tools ----
         const tools = {
+          // ==================== REMINDERS ====================
           create_reminder: tool({
             description: "Create a one-off or recurring reminder.",
             inputSchema: z.object({
@@ -181,6 +183,8 @@ export const Route = createFileRoute("/api/chat")({
               return { reminders: results, count: results.length };
             },
           }),
+
+          // ==================== VAULT ====================
           save_vault_item: tool({
             description: "Save an item to the vault (credential, note, contact).",
             inputSchema: z.object({
@@ -267,6 +271,8 @@ export const Route = createFileRoute("/api/chat")({
               return { results, count: results.length };
             },
           }),
+
+          // ==================== MEMORY (FACTS) ====================
           remember_fact: tool({
             description: "Persist a fact about the user.",
             inputSchema: z.object({
@@ -343,6 +349,8 @@ export const Route = createFileRoute("/api/chat")({
               return { facts: results, count: results.length };
             },
           }),
+
+          // ==================== SPENDING ====================
           log_transaction: tool({
             description: "Log a spending transaction.",
             inputSchema: z.object({
@@ -483,6 +491,8 @@ export const Route = createFileRoute("/api/chat")({
               return { ok: !error, error: error?.message };
             },
           }),
+
+          // ==================== SOCIAL ====================
           search_social: tool({
             description: "Search social feeds.",
             inputSchema: z.object({
@@ -517,6 +527,8 @@ export const Route = createFileRoute("/api/chat")({
               return { results, count: results.length };
             },
           }),
+
+          // ==================== MAPS ====================
           search_places: tool({
             description: "Search Google Places.",
             inputSchema: z.object({ query: z.string() }),
@@ -699,6 +711,53 @@ export const Route = createFileRoute("/api/chat")({
               };
             },
           }),
+
+          // ==================== WEATHER TOOLS (NEW) ====================
+          get_current_weather: tool({
+            description: "Get the current weather for the user's saved location.",
+            inputSchema: z.object({}),
+            execute: async () => {
+              try {
+                const weather = await getWeather({ context: { supabase, userId } } as any);
+                return {
+                  ok: true,
+                  weather,
+                };
+              } catch (e: any) {
+                return { ok: false, error: e.message };
+              }
+            },
+          }),
+          get_weather_forecast: tool({
+            description: "Get a 5‑day weather forecast for the user's saved location.",
+            inputSchema: z.object({}),
+            execute: async () => {
+              try {
+                const forecast = await getWeatherForecast({ context: { supabase, userId } } as any);
+                return {
+                  ok: true,
+                  forecast,
+                };
+              } catch (e: any) {
+                return { ok: false, error: e.message };
+              }
+            },
+          }),
+          get_weather_narrative: tool({
+            description: "Get a natural‑language weather description (e.g., 'It's a nice cool day to take a walk').",
+            inputSchema: z.object({}),
+            execute: async () => {
+              try {
+                const narrative = await getWeatherNarrative({ context: { supabase, userId } } as any);
+                return {
+                  ok: true,
+                  narrative,
+                };
+              } catch (e: any) {
+                return { ok: false, error: e.message };
+              }
+            },
+          }),
         };
 
         const now = new Date();
@@ -715,6 +774,12 @@ VAULT SECURITY: list_vault only returns labels. When the user asks for secret co
 MEMORY: If the user asks to remember something, call remember_fact.
 FACTS BLOCK (most recent, truncated):
 ${factsBlock}
+
+WEATHER: You have three weather tools:
+- get_current_weather: tells current temperature, conditions, etc.
+- get_weather_forecast: gives a 5‑day forecast.
+- get_weather_narrative: gives a natural‑language description (like "It's a beautiful day for a walk").
+When the user asks about weather, pick the appropriate tool. If they ask for a general description, use get_weather_narrative. If they ask for specific numbers (temperature, humidity), use get_current_weather or get_weather_forecast.
 
 TOOL DISCIPLINE: Only call tools explicitly provided. Do not invent tools.
 Be concise. Confirm actions.`,

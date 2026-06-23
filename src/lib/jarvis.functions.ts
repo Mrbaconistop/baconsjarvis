@@ -226,7 +226,7 @@ export const setWeatherLocation = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
-/* ---------- Fetch weather for the user's saved location (or London fallback) ---------- */
+/* ---------- Fetch current weather ---------- */
 export const getWeather = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
@@ -238,7 +238,6 @@ export const getWeather = createServerFn({ method: "GET" })
     let lon: number | null = null;
     let cityName = "London";
 
-    // 1. Try to get user's saved weather location
     const { data: pref } = await supabase
       .from("user_facts")
       .select("value")
@@ -261,16 +260,7 @@ export const getWeather = createServerFn({ method: "GET" })
       }
     }
 
-    // 2. Build the API URL
-    let url: string;
-    if (lat !== null && lon !== null) {
-      url = `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${API_KEY}&units=metric`;
-    } else {
-      // Fallback to London
-      url = `https://api.openweathermap.org/data/2.5/weather?q=London&appid=${API_KEY}&units=metric`;
-      cityName = "London";
-    }
-
+    const url = `https://api.openweathermap.org/data/2.5/weather?lat=${lat || 51.5074}&lon=${lon || -0.1278}&appid=${API_KEY}&units=metric`;
     const response = await fetch(url);
     if (!response.ok) {
       const errorText = await response.text();
@@ -278,7 +268,7 @@ export const getWeather = createServerFn({ method: "GET" })
     }
     const data = await response.json();
 
-    const weather = {
+    return {
       temperature: data.main.temp,
       description: data.weather[0].description,
       icon: data.weather[0].icon,
@@ -288,6 +278,190 @@ export const getWeather = createServerFn({ method: "GET" })
       windSpeed: data.wind.speed,
       feelsLike: data.main.feels_like,
     };
+  });
 
-    return weather;
+/* ---------- Get 5‑day weather forecast ---------- */
+export const getWeatherForecast = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { supabase, userId } = context as any;
+    const API_KEY = process.env.OPENWEATHER_API_KEY;
+    if (!API_KEY) throw new Error("OpenWeatherMap API key is missing");
+
+    let lat: number | null = null;
+    let lon: number | null = null;
+    let cityName = "London";
+
+    const { data: pref } = await supabase
+      .from("user_facts")
+      .select("value")
+      .eq("user_id", userId)
+      .eq("category", "preference")
+      .eq("key", "weather_place_id")
+      .maybeSingle();
+
+    if (pref) {
+      const { data: place } = await supabase
+        .from("map_places")
+        .select("lat, lng, label")
+        .eq("id", pref.value)
+        .eq("user_id", userId)
+        .maybeSingle();
+      if (place) {
+        lat = place.lat;
+        lon = place.lng;
+        cityName = place.label;
+      }
+    }
+
+    const url = `https://api.openweathermap.org/data/2.5/forecast?lat=${lat || 51.5074}&lon=${lon || -0.1278}&appid=${API_KEY}&units=metric`;
+    const response = await fetch(url);
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Forecast API error: ${response.status} ${errorText}`);
+    }
+    const data = await response.json();
+
+    const dailyForecasts: any[] = [];
+    const seenDays = new Set();
+
+    for (const item of data.list) {
+      const date = new Date(item.dt * 1000);
+      const dayKey = date.toISOString().split("T")[0];
+      if (!seenDays.has(dayKey) && dailyForecasts.length < 5) {
+        seenDays.add(dayKey);
+        dailyForecasts.push({
+          date: dayKey,
+          day: date.toLocaleDateString("en-US", { weekday: "short" }),
+          temp: Math.round(item.main.temp),
+          feelsLike: Math.round(item.main.feels_like),
+          description: item.weather[0].description,
+          icon: item.weather[0].icon,
+          humidity: item.main.humidity,
+          windSpeed: Math.round(item.wind.speed * 3.6),
+          pop: Math.round((item.pop || 0) * 100),
+        });
+      }
+    }
+
+    return {
+      city: cityName,
+      country: data.city.country,
+      forecasts: dailyForecasts,
+    };
+  });
+
+/* ---------- Generate a natural‑language weather description ---------- */
+export const getWeatherNarrative = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { supabase, userId } = context as any;
+    const API_KEY = process.env.OPENWEATHER_API_KEY;
+    if (!API_KEY) throw new Error("OpenWeatherMap API key is missing");
+
+    let lat: number | null = null;
+    let lon: number | null = null;
+    let cityName = "London";
+
+    const { data: pref } = await supabase
+      .from("user_facts")
+      .select("value")
+      .eq("user_id", userId)
+      .eq("category", "preference")
+      .eq("key", "weather_place_id")
+      .maybeSingle();
+
+    if (pref) {
+      const { data: place } = await supabase
+        .from("map_places")
+        .select("lat, lng, label")
+        .eq("id", pref.value)
+        .eq("user_id", userId)
+        .maybeSingle();
+      if (place) {
+        lat = place.lat;
+        lon = place.lng;
+        cityName = place.label;
+      }
+    }
+
+    const url = `https://api.openweathermap.org/data/2.5/weather?lat=${lat || 51.5074}&lon=${lon || -0.1278}&appid=${API_KEY}&units=metric`;
+    const response = await fetch(url);
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Weather API error: ${response.status} ${errorText}`);
+    }
+    const data = await response.json();
+
+    const temp = Math.round(data.main.temp);
+    const feelsLike = Math.round(data.main.feels_like);
+    const description = data.weather[0].description;
+    const humidity = data.main.humidity;
+    const windSpeed = Math.round(data.wind.speed * 3.6);
+
+    // Build natural language description
+    let narrative = "";
+
+    // Temperature description
+    if (temp >= 28) {
+      narrative = "It's a hot day, Sir. ";
+    } else if (temp >= 22) {
+      narrative = "It's a warm, pleasant day. ";
+    } else if (temp >= 15) {
+      narrative = "It's a mild, comfortable day. ";
+    } else if (temp >= 10) {
+      narrative = "It's a cool day – perfect for a walk. ";
+    } else if (temp >= 5) {
+      narrative = "It's chilly out there, Sir. ";
+    } else {
+      narrative = "It's cold – better wrap up warm. ";
+    }
+
+    // Conditions description
+    const condition = description.toLowerCase();
+    if (condition.includes("clear") || condition.includes("sunny")) {
+      narrative += "The sky is clear and bright. ";
+    } else if (condition.includes("cloud")) {
+      narrative += "It's mostly cloudy. ";
+    } else if (condition.includes("rain") || condition.includes("drizzle") || condition.includes("shower")) {
+      narrative += "There's some rain – you might need an umbrella. ";
+    } else if (condition.includes("thunder") || condition.includes("storm")) {
+      narrative += "There's a storm brewing – stay safe, Sir. ";
+    } else if (condition.includes("snow")) {
+      narrative += "It's snowing! Quite a sight. ";
+    } else if (condition.includes("fog") || condition.includes("mist")) {
+      narrative += "It's foggy – drive carefully. ";
+    }
+
+    // Activity suggestion (if it's not too extreme)
+    if (temp >= 15 && temp <= 28 && !condition.includes("rain") && !condition.includes("storm")) {
+      narrative += "It's a nice day for a walk or some fresh air.";
+    } else if (condition.includes("sunny") && temp > 20 && temp < 30) {
+      narrative += "Great weather for outdoor plans.";
+    } else if (condition.includes("clear") && temp < 15) {
+      narrative += "A light jacket would be a good idea.";
+    } else if (condition.includes("rain")) {
+      narrative += "Grab an umbrella if you're heading out.";
+    } else if (temp > 30) {
+      narrative += "Stay hydrated and avoid the midday sun.";
+    } else if (temp < 5) {
+      narrative += "Wrap up warm if you're going outside.";
+    }
+
+    // Add a friendly closing
+    if (!narrative.endsWith(".") && !narrative.endsWith("!")) {
+      narrative += ".";
+    }
+
+    return {
+      temperature: temp,
+      feelsLike: feelsLike,
+      description: description,
+      icon: data.weather[0].icon,
+      city: cityName,
+      country: data.sys.country,
+      humidity: humidity,
+      windSpeed: windSpeed,
+      narrative: narrative,
+    };
   });

@@ -7,9 +7,15 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { morningBriefing } from "@/lib/jarvis.functions";
 import { listFeeds } from "@/lib/social.functions";
-import { getWeather, getWeatherLocation, setWeatherLocation } from "@/lib/weather.functions";
+import {
+  getWeather,
+  getWeatherForecast,
+  getWeatherNarrative,
+  getWeatherLocation,
+  setWeatherLocation,
+} from "@/lib/jarvis.functions";
 import { supabase } from "@/integrations/supabase/client";
-import { Sparkles, Cloud, Droplets, Wind, RefreshCw, MapPin } from "lucide-react";
+import { Sparkles, Cloud, Droplets, Wind, RefreshCw, MapPin, Calendar, Sun, CloudRain, Snowflake } from "lucide-react";
 import { toast } from "sonner";
 import { useState } from "react";
 import { formatRelative } from "@/lib/time-utils";
@@ -27,24 +33,33 @@ function Dashboard() {
   const list = useServerFn(listFeeds);
   const brief = useServerFn(morningBriefing);
   const getWeatherFn = useServerFn(getWeather);
-  const getWeatherLocationFn = useServerFn(getWeatherLocation);
-  const setWeatherLocationFn = useServerFn(setWeatherLocation);
+  const getForecastFn = useServerFn(getWeatherForecast);
+  const getNarrativeFn = useServerFn(getWeatherNarrative);
+  const getLocationFn = useServerFn(getWeatherLocation);
+  const setLocationFn = useServerFn(setWeatherLocation);
 
-  // Weather data
+  // Queries
   const weatherQuery = useQuery({
     queryKey: ["weather"],
     queryFn: () => getWeatherFn(),
     staleTime: 10 * 60 * 1000,
   });
-
-  // User's saved weather location (for display)
+  const forecastQuery = useQuery({
+    queryKey: ["weather-forecast"],
+    queryFn: () => getForecastFn(),
+    staleTime: 10 * 60 * 1000,
+  });
+  const narrativeQuery = useQuery({
+    queryKey: ["weather-narrative"],
+    queryFn: () => getNarrativeFn(),
+    staleTime: 10 * 60 * 1000,
+  });
   const locationQuery = useQuery({
     queryKey: ["weather-location"],
-    queryFn: () => getWeatherLocationFn(),
+    queryFn: () => getLocationFn(),
     staleTime: Infinity,
   });
 
-  // List of saved places for the dropdown
   const { data: places = [] } = useQuery({
     queryKey: ["map_places"],
     queryFn: async () => {
@@ -74,9 +89,13 @@ function Dashboard() {
 
   async function handleLocationChange(placeId: string) {
     try {
-      await setWeatherLocationFn({ data: { placeId } });
-      await qc.invalidateQueries({ queryKey: ["weather-location"] });
-      await qc.invalidateQueries({ queryKey: ["weather"] });
+      await setLocationFn({ data: { placeId } });
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["weather-location"] }),
+        qc.invalidateQueries({ queryKey: ["weather"] }),
+        qc.invalidateQueries({ queryKey: ["weather-forecast"] }),
+        qc.invalidateQueries({ queryKey: ["weather-narrative"] }),
+      ]);
       toast.success("Weather location updated.");
     } catch (e: any) {
       toast.error(e?.message ?? "Failed to update location");
@@ -85,6 +104,29 @@ function Dashboard() {
 
   const currentLocation = locationQuery.data;
   const selectedPlaceId = currentLocation?.id || "";
+
+  // Helper to get weather icon
+  const getWeatherIcon = (iconCode: string) => {
+    const iconMap: Record<string, any> = {
+      "01d": Sun,
+      "01n": Sun,
+      "02d": Cloud,
+      "02n": Cloud,
+      "03d": Cloud,
+      "03n": Cloud,
+      "04d": Cloud,
+      "04n": Cloud,
+      "09d": CloudRain,
+      "09n": CloudRain,
+      "10d": CloudRain,
+      "10n": CloudRain,
+      "11d": CloudRain,
+      "11n": CloudRain,
+      "13d": Snowflake,
+      "13n": Snowflake,
+    };
+    return iconMap[iconCode] || Cloud;
+  };
 
   return (
     <div className="flex flex-col h-screen">
@@ -105,7 +147,6 @@ function Dashboard() {
         }
       />
 
-      {/* Live ticker */}
       <LiveTicker feeds={feeds ?? []} />
 
       <div className="flex-1 overflow-y-auto px-8 py-6 space-y-6">
@@ -135,15 +176,27 @@ function Dashboard() {
                 </div>
               )}
               <button
-                onClick={() => weatherQuery.refetch()}
-                disabled={weatherQuery.isFetching}
+                onClick={() => {
+                  weatherQuery.refetch();
+                  forecastQuery.refetch();
+                  narrativeQuery.refetch();
+                }}
+                disabled={weatherQuery.isFetching || forecastQuery.isFetching || narrativeQuery.isFetching}
                 className="text-hud-dim hover:text-arc transition disabled:opacity-50"
               >
-                <RefreshCw size={14} className={weatherQuery.isFetching ? "animate-spin" : ""} />
+                <RefreshCw
+                  size={14}
+                  className={
+                    weatherQuery.isFetching || forecastQuery.isFetching || narrativeQuery.isFetching
+                      ? "animate-spin"
+                      : ""
+                  }
+                />
               </button>
             </div>
           </div>
 
+          {/* Current Weather */}
           {weatherQuery.isLoading && <div className="text-sm text-muted-foreground">Fetching weather…</div>}
           {weatherQuery.error && <div className="text-sm text-critical">Could not load weather.</div>}
           {weatherQuery.data && (
@@ -176,6 +229,40 @@ function Dashboard() {
               </div>
             </div>
           )}
+
+          {/* Narrative */}
+          {narrativeQuery.isLoading && <div className="text-sm text-muted-foreground mt-3">Generating narrative…</div>}
+          {narrativeQuery.data && (
+            <div className="mt-3 p-3 rounded-md bg-arc/5 border border-arc/20">
+              <div className="font-mono text-[10px] text-arc mb-1">JARVIS SAYS</div>
+              <p className="text-sm">{narrativeQuery.data.narrative}</p>
+            </div>
+          )}
+
+          {/* 5‑day Forecast */}
+          {forecastQuery.isLoading && <div className="text-sm text-muted-foreground mt-3">Loading forecast…</div>}
+          {forecastQuery.data && (
+            <div className="mt-4">
+              <div className="font-mono text-[10px] tracking-[0.3em] text-arc mb-2 flex items-center gap-2">
+                <Calendar size={12} /> 5‑DAY FORECAST
+              </div>
+              <div className="grid grid-cols-5 gap-2">
+                {forecastQuery.data.forecasts.map((day: any) => {
+                  const Icon = getWeatherIcon(day.icon);
+                  return (
+                    <div key={day.date} className="text-center p-2 rounded-md bg-background/40 border border-arc/10">
+                      <div className="font-mono text-xs">{day.day}</div>
+                      <Icon size={20} className="mx-auto my-1 text-arc" />
+                      <div className="font-display text-sm">{day.temp}°C</div>
+                      <div className="text-[10px] text-hud-dim capitalize">{day.description}</div>
+                      {day.pop > 0 && <div className="text-[10px] text-hud-dim">🌧️ {day.pop}%</div>}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {places.length === 0 && (
             <div className="text-xs text-hud-dim mt-2">Save a place on the Map page to set your weather location.</div>
           )}
