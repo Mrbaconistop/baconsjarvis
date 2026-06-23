@@ -14,6 +14,7 @@ import {
   Mic,
   MicOff,
   AlertCircle,
+  Bug,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -37,53 +38,70 @@ const TOOL_META: Record<string, { icon: any; label: string }> = {
 };
 
 export function ChatWindow({ threadId, initial }: { threadId: string; initial: UIMessage[] }) {
+  console.log("[DEBUG] 🚀 ChatWindow component loaded");
+
   const qc = useQueryClient();
   const [input, setInput] = useState("");
   const [isListening, setIsListening] = useState(false);
   const [micSupported, setMicSupported] = useState<boolean | null>(null);
-  const [transcript, setTranscript] = useState("");
+  const [debugInfo, setDebugInfo] = useState<string>("Ready");
   const taRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<any>(null);
 
   // Check if SpeechRecognition is available
   useEffect(() => {
+    console.log("[DEBUG] 🔍 Checking SpeechRecognition API...");
     const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (SR) {
       setMicSupported(true);
-      console.log("[Voice] ✅ SpeechRecognition API available");
+      console.log("[DEBUG] ✅ SpeechRecognition API available");
+      setDebugInfo("SpeechRecognition available");
     } else {
       setMicSupported(false);
-      console.warn("[Voice] ❌ SpeechRecognition API not available");
+      console.warn("[DEBUG] ❌ SpeechRecognition API not available");
+      setDebugInfo("SpeechRecognition NOT available");
       toast.error("Voice input not supported in this browser.");
     }
   }, []);
 
   // Initialize recognition only once
   useEffect(() => {
+    console.log("[DEBUG] 🔄 Recognition init effect running. micSupported:", micSupported);
     if (micSupported === false) return;
     const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SR) return;
+    if (!SR) {
+      console.warn("[DEBUG] ❌ SR still undefined");
+      return;
+    }
 
+    console.log("[DEBUG] 🎤 Creating recognition instance...");
     const recognition = new SR();
     recognition.continuous = false;
     recognition.interimResults = false;
     recognition.lang = "en-US";
 
     recognition.onresult = (event: any) => {
-      const transcriptText = event.results[0][0].transcript;
-      console.log("[Voice] 📝 Transcript:", transcriptText);
-      setInput(transcriptText);
+      const transcript = event.results[0][0].transcript;
+      console.log("[DEBUG] 📝 Transcript:", transcript);
+      setInput(transcript);
       toast.success("Spoken, Sir. Ready to send.");
     };
 
+    recognition.onstart = () => {
+      console.log("[DEBUG] 🎙️ Recognition STARTED");
+      setDebugInfo("Listening...");
+    };
+
     recognition.onend = () => {
-      console.log("[Voice] 🔚 Recognition ended");
+      console.log("[DEBUG] 🔚 Recognition ended");
       setIsListening(false);
+      setDebugInfo("Stopped");
     };
 
     recognition.onerror = (event: any) => {
-      console.error("[Voice] ❌ Recognition error:", event);
+      console.error("[DEBUG] ❌ Recognition error:", event);
+      setDebugInfo(`Error: ${event.error}`);
       if (event.error === "not-allowed") {
         toast.error("Microphone access denied. Please allow it in browser settings.");
       } else if (event.error === "no-speech") {
@@ -97,9 +115,10 @@ export function ChatWindow({ threadId, initial }: { threadId: string; initial: U
     };
 
     recognitionRef.current = recognition;
-    console.log("[Voice] 🎤 Recognition instance created");
+    console.log("[DEBUG] 🎤 Recognition instance created successfully");
 
     return () => {
+      console.log("[DEBUG] 🧹 Cleaning up recognition");
       if (recognitionRef.current) {
         try {
           recognitionRef.current.abort();
@@ -108,17 +127,17 @@ export function ChatWindow({ threadId, initial }: { threadId: string; initial: U
     };
   }, [micSupported]);
 
-  // Request mic permission explicitly (triggers the browser prompt)
+  // Request mic permission explicitly
   async function requestMicPermission(): Promise<boolean> {
     try {
-      console.log("[Voice] 📢 Requesting microphone permission...");
+      console.log("[DEBUG] 📢 Requesting microphone permission...");
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       stream.getTracks().forEach((track) => track.stop());
-      console.log("[Voice] ✅ Microphone permission granted");
+      console.log("[DEBUG] ✅ Microphone permission granted");
       toast.success("Microphone access granted, Sir.");
       return true;
     } catch (err: any) {
-      console.error("[Voice] ❌ Permission request error:", err);
+      console.error("[DEBUG] ❌ Permission request error:", err);
       if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
         toast.error("Microphone permission denied. Please allow it in browser settings.");
       } else if (err.name === "NotFoundError") {
@@ -132,28 +151,36 @@ export function ChatWindow({ threadId, initial }: { threadId: string; initial: U
 
   // Start listening
   async function startListening() {
+    console.log("[DEBUG] 🎯 startListening called");
     const recognition = recognitionRef.current;
     if (!recognition) {
+      console.error("[DEBUG] ❌ No recognition instance");
       toast.error("Voice input not supported in this browser.");
+      setDebugInfo("No recognition instance");
       return;
     }
     try {
+      console.log("[DEBUG] 🎙️ Calling recognition.start()...");
       recognition.start();
       setIsListening(true);
-      console.log("[Voice] 🎙️ Listening started");
+      setDebugInfo("Listening...");
+      console.log("[DEBUG] 🎙️ Listening started");
       toast.info("Listening, Sir…");
     } catch (err: any) {
-      console.error("[Voice] ❌ Failed to start recognition:", err);
+      console.error("[DEBUG] ❌ Failed to start recognition:", err);
+      setDebugInfo(`Start error: ${err.message}`);
       if (err.message?.includes("permission")) {
         const granted = await requestMicPermission();
         if (granted) {
           try {
             recognition.start();
             setIsListening(true);
+            setDebugInfo("Listening...");
             toast.info("Listening, Sir…");
-            console.log("[Voice] 🎙️ Listening started after permission grant");
+            console.log("[DEBUG] 🎙️ Listening started after permission grant");
           } catch (retryErr) {
-            console.error("[Voice] ❌ Retry failed:", retryErr);
+            console.error("[DEBUG] ❌ Retry failed:", retryErr);
+            setDebugInfo(`Retry error: ${retryErr.message}`);
             toast.error("Could not start voice input after permission grant.");
           }
         }
@@ -163,21 +190,22 @@ export function ChatWindow({ threadId, initial }: { threadId: string; initial: U
     }
   }
 
-  // Stop listening
   function stopListening() {
+    console.log("[DEBUG] 🛑 stopListening called");
     if (recognitionRef.current) {
       try {
         recognitionRef.current.stop();
       } catch (e) {
-        console.warn("[Voice] Stop error:", e);
+        console.warn("[DEBUG] Stop error:", e);
       }
     }
     setIsListening(false);
-    console.log("[Voice] 🛑 Listening stopped");
+    setDebugInfo("Stopped");
+    console.log("[DEBUG] 🛑 Listening stopped");
   }
 
-  // Toggle mic
   function toggleMic() {
+    console.log("[DEBUG] 🔘 Mic toggled. isListening:", isListening);
     if (isListening) {
       stopListening();
       return;
@@ -189,7 +217,27 @@ export function ChatWindow({ threadId, initial }: { threadId: string; initial: U
     startListening();
   }
 
-  // --- Chat logic (unchanged) ---
+  // Debug function to test recognition directly
+  function debugTest() {
+    console.log("[DEBUG] 🧪 Running debug test");
+    const recognition = recognitionRef.current;
+    if (recognition) {
+      console.log("[DEBUG] ✅ Recognition exists:", recognition);
+      console.log("[DEBUG] Recognition state:", {
+        continuous: recognition.continuous,
+        interimResults: recognition.interimResults,
+        lang: recognition.lang,
+      });
+      toast.info(`Recognition exists: ${Object.keys(recognition).join(", ")}`);
+    } else {
+      console.log("[DEBUG] ❌ No recognition instance");
+      toast.error("No recognition instance");
+    }
+    console.log("[DEBUG] micSupported:", micSupported);
+    console.log("[DEBUG] isListening:", isListening);
+  }
+
+  // Transport
   const transport = useMemo(
     () =>
       new DefaultChatTransport({
@@ -333,8 +381,18 @@ export function ChatWindow({ threadId, initial }: { threadId: string; initial: U
             </button>
           )}
         </div>
+        <div className="flex justify-between items-center mt-2">
+          <div className="text-xs text-hud-dim">{debugInfo && <span>Status: {debugInfo}</span>}</div>
+          <button
+            onClick={debugTest}
+            className="text-xs text-hud-dim hover:text-arc flex items-center gap-1"
+            title="Debug voice recognition"
+          >
+            <Bug size={12} /> Test
+          </button>
+        </div>
         {micSupported === false && (
-          <div className="mt-2 text-xs text-warning flex items-center gap-2 justify-center">
+          <div className="mt-1 text-xs text-warning flex items-center gap-2 justify-center">
             <AlertCircle size={12} />
             <span>Voice input not supported in this browser. Try Chrome or Edge.</span>
           </div>
