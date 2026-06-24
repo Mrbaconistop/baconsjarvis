@@ -12,6 +12,7 @@ import {
   Wallet,
   Bell,
   Map as MapIcon,
+  ListChecks,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
@@ -27,6 +28,7 @@ const NAV = [
   { to: "/map", label: "Map", icon: MapIcon, tag: "09" },
   { to: "/world", label: "World", icon: Globe, tag: "06" },
   { to: "/pulse", label: "Pulse", icon: Activity, tag: "07" },
+  { to: "/time", label: "Tasks", icon: ListChecks, tag: "10" }, // Added Tasks, points to same page
   { to: "/settings", label: "Settings", icon: Settings, tag: "08" },
 ] as const;
 
@@ -68,7 +70,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             const Icon = item.icon;
             return (
               <Link
-                key={item.to}
+                key={item.to + item.label}
                 to={item.to}
                 className={`group flex items-center gap-3 px-3 py-2.5 rounded-md transition relative ${
                   active
@@ -87,7 +89,6 @@ export function AppShell({ children }: { children: ReactNode }) {
 
         <div className="px-5 py-4 border-t border-arc/10 space-y-2">
           <div className="font-mono text-[10px] text-hud-dim">SYSTEM TIME</div>
-          {/* ✅ Add suppressHydrationWarning to the time display */}
           <div className="font-mono text-sm text-arc text-glow" suppressHydrationWarning>
             {time.toLocaleTimeString()}
           </div>
