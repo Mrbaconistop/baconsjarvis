@@ -13,8 +13,6 @@ import {
   MapPin,
   Mic,
   MicOff,
-  AlertCircle,
-  Bug,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
