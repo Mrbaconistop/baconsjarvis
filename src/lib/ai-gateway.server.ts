@@ -149,8 +149,10 @@ export async function getModelForUser(userId: string, supabase: any) {
     | "system"
     | "lmstudio";
   const apiKey = config.api_key;
+  const mode = (config.mode ?? "basic") as "thinking" | "coding" | "basic";
   const effectiveProvider = provider === "system" ? undefined : provider;
-  return resolveChatModel({ provider: effectiveProvider, apiKey });
+  const resolved = resolveChatModel({ provider: effectiveProvider, apiKey });
+  return { ...resolved, mode };
 }
 
 // ============================================================
