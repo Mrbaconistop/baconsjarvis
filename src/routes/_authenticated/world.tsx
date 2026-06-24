@@ -6,6 +6,7 @@ import {
   markFeedHandled,
   refreshFeed,
   fetchDiscordMessages,
+  fetchDiscordDMs,
   getDiscordChannel,
   setDiscordChannel,
 } from "@/lib/social.functions";
@@ -43,6 +44,7 @@ const PLATFORMS = [
   { id: "instagram", label: "Instagram", icon: Instagram },
   { id: "facebook", label: "Facebook", icon: Facebook },
   { id: "discord", label: "Discord", icon: MessageCircle },
+  { id: "discord_dm", label: "Discord DM", icon: MessageCircle },
 ] as const;
 
 function WorldPage() {
@@ -52,11 +54,13 @@ function WorldPage() {
   const draft = useServerFn(draftReply);
   const refresh = useServerFn(refreshFeed);
   const fetchDiscord = useServerFn(fetchDiscordMessages);
+  const fetchDMs = useServerFn(fetchDiscordDMs);
   const getChannel = useServerFn(getDiscordChannel);
   const setChannel = useServerFn(setDiscordChannel);
 
   const [refreshing, setRefreshing] = useState(false);
   const [fetchingDiscord, setFetchingDiscord] = useState(false);
+  const [fetchingDMs, setFetchingDMs] = useState(false);
   const [showChannelModal, setShowChannelModal] = useState(false);
   const [channelInput, setChannelInput] = useState("");
 
@@ -104,6 +108,19 @@ function WorldPage() {
     }
   }
 
+  async function handleFetchDMs() {
+    setFetchingDMs(true);
+    try {
+      const result = await fetchDMs({});
+      await refetch();
+      toast.success(`Fetched ${result?.length || 0} Discord DMs, Sir.`);
+    } catch (e: any) {
+      toast.error(e?.message ?? "Failed to fetch DMs");
+    } finally {
+      setFetchingDMs(false);
+    }
+  }
+
   async function handleSetChannel() {
     if (!channelInput.trim()) return toast.error("Channel ID required");
     try {
@@ -140,6 +157,14 @@ function WorldPage() {
             >
               <MessageCircle size={12} className={fetchingDiscord ? "animate-spin" : ""} />
               {fetchingDiscord ? "Fetching…" : "Discord"}
+            </button>
+            <button
+              onClick={handleFetchDMs}
+              disabled={fetchingDMs}
+              className="text-xs flex items-center gap-1.5 px-3 py-2 rounded-md border border-arc/30 hover:bg-arc/10 transition disabled:opacity-50"
+            >
+              <MessageCircle size={12} className={fetchingDMs ? "animate-spin" : ""} />
+              {fetchingDMs ? "Fetching…" : "DMs"}
             </button>
             <button
               onClick={() => setShowChannelModal(true)}
@@ -180,7 +205,9 @@ function WorldPage() {
                   <div className="text-xs text-hud-dim p-4 text-center">
                     {p.id === "discord"
                       ? "No Discord messages yet. Configure the channel and fetch."
-                      : "Nothing here yet."}
+                      : p.id === "discord_dm"
+                        ? "No DMs fetched yet. Click 'DMs' to fetch."
+                        : "Nothing here yet."}
                   </div>
                 )}
                 {items.map((f: any) => (
