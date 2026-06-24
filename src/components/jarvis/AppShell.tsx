@@ -50,7 +50,6 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <div className="min-h-screen flex bg-background grid-bg">
-      {/* Sidebar */}
       <aside className="w-64 shrink-0 border-r border-arc/15 bg-background/40 backdrop-blur-xl flex flex-col">
         <div className="px-5 py-6 flex items-center gap-3 border-b border-arc/10">
           <div className="relative">
@@ -110,7 +109,6 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
       </aside>
 
-      {/* Main */}
       <main className="flex-1 min-w-0">{children}</main>
     </div>
   );

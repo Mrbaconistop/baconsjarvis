@@ -5,7 +5,7 @@ import { useState } from "react";
 import { PageHeader, PriorityChip } from "@/components/jarvis/HudBits";
 import { getTasksByStatus, updateTaskStatus, deleteReminder, createTask } from "@/lib/reminders.functions";
 import { formatClock, formatDateLong } from "@/lib/time-utils";
-import { Plus, Trash2, ArrowLeft, ArrowRight, Calendar, X } from "lucide-react";
+import { Plus, Trash2, ArrowLeft, ArrowRight, Calendar, X, List, LayoutGrid } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_authenticated/time")({
