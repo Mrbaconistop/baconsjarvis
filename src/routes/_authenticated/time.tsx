@@ -13,7 +13,7 @@ import {
   createTask,
 } from "@/lib/reminders.functions";
 import { formatRelative, formatClock, formatDateLong, minutesUntil } from "@/lib/time-utils";
-import { Check, Plus, Trash2, Calendar, LayoutList, LayoutBoard, ArrowLeft, ArrowRight, X } from "lucide-react";
+import { Check, Plus, Trash2, Calendar, LayoutList, Kanban, ArrowLeft, ArrowRight, X } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_authenticated/time")({
@@ -164,7 +164,7 @@ function TimePage() {
                 view === "board" ? "bg-arc text-arc-foreground border-arc" : "border-arc/30 hover:bg-arc/10"
               }`}
             >
-              <LayoutBoard size={14} className="inline mr-1" /> Board
+              <Kanban size={14} className="inline mr-1" /> Board
             </button>
             {view === "board" && (
               <button
