@@ -784,13 +784,16 @@ export const Route = createFileRoute("/api/chat")({
             },
           }),
 
-          // ==================== PROFILE & SETTINGS (NEW) ====================
+          // ==================== PROFILE & SETTINGS (FIXED) ====================
           get_profile: tool({
             description: "Get the user's profile information (name, address_as, timezone, briefing time).",
             inputSchema: z.object({}),
             execute: async () => {
               try {
                 const profile = await getProfile({ context: { supabase, userId } } as any);
+                if (!profile) {
+                  return { ok: true, profile: null, message: "No profile found. You can set one up in Settings." };
+                }
                 return { ok: true, profile };
               } catch (e: any) {
                 return { ok: false, error: e.message };
@@ -846,12 +849,10 @@ export const Route = createFileRoute("/api/chat")({
             }),
             execute: async ({ provider, apiKey, mode }) => {
               try {
-                // First get current config to merge
                 const current = await getLLMConfig({ context: { supabase, userId } } as any);
                 const newProvider = provider ?? current.provider;
                 const newApiKey = apiKey ?? current.apiKey;
                 const newMode = mode ?? current.mode;
-                // Update
                 await updateLLMConfig({
                   context: { supabase, userId },
                   data: { provider: newProvider, apiKey: newApiKey, mode: newMode },
@@ -875,7 +876,7 @@ export const Route = createFileRoute("/api/chat")({
             },
           }),
 
-          // ==================== FILES (Supabase Storage) ====================
+          // ==================== FILES ====================
           list_files: tool({
             description: "List files in the user's private storage.",
             inputSchema: z.object({}),
@@ -918,13 +919,12 @@ export const Route = createFileRoute("/api/chat")({
             },
           }),
 
-          // ==================== BACKEND OVERVIEW (Admin-like) ====================
+          // ==================== BACKEND OVERVIEW ====================
           get_backend_overview: tool({
             description: "Get backend overview (table counts, secret status, project info).",
             inputSchema: z.object({}),
             execute: async () => {
               try {
-                // Use the existing server function
                 const overview = await getBackendOverview({ context: { supabase, userId } } as any);
                 return { ok: true, overview };
               } catch (e: any) {
@@ -935,7 +935,10 @@ export const Route = createFileRoute("/api/chat")({
         };
 
         const now = new Date();
-        const systemPrompt = getSystemPrompt(mode, addressAs, factsBlock);
+        const systemPrompt =
+          getSystemPrompt(mode, addressAs, factsBlock) +
+          "\n\nWhen displaying times, always use 12-hour format with AM/PM (e.g., '8:45 AM', '3:30 PM'). Current time is: " +
+          now.toLocaleString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
 
         const result = streamText({
           model: chatModel,
