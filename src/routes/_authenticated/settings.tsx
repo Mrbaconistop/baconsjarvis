@@ -22,7 +22,6 @@ const PLATFORM_META: Record<string, { label: string; icon: any; note: string }> 
   calendar: { label: "Google Calendar", icon: Calendar, note: "Connect to surface upcoming events." },
 };
 
-// ✅ Default Groq API key (provided by you, can be overridden by user)
 const DEFAULT_GROQ_KEY = "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";
 
 function SettingsPage() {
@@ -41,17 +40,17 @@ function SettingsPage() {
   const [connecting, setConnecting] = useState(false);
   const [provider, setProvider] = useState<"groq" | "deepseek" | "lovable" | "system" | "lmstudio">("system");
   const [apiKey, setApiKey] = useState("");
+  const [mode, setMode] = useState<"thinking" | "coding" | "basic">("basic");
   const [savingLlm, setSavingLlm] = useState(false);
 
-  // Load saved config
   useEffect(() => {
     if (llmConfig) {
       setProvider(llmConfig.provider as typeof provider);
       setApiKey(llmConfig.apiKey || "");
+      setMode((llmConfig.mode as "thinking" | "coding" | "basic") || "basic");
     }
   }, [llmConfig]);
 
-  // ✅ When provider changes to "groq" and no key is set, pre‑fill the default key
   useEffect(() => {
     if (provider === "groq" && !apiKey) {
       setApiKey(DEFAULT_GROQ_KEY);
@@ -78,11 +77,10 @@ function SettingsPage() {
   async function saveLlm() {
     setSavingLlm(true);
     try {
-      // If provider is "groq" and key is empty, we'll send undefined to keep the existing key
       const keyToSend = provider === "groq" && !apiKey ? undefined : apiKey || undefined;
-      await updateConfig({ data: { provider, apiKey: keyToSend } });
+      await updateConfig({ data: { provider, apiKey: keyToSend, mode } });
       await refetch();
-      toast.success("AI provider updated");
+      toast.success("AI settings updated");
     } catch (e: any) {
       toast.error(e.message ?? "Failed to update");
     } finally {
@@ -140,6 +138,18 @@ function SettingsPage() {
                 />
               </div>
             )}
+            <div className="flex flex-wrap items-center gap-4">
+              <label className="text-sm font-medium">AI Mode</label>
+              <select
+                value={mode}
+                onChange={(e) => setMode(e.target.value as typeof mode)}
+                className="bg-background/40 border border-arc/20 rounded-md px-3 py-2 text-sm focus:border-arc focus:outline-none"
+              >
+                <option value="basic">🗣️ Basic – Everyday chat</option>
+                <option value="thinking">🧠 Thinking – Deep reasoning</option>
+                <option value="coding">💻 Coding – Technical help</option>
+              </select>
+            </div>
             <button
               onClick={saveLlm}
               disabled={savingLlm || (provider !== "system" && !apiKey)}

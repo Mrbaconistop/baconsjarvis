@@ -24,7 +24,6 @@ export const listAccounts = createServerFn({ method: "GET" })
     return data ?? [];
   });
 
-// ---------- LLM Config ----------
 export const getLLMConfig = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
@@ -37,6 +36,7 @@ export const getLLMConfig = createServerFn({ method: "GET" })
     return {
       provider: config.provider || "system",
       apiKey: config.api_key || "",
+      mode: config.mode || "basic",
     };
   });
 
@@ -47,6 +47,7 @@ export const updateLLMConfig = createServerFn({ method: "POST" })
       .object({
         provider: z.enum(["groq", "deepseek", "lovable", "system", "lmstudio"]),
         apiKey: z.string().optional(),
+        mode: z.enum(["thinking", "coding", "basic"]).optional(),
       })
       .parse(input),
   )
@@ -56,14 +57,20 @@ export const updateLLMConfig = createServerFn({ method: "POST" })
     // Delete existing llm facts
     await supabase.from("user_facts").delete().eq("user_id", userId).eq("category", "llm");
 
-    // Insert new ones if provider is not "system"
+    const facts: Array<{ user_id: string; category: string; key: string; value: string }> = [];
+
     if (data.provider !== "system") {
-      const facts: Array<{ user_id: string; category: string; key: string; value: string }> = [
-        { user_id: userId, category: "llm", key: "provider", value: data.provider },
-      ];
+      facts.push({ user_id: userId, category: "llm", key: "provider", value: data.provider });
       if (data.apiKey) {
         facts.push({ user_id: userId, category: "llm", key: "api_key", value: data.apiKey });
       }
+    }
+
+    if (data.mode) {
+      facts.push({ user_id: userId, category: "llm", key: "mode", value: data.mode });
+    }
+
+    if (facts.length > 0) {
       const { error } = await supabase.from("user_facts").insert(facts);
       if (error) throw error;
     }
