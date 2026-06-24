@@ -109,7 +109,7 @@ function MapPage() {
         setReady(true);
       } catch (e) {
         if (mounted) {
-          toast.error(`Map failed to load: ${e?.message ?? e}`);
+          toast.error(`Map failed to load: ${(e as any)?.message ?? e}`);
         }
       }
     };

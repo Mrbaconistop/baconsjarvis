@@ -64,7 +64,7 @@ export const Route = createFileRoute("/api/chat")({
           .limit(10);
 
         const factsBlock = (factRows ?? []).length
-          ? factRows
+          ? (factRows ?? [])
               .map((f: any) => {
                 const value = f.value.length > 60 ? f.value.slice(0, 60) + "…" : f.value;
                 return `- [${f.category}] ${f.key}: ${value}`;

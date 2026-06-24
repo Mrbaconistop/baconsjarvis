@@ -73,14 +73,11 @@ export const getTasksByStatus = createServerFn({ method: "GET" })
       .eq("user_id", userId)
       .order("order", { ascending: true });
     if (error) throw error;
-    const grouped = { todo: [], doing: [], done: [] };
+    const grouped: { todo: any[]; doing: any[]; done: any[] } = { todo: [], doing: [], done: [] };
     (data ?? []).forEach((task: any) => {
-      const status = task.status || "todo";
-      if (grouped[status as keyof typeof grouped]) {
-        grouped[status as keyof typeof grouped].push(task);
-      } else {
-        grouped.todo.push(task);
-      }
+      const status = (task.status || "todo") as keyof typeof grouped;
+      if (grouped[status]) grouped[status].push(task);
+      else grouped.todo.push(task);
     });
     return grouped;
   });
