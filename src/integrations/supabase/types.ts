@@ -374,10 +374,12 @@ export type Database = {
           description: string | null
           id: string
           is_completed: boolean
+          order: number | null
           priority: Database["public"]["Enums"]["priority_level"]
           recurrence: string | null
           source_ref: string | null
           source_type: string | null
+          status: string | null
           title: string
           user_id: string
         }
@@ -387,10 +389,12 @@ export type Database = {
           description?: string | null
           id?: string
           is_completed?: boolean
+          order?: number | null
           priority?: Database["public"]["Enums"]["priority_level"]
           recurrence?: string | null
           source_ref?: string | null
           source_type?: string | null
+          status?: string | null
           title: string
           user_id: string
         }
@@ -400,10 +404,12 @@ export type Database = {
           description?: string | null
           id?: string
           is_completed?: boolean
+          order?: number | null
           priority?: Database["public"]["Enums"]["priority_level"]
           recurrence?: string | null
           source_ref?: string | null
           source_type?: string | null
+          status?: string | null
           title?: string
           user_id?: string
         }

@@ -180,7 +180,7 @@ export function ChatWindow({ threadId, initial }: { threadId: string; initial: U
             console.log("[DEBUG] 🎙️ Listening started after permission grant");
           } catch (retryErr) {
             console.error("[DEBUG] ❌ Retry failed:", retryErr);
-            setDebugInfo(`Retry error: ${retryErr.message}`);
+            setDebugInfo(`Retry error: ${(retryErr as any)?.message ?? retryErr}`);
             toast.error("Could not start voice input after permission grant.");
           }
         }

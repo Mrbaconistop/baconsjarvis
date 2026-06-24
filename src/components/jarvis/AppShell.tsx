@@ -12,6 +12,8 @@ import {
   Wallet,
   Bell,
   Map as MapIcon,
+  Database,
+
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
@@ -27,6 +29,7 @@ const NAV = [
   { to: "/map", label: "Map", icon: MapIcon, tag: "09" },
   { to: "/world", label: "World", icon: Globe, tag: "06" },
   { to: "/pulse", label: "Pulse", icon: Activity, tag: "07" },
+  { to: "/backend", label: "Backend", icon: Database, tag: "10" },
   { to: "/settings", label: "Settings", icon: Settings, tag: "08" },
 ] as const;
 
