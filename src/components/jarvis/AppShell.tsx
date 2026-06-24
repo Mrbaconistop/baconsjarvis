@@ -20,7 +20,7 @@ import { JarvisOrb } from "./JarvisOrb";
 const NAV = [
   { to: "/dashboard", label: "Command", icon: LayoutDashboard, tag: "00" },
   { to: "/chat", label: "Chat", icon: MessageSquare, tag: "01" },
-  { to: "/time", label: "Time & Tasks", icon: Clock, tag: "02" },
+  { to: "/time", label: "Tasks", icon: Clock, tag: "02" },
   { to: "/vault", label: "Vault", icon: KeyRound, tag: "03" },
   { to: "/spending", label: "Spending", icon: Wallet, tag: "04" },
   { to: "/briefing", label: "Briefing", icon: Bell, tag: "05" },
