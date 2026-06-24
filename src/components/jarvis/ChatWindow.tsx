@@ -239,20 +239,18 @@ export function ChatWindow({ threadId, initial }: { threadId: string; initial: U
         <div className="flex items-end gap-2 max-w-4xl mx-auto">
           <button
             onClick={toggleMic}
+            disabled={isTranscribing}
             className={`p-3 rounded-lg border transition ${
-              isListening
+              isRecording
                 ? "bg-critical/20 border-critical/40 text-critical animate-critical-pulse"
-                : micSupported === false
-                  ? "bg-muted/50 border-muted text-muted-foreground cursor-not-allowed opacity-50"
+                : isTranscribing
+                  ? "bg-muted/50 border-muted text-muted-foreground opacity-60"
                   : "border-arc/30 hover:bg-arc/10 text-hud-dim"
             }`}
             aria-label="Voice input"
-            title={
-              micSupported === false ? "Voice not supported" : isListening ? "Stop listening" : "Speak your message"
-            }
-            disabled={micSupported === false}
+            title={isRecording ? "Stop recording" : isTranscribing ? "Transcribing…" : "Speak your message"}
           >
-            {isListening ? <MicOff size={16} /> : <Mic size={16} />}
+            {isRecording ? <MicOff size={16} /> : <Mic size={16} />}
           </button>
 
           <textarea
@@ -267,11 +265,11 @@ export function ChatWindow({ threadId, initial }: { threadId: string; initial: U
               }
             }}
             placeholder={
-              isListening
-                ? "Listening…"
-                : micSupported === false
-                  ? "Voice not supported – type your message"
-                  : 'Speak freely, Sir. e.g. "Remind me to drink water every weekday at 10am"'
+              isRecording
+                ? "Listening… tap mic to stop"
+                : isTranscribing
+                  ? "Transcribing…"
+                  : 'Speak or type, Sir. e.g. "Remind me to drink water every weekday at 10am"'
             }
             className="flex-1 resize-none bg-background/60 border border-arc/25 rounded-lg px-4 py-3 font-mono text-sm focus:border-arc focus:outline-none max-h-40"
           />
@@ -295,23 +293,8 @@ export function ChatWindow({ threadId, initial }: { threadId: string; initial: U
             </button>
           )}
         </div>
-        <div className="flex justify-between items-center mt-2">
-          <div className="text-xs text-hud-dim">{debugInfo && <span>Status: {debugInfo}</span>}</div>
-          <button
-            onClick={debugTest}
-            className="text-xs text-hud-dim hover:text-arc flex items-center gap-1"
-            title="Debug voice recognition"
-          >
-            <Bug size={12} /> Test
-          </button>
-        </div>
-        {micSupported === false && (
-          <div className="mt-1 text-xs text-warning flex items-center gap-2 justify-center">
-            <AlertCircle size={12} />
-            <span>Voice input not supported in this browser. Try Chrome or Edge.</span>
-          </div>
-        )}
       </div>
+
     </div>
   );
 }
