@@ -12,7 +12,6 @@ import {
   Wallet,
   Bell,
   Map as MapIcon,
-  ListChecks,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
@@ -21,14 +20,13 @@ import { JarvisOrb } from "./JarvisOrb";
 const NAV = [
   { to: "/dashboard", label: "Command", icon: LayoutDashboard, tag: "00" },
   { to: "/chat", label: "Chat", icon: MessageSquare, tag: "01" },
-  { to: "/time", label: "Time", icon: Clock, tag: "02" },
+  { to: "/time", label: "Time & Tasks", icon: Clock, tag: "02" },
   { to: "/vault", label: "Vault", icon: KeyRound, tag: "03" },
   { to: "/spending", label: "Spending", icon: Wallet, tag: "04" },
   { to: "/briefing", label: "Briefing", icon: Bell, tag: "05" },
   { to: "/map", label: "Map", icon: MapIcon, tag: "09" },
   { to: "/world", label: "World", icon: Globe, tag: "06" },
   { to: "/pulse", label: "Pulse", icon: Activity, tag: "07" },
-  { to: "/time", label: "Tasks", icon: ListChecks, tag: "10" }, // Added Tasks, points to same page
   { to: "/settings", label: "Settings", icon: Settings, tag: "08" },
 ] as const;
 
@@ -70,7 +68,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             const Icon = item.icon;
             return (
               <Link
-                key={item.to + item.label}
+                key={item.to}
                 to={item.to}
                 className={`group flex items-center gap-3 px-3 py-2.5 rounded-md transition relative ${
                   active
