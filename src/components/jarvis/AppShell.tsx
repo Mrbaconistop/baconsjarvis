@@ -9,11 +9,9 @@ import {
   LogOut,
   MessageSquare,
   KeyRound,
-  Wallet,
+  DollarSign,
   Bell,
   Map as MapIcon,
-  Database,
-
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
@@ -22,14 +20,14 @@ import { JarvisOrb } from "./JarvisOrb";
 const NAV = [
   { to: "/dashboard", label: "Command", icon: LayoutDashboard, tag: "00" },
   { to: "/chat", label: "Chat", icon: MessageSquare, tag: "01" },
-  { to: "/time", label: "Tasks", icon: Clock, tag: "02" },
+  { to: "/time", label: "Time & Tasks", icon: Clock, tag: "02" },
   { to: "/vault", label: "Vault", icon: KeyRound, tag: "03" },
-  { to: "/spending", label: "Spending", icon: Wallet, tag: "04" },
+  { to: "/spending", label: "Portfolio", icon: DollarSign, tag: "04" },
   { to: "/briefing", label: "Briefing", icon: Bell, tag: "05" },
   { to: "/map", label: "Map", icon: MapIcon, tag: "09" },
   { to: "/world", label: "World", icon: Globe, tag: "06" },
   { to: "/pulse", label: "Pulse", icon: Activity, tag: "07" },
-  { to: "/backend", label: "Backend", icon: Database, tag: "10" },
+  { to: "/backend", label: "Backend", icon: Activity, tag: "10" },
   { to: "/settings", label: "Settings", icon: Settings, tag: "08" },
 ] as const;
 
@@ -53,6 +51,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <div className="min-h-screen flex bg-background grid-bg">
+      {/* Sidebar */}
       <aside className="w-64 shrink-0 border-r border-arc/15 bg-background/40 backdrop-blur-xl flex flex-col">
         <div className="px-5 py-6 flex items-center gap-3 border-b border-arc/10">
           <div className="relative">
@@ -112,6 +111,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
       </aside>
 
+      {/* Main */}
       <main className="flex-1 min-w-0">{children}</main>
     </div>
   );
