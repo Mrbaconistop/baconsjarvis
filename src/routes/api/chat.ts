@@ -2,8 +2,12 @@ import { createFileRoute } from "@tanstack/react-router";
 import { convertToModelMessages, streamText, tool, stepCountIs, type UIMessage } from "ai";
 import { z } from "zod";
 import { createClient } from "@supabase/supabase-js";
-import { JARVIS_SYSTEM_PROMPT, getModelForUser } from "@/lib/ai-gateway.server";
+import { getSystemPrompt, getModelForUser } from "@/lib/ai-gateway.server";
 import { getWeather, getWeatherForecast, getWeatherNarrative } from "@/lib/jarvis.functions";
+import { getProfile, getLLMConfig, updateLLMConfig } from "@/lib/profile.functions";
+import { listAccounts } from "@/lib/profile.functions";
+import { getBackendOverview } from "@/lib/backend.functions";
+import { supabase as supabaseClient } from "@/integrations/supabase/client";
 
 type Body = { messages?: UIMessage[]; threadId?: string };
 
@@ -55,7 +59,7 @@ export const Route = createFileRoute("/api/chat")({
           .maybeSingle();
         const addressAs = profile?.address_as ?? "Sir";
 
-        // Load only 10 most recent facts, truncated
+        // Load facts (10 most recent)
         const { data: factRows } = await supabase
           .from("user_facts")
           .select("category, key, value")
@@ -64,7 +68,7 @@ export const Route = createFileRoute("/api/chat")({
           .limit(10);
 
         const factsBlock = (factRows ?? []).length
-          ? (factRows ?? [])
+          ? factRows
               .map((f: any) => {
                 const value = f.value.length > 60 ? f.value.slice(0, 60) + "…" : f.value;
                 return `- [${f.category}] ${f.key}: ${value}`;
@@ -91,8 +95,8 @@ export const Route = createFileRoute("/api/chat")({
           }
         }
 
-        // Get the model
-        const { model: chatModel } = await getModelForUser(userId, supabase);
+        // Get the model and mode
+        const { model: chatModel, mode } = await getModelForUser(userId, supabase);
 
         // ---- Tools ----
         const tools = {
@@ -712,7 +716,7 @@ export const Route = createFileRoute("/api/chat")({
             },
           }),
 
-          // ==================== WEATHER TOOLS ====================
+          // ==================== WEATHER ====================
           get_current_weather: tool({
             description: "Get the current weather for the user's saved location.",
             inputSchema: z.object({}),
@@ -726,7 +730,7 @@ export const Route = createFileRoute("/api/chat")({
             },
           }),
           get_weather_forecast: tool({
-            description: "Get a 5‑day weather forecast for the user's saved location.",
+            description: "Get a 5‑day weather forecast.",
             inputSchema: z.object({}),
             execute: async () => {
               try {
@@ -738,7 +742,7 @@ export const Route = createFileRoute("/api/chat")({
             },
           }),
           get_weather_narrative: tool({
-            description: "Get a natural‑language weather description (e.g., 'It's a nice cool day to take a walk').",
+            description: "Get a natural‑language weather description.",
             inputSchema: z.object({}),
             execute: async () => {
               try {
@@ -749,10 +753,8 @@ export const Route = createFileRoute("/api/chat")({
               }
             },
           }),
-          // ✅ NEW: Set weather location from chat
           set_weather_location: tool({
-            description:
-              "Change the user's saved weather location to a saved map place. Use this when the user asks to set their weather location to a specific place (e.g., 'Home', 'London').",
+            description: "Change the user's saved weather location.",
             inputSchema: z.object({
               placeLabel: z.string().describe("The label of the saved place (case-insensitive, partial match allowed)"),
             }),
@@ -763,12 +765,10 @@ export const Route = createFileRoute("/api/chat")({
                 .eq("user_id", userId)
                 .ilike("label", `%${placeLabel}%`)
                 .limit(1);
-
               if (error) return { ok: false, error: error.message };
               if (!places || places.length === 0) {
                 return { ok: false, error: `No saved place found with label containing "${placeLabel}".` };
               }
-
               const place = places[0];
               const { error: updateError } = await supabase.from("user_facts").upsert(
                 {
@@ -779,38 +779,167 @@ export const Route = createFileRoute("/api/chat")({
                 },
                 { onConflict: "user_id,category,key" },
               );
-
               if (updateError) return { ok: false, error: updateError.message };
               return { ok: true, message: `Weather location set to "${place.label}".` };
+            },
+          }),
+
+          // ==================== PROFILE & SETTINGS (NEW) ====================
+          get_profile: tool({
+            description: "Get the user's profile information (name, address_as, timezone, briefing time).",
+            inputSchema: z.object({}),
+            execute: async () => {
+              try {
+                const profile = await getProfile({ context: { supabase, userId } } as any);
+                return { ok: true, profile };
+              } catch (e: any) {
+                return { ok: false, error: e.message };
+              }
+            },
+          }),
+          update_profile: tool({
+            description: "Update the user's profile settings.",
+            inputSchema: z.object({
+              name: z.string().optional(),
+              address_as: z.string().optional().describe("How JARVIS addresses you (e.g., 'Sir', 'Boss', 'Captain')"),
+              timezone: z.string().optional().describe("IANA timezone (e.g., 'America/New_York', 'Europe/London')"),
+              preferred_briefing_time: z.string().optional().describe("Briefing time in HH:MM format (e.g., '08:00')"),
+            }),
+            execute: async ({ name, address_as, timezone, preferred_briefing_time }) => {
+              const updateData: any = {};
+              if (name !== undefined) updateData.name = name;
+              if (address_as !== undefined) updateData.address_as = address_as;
+              if (timezone !== undefined) updateData.timezone = timezone;
+              if (preferred_briefing_time !== undefined) updateData.preferred_briefing_time = preferred_briefing_time;
+              if (Object.keys(updateData).length === 0) {
+                return { ok: false, error: "No fields to update." };
+              }
+              const { error } = await supabase.from("profiles").update(updateData).eq("id", userId);
+              if (error) return { ok: false, error: error.message };
+              return { ok: true, message: "Profile updated." };
+            },
+          }),
+          get_ai_config: tool({
+            description: "Get the current AI provider, API key status, and mode.",
+            inputSchema: z.object({}),
+            execute: async () => {
+              try {
+                const config = await getLLMConfig({ context: { supabase, userId } } as any);
+                return { ok: true, config };
+              } catch (e: any) {
+                return { ok: false, error: e.message };
+              }
+            },
+          }),
+          set_ai_config: tool({
+            description: "Change the AI provider, API key, or mode.",
+            inputSchema: z.object({
+              provider: z.enum(["groq", "deepseek", "lovable", "system", "lmstudio"]).optional(),
+              apiKey: z
+                .string()
+                .optional()
+                .describe("API key for the chosen provider (optional if switching to system or lovable)"),
+              mode: z
+                .enum(["thinking", "coding", "basic"])
+                .optional()
+                .describe("AI mode: thinking (deep reasoning), coding (technical help), basic (everyday chat)"),
+            }),
+            execute: async ({ provider, apiKey, mode }) => {
+              try {
+                // First get current config to merge
+                const current = await getLLMConfig({ context: { supabase, userId } } as any);
+                const newProvider = provider ?? current.provider;
+                const newApiKey = apiKey ?? current.apiKey;
+                const newMode = mode ?? current.mode;
+                // Update
+                await updateLLMConfig({
+                  context: { supabase, userId },
+                  data: { provider: newProvider, apiKey: newApiKey, mode: newMode },
+                } as any);
+                return { ok: true, message: `AI config updated. Provider: ${newProvider}, Mode: ${newMode}` };
+              } catch (e: any) {
+                return { ok: false, error: e.message };
+              }
+            },
+          }),
+          list_connected_accounts: tool({
+            description: "List all connected social/calendar accounts.",
+            inputSchema: z.object({}),
+            execute: async () => {
+              try {
+                const accounts = await listAccounts({ context: { supabase, userId } } as any);
+                return { ok: true, accounts };
+              } catch (e: any) {
+                return { ok: false, error: e.message };
+              }
+            },
+          }),
+
+          // ==================== FILES (Supabase Storage) ====================
+          list_files: tool({
+            description: "List files in the user's private storage.",
+            inputSchema: z.object({}),
+            execute: async () => {
+              try {
+                const { data, error } = await supabase.storage
+                  .from("user-files")
+                  .list(userId, { limit: 200, sortBy: { column: "created_at", order: "desc" } });
+                if (error) throw error;
+                const files = (data ?? []).filter((f) => f.name !== ".emptyFolderPlaceholder");
+                return { ok: true, files };
+              } catch (e: any) {
+                return { ok: false, error: e.message };
+              }
+            },
+          }),
+          get_file_url: tool({
+            description: "Get a public URL to download a file from the user's private storage.",
+            inputSchema: z.object({ fileName: z.string() }),
+            execute: async ({ fileName }) => {
+              try {
+                const { data } = supabase.storage.from("user-files").getPublicUrl(`${userId}/${fileName}`);
+                return { ok: true, url: data.publicUrl };
+              } catch (e: any) {
+                return { ok: false, error: e.message };
+              }
+            },
+          }),
+          delete_file: tool({
+            description: "Delete a file from the user's private storage.",
+            inputSchema: z.object({ fileName: z.string() }),
+            execute: async ({ fileName }) => {
+              try {
+                const { error } = await supabase.storage.from("user-files").remove([`${userId}/${fileName}`]);
+                if (error) throw error;
+                return { ok: true, message: `File "${fileName}" deleted.` };
+              } catch (e: any) {
+                return { ok: false, error: e.message };
+              }
+            },
+          }),
+
+          // ==================== BACKEND OVERVIEW (Admin-like) ====================
+          get_backend_overview: tool({
+            description: "Get backend overview (table counts, secret status, project info).",
+            inputSchema: z.object({}),
+            execute: async () => {
+              try {
+                // Use the existing server function
+                const overview = await getBackendOverview({ context: { supabase, userId } } as any);
+                return { ok: true, overview };
+              } catch (e: any) {
+                return { ok: false, error: e.message };
+              }
             },
           }),
         };
 
         const now = new Date();
+        const systemPrompt = getSystemPrompt(mode, addressAs, factsBlock);
+
         const result = streamText({
           model: chatModel,
-          system: `${JARVIS_SYSTEM_PROMPT}
-
-Address the user as "${addressAs}".
-Current time: ${now.toISOString()} (${now.toString()}).
-You have tools for reminders, vault, transactions, social search, maps, and facts.
-
-VAULT SECURITY: list_vault only returns labels. When the user asks for secret contents, ask for their PIN first, then call unlock_vault_item.
-
-MEMORY: If the user asks to remember something, call remember_fact.
-FACTS BLOCK (most recent, truncated):
-${factsBlock}
-
-WEATHER: You have four weather tools:
-- get_current_weather: tells current temperature, conditions, etc.
-- get_weather_forecast: gives a 5‑day forecast.
-- get_weather_narrative: gives a natural‑language description.
-- set_weather_location: change the user's saved location to a saved map place (use when the user asks to change the weather location).
-
-When the user asks about weather, pick the appropriate tool. If they ask for a general description, use get_weather_narrative. If they ask for specific numbers (temperature, humidity), use get_current_weather or get_weather_forecast. If they ask to change the location (e.g., "set my weather to Home"), use set_weather_location.
-
-TOOL DISCIPLINE: Only call tools explicitly provided. Do not invent tools.
-Be concise. Confirm actions.`,
+          system: systemPrompt,
           messages: await convertToModelMessages(messages),
           tools,
           stopWhen: stepCountIs(8),
