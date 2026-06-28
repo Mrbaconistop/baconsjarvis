@@ -1106,25 +1106,31 @@ You have a new tool: recall_memory. Use it when the user asks about past convers
           onError: ({ error }) => {
             console.error("[chat streamText error]", error);
           },
+          onFinish: async ({ response }) => {
+            try {
+              const finalMessages = response.messages as any[];
+              const assistant = finalMessages[finalMessages.length - 1];
+              if (assistant && assistant.role === "assistant") {
+                const parts = assistant.content ?? assistant.parts ?? [];
+                const text = (parts as any[]).find((p: any) => p.type === "text")?.text || "";
+                if (text) await storeMemory(userId, text, "assistant", supabase);
+                await supabase.from("chat_messages").insert({
+                  thread_id: threadId,
+                  user_id: userId,
+                  role: "assistant",
+                  parts: parts as any,
+                });
+                await supabase
+                  .from("chat_threads")
+                  .update({ updated_at: new Date().toISOString() })
+                  .eq("id", threadId);
+              }
+            } catch (e) {
+              console.error("[chat onFinish error]", e);
+            }
+          },
         });
 
-        // Store assistant messages in memory after response
-        const originalOnFinish = result.onFinish;
-        result.onFinish = async ({ messages: finalMessages }) => {
-          const assistant = finalMessages[finalMessages.length - 1];
-          if (assistant && assistant.role === "assistant") {
-            const text = assistant.parts.find((p: any) => p.type === "text")?.text || "";
-            if (text) await storeMemory(userId, text, "assistant", supabase);
-            await supabase.from("chat_messages").insert({
-              thread_id: threadId,
-              user_id: userId,
-              role: "assistant",
-              parts: assistant.parts as any,
-            });
-            await supabase.from("chat_threads").update({ updated_at: new Date().toISOString() }).eq("id", threadId);
-          }
-          if (originalOnFinish) await originalOnFinish({ messages: finalMessages });
-        };
 
         return result.toUIMessageStreamResponse({
           originalMessages: messages,
