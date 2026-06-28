@@ -382,6 +382,9 @@ type TutorPanelProps = {
   runGenerateProblems: () => void;
   runExplainSelection: () => void;
   runGradeAssessment: () => void;
+  answer: string;
+  setAnswer: (v: string) => void;
+  runCheckAnswer: () => void;
   setContent: (updater: (c: string) => string) => void;
 };
 
@@ -389,7 +392,9 @@ function TutorPanel({
   expanded, onToggleExpand,
   topic, setTopic, difficulty, setDifficulty,
   busy, aiOutput,
-  runGenerateProblems, runExplainSelection, runGradeAssessment, setContent,
+  runGenerateProblems, runExplainSelection, runGradeAssessment,
+  answer, setAnswer, runCheckAnswer,
+  setContent,
 }: TutorPanelProps) {
   return (
     <div className={`flex flex-col min-h-0 h-full ${expanded ? "p-5" : ""}`}>
