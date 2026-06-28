@@ -135,11 +135,12 @@ export function resolveChatModel(opts?: {
   }
 
   if (provider === "gemini") {
-    const key = apiKey ?? process.env.GOOGLE_GENERATIVE_AI_API_KEY;
-    if (!key) throw new Error("Google Gemini API key is not set");
-    const google = createGeminiProvider(key);
-    const modelId = process.env.GEMINI_MODEL ?? "gemini-1.5-flash";
-    return { model: google(modelId), provider: "gemini" as const, modelId };
+    // Route Gemini through the Lovable AI Gateway for reliable auth + tool support.
+    const key = process.env.LOVABLE_API_KEY;
+    if (!key) throw new Error("Missing LOVABLE_API_KEY");
+    const gateway = createLovableAiGatewayProvider(key);
+    const modelId = process.env.GEMINI_MODEL ?? "google/gemini-3-flash-preview";
+    return { model: gateway(modelId), provider: "gemini" as const, modelId };
   }
 
   // Lovable fallback
