@@ -41,6 +41,7 @@ function LabPage() {
   const explain = useServerFn(explainSolution);
   const assess = useServerFn(assessGradeLevel);
   const checkAns = useServerFn(checkAnswer);
+  const askDrawing = useServerFn(askAboutDrawing);
 
   const { data: sessions = [] } = useQuery<SessionRow[]>({
     queryKey: ["learning_sessions"],
