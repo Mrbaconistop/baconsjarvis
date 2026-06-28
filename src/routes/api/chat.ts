@@ -124,7 +124,7 @@ export const Route = createFileRoute("/api/chat")({
           .select("category, key, value")
           .eq("user_id", userId)
           .order("updated_at", { ascending: false })
-          .limit(10);
+          .limit(5);
 
         const factsBlock = (factRows ?? []).length
           ? factRows
