@@ -35,6 +35,7 @@ function LabPage() {
   const remove = useServerFn(deleteLearningSession);
   const genProblems = useServerFn(generateProblems);
   const explain = useServerFn(explainSolution);
+  const assess = useServerFn(assessGradeLevel);
 
   const { data: sessions = [] } = useQuery<SessionRow[]>({
     queryKey: ["learning_sessions"],
@@ -47,7 +48,7 @@ function LabPage() {
   const [aiOutput, setAiOutput] = useState("");
   const [topic, setTopic] = useState("");
   const [difficulty, setDifficulty] = useState<"easy" | "medium" | "hard">("medium");
-  const [busy, setBusy] = useState<"problems" | "solution" | null>(null);
+  const [busy, setBusy] = useState<"problems" | "solution" | "grade" | null>(null);
   const [editingTitle, setEditingTitle] = useState(false);
   const [savedAt, setSavedAt] = useState<Date | null>(null);
   const lastSavedRef = useRef<{ title: string; content: string } | null>(null);
