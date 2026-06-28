@@ -179,3 +179,38 @@ Be honest and calibrated. Do not flatter. If the sample is too short or off-topi
     const markdown = await callJarvis(system, prompt);
     return { markdown };
   });
+
+export const checkAnswer = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) =>
+    z
+      .object({
+        problem: z.string().min(1).max(4000),
+        answer: z.string().min(1).max(4000),
+      })
+      .parse(input),
+  )
+  .handler(async ({ data }) => {
+    const system = `You are JARVIS, Sir's elite tutor grading a single answer.
+
+Decide if Sir's answer is correct, partially correct, or incorrect. Be strict but fair: mathematically/logically equivalent forms (1/2 vs 0.5, simplified vs expanded, synonymous wording) count as correct.
+
+Output STRICT Markdown in this EXACT shape:
+
+### Verdict: <✅ Correct | ⚠️ Partially correct | ❌ Incorrect>
+
+**Sir's answer:** <restate briefly>
+**Correct answer:** <the right answer>
+
+### Why
+1–4 sentence explanation. If incorrect, point to the specific misstep. If correct, confirm the reasoning succinctly. Use LaTeX ($...$ or $$...$$) for math.
+
+\`\`\`
+status=<correct|partial|incorrect>
+\`\`\``;
+    const prompt = `Problem:\n${data.problem}\n\nSir's answer:\n${data.answer}\n\nGrade it.`;
+    const markdown = await callJarvis(system, prompt);
+    const m = markdown.match(/status\s*=\s*(correct|partial|incorrect)/i);
+    const status = (m?.[1]?.toLowerCase() ?? "incorrect") as "correct" | "partial" | "incorrect";
+    return { markdown, status, correct: status === "correct" };
+  });
