@@ -137,3 +137,45 @@ Use ## headings ("Approach", "Solution", "Answer"), bullet points, and fenced co
     const markdown = await callJarvis(system, prompt);
     return { markdown };
   });
+
+export const assessGradeLevel = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) =>
+    z
+      .object({
+        sample: z.string().min(20).max(12000),
+        subjectHint: z.string().max(200).optional(),
+      })
+      .parse(input),
+  )
+  .handler(async ({ data }) => {
+    const system = `You are JARVIS, Sir's academic evaluator, calibrated specifically against the **Oklahoma Academic Standards (OAS)** published by the Oklahoma State Department of Education (OSDE). Your job is to estimate the grade level (PreK through 12) that a writing/work sample reflects, using OAS benchmarks for ELA, Math, Science, and Social Studies.
+
+You MUST output clean Markdown in this exact structure:
+
+## Oklahoma Grade-Level Assessment
+
+**Overall grade level:** <e.g. "7th Grade" or "10th Grade (Sophomore)">
+**Confidence:** <Low | Medium | High>
+**Closest OAS strand:** <e.g. "OAS ELA 7.2.R — Reading Comprehension">
+
+### Subject Breakdown
+- **Reading / ELA:** <grade>
+- **Writing mechanics:** <grade>
+- **Vocabulary:** <grade>
+- **Math / reasoning (if present):** <grade or "N/A">
+
+### Evidence
+- 2–4 short bullets citing specific phrases or constructions from the sample.
+
+### Aligned OAS Benchmark
+One short paragraph naming the closest Oklahoma standard code and what a student at that level is expected to demonstrate.
+
+### Next-Step Recommendation
+One concise paragraph: what to practice next to advance to the next OAS band.
+
+Be honest and calibrated. Do not flatter. If the sample is too short or off-topic, say so and ask for more text instead of guessing.`;
+    const prompt = `${data.subjectHint ? `Subject hint: ${data.subjectHint}\n\n` : ""}Sample to evaluate (verbatim student work):\n\n"""\n${data.sample}\n"""`;
+    const markdown = await callJarvis(system, prompt);
+    return { markdown };
+  });

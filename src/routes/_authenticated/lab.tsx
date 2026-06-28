@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { toast } from "sonner";
-import { Plus, Trash2, Save, Sparkles, BookOpen, Loader2, Pencil, Check } from "lucide-react";
+import { Plus, Trash2, Save, Sparkles, BookOpen, Loader2, Pencil, Check, GraduationCap } from "lucide-react";
 import { PageHeader } from "@/components/jarvis/HudBits";
 import {
   listLearningSessions,
@@ -15,6 +15,7 @@ import {
   deleteLearningSession,
   generateProblems,
   explainSolution,
+  assessGradeLevel,
 } from "@/lib/learning.functions";
 
 export const Route = createFileRoute("/_authenticated/lab")({
@@ -34,6 +35,7 @@ function LabPage() {
   const remove = useServerFn(deleteLearningSession);
   const genProblems = useServerFn(generateProblems);
   const explain = useServerFn(explainSolution);
+  const assess = useServerFn(assessGradeLevel);
 
   const { data: sessions = [] } = useQuery<SessionRow[]>({
     queryKey: ["learning_sessions"],
@@ -46,7 +48,7 @@ function LabPage() {
   const [aiOutput, setAiOutput] = useState("");
   const [topic, setTopic] = useState("");
   const [difficulty, setDifficulty] = useState<"easy" | "medium" | "hard">("medium");
-  const [busy, setBusy] = useState<"problems" | "solution" | null>(null);
+  const [busy, setBusy] = useState<"problems" | "solution" | "grade" | null>(null);
   const [editingTitle, setEditingTitle] = useState(false);
   const [savedAt, setSavedAt] = useState<Date | null>(null);
   const lastSavedRef = useRef<{ title: string; content: string } | null>(null);
@@ -153,6 +155,27 @@ function LabPage() {
       setBusy(null);
     }
   }
+
+  async function runGradeAssessment() {
+    const sel = typeof window !== "undefined" ? window.getSelection()?.toString().trim() : "";
+    const sample = sel && sel.length > 20 ? sel : content;
+    if (!sample.trim() || sample.trim().length < 20) {
+      toast.error("Write or select at least a short paragraph to assess.");
+      return;
+    }
+    setBusy("grade");
+    setAiOutput("");
+    try {
+      const res: any = await assess({ data: { sample, subjectHint: topic || undefined } });
+      setAiOutput(res.markdown);
+    } catch (e: any) {
+      toast.error(e?.message ?? "Assessment failed");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+
 
   const savedLabel = useMemo(() => {
     if (!savedAt) return "Not yet saved";
@@ -313,8 +336,16 @@ function LabPage() {
               {busy === "solution" ? <Loader2 size={12} className="animate-spin" /> : <BookOpen size={12} />}
               Explain Selection
             </button>
+            <button
+              onClick={runGradeAssessment}
+              disabled={busy !== null}
+              className="w-full inline-flex items-center justify-center gap-1.5 rounded border border-arc/30 bg-arc/5 px-2 py-1.5 text-xs text-foreground hover:bg-arc/15 disabled:opacity-40"
+            >
+              {busy === "grade" ? <Loader2 size={12} className="animate-spin" /> : <GraduationCap size={12} />}
+              Assess Grade Level (OAS)
+            </button>
             <p className="text-[10px] text-hud-dim font-mono">
-              Tip: select a problem in the notes, then click Explain.
+              Tip: select a passage to grade just that text, or assess the whole board. Calibrated to Oklahoma Academic Standards.
             </p>
           </div>
 
