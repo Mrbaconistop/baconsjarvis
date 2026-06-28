@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { toast } from "sonner";
-import { Plus, Trash2, Save, Sparkles, BookOpen, Loader2, Pencil, Check } from "lucide-react";
+import { Plus, Trash2, Save, Sparkles, BookOpen, Loader2, Pencil, Check, GraduationCap } from "lucide-react";
 import { PageHeader } from "@/components/jarvis/HudBits";
 import {
   listLearningSessions,
@@ -15,6 +15,7 @@ import {
   deleteLearningSession,
   generateProblems,
   explainSolution,
+  assessGradeLevel,
 } from "@/lib/learning.functions";
 
 export const Route = createFileRoute("/_authenticated/lab")({
