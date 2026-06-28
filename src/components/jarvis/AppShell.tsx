@@ -12,6 +12,7 @@ import {
   DollarSign,
   Bell,
   Map as MapIcon,
+  GraduationCap,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
@@ -28,6 +29,7 @@ const NAV = [
   { to: "/world", label: "World", icon: Globe, tag: "06" },
   { to: "/pulse", label: "Pulse", icon: Activity, tag: "07" },
   { to: "/backend", label: "Backend", icon: Activity, tag: "10" },
+  { to: "/lab", label: "Lab", icon: GraduationCap, tag: "12" },
   { to: "/settings", label: "Settings", icon: Settings, tag: "08" },
 ] as const;
 
