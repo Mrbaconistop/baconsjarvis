@@ -7,7 +7,7 @@ import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import { toast } from "sonner";
-import { Plus, Trash2, Save, Sparkles, BookOpen, Loader2, Pencil, Check, GraduationCap, Maximize2, X, CircleCheck } from "lucide-react";
+import { Plus, Trash2, Save, Sparkles, BookOpen, Loader2, Pencil, Check, GraduationCap, Maximize2, X, CircleCheck, Eye, FileText, Brush, Eraser, Undo2 } from "lucide-react";
 import { PageHeader } from "@/components/jarvis/HudBits";
 import {
   listLearningSessions,
@@ -19,6 +19,7 @@ import {
   explainSolution,
   assessGradeLevel,
   checkAnswer,
+  askAboutDrawing,
 } from "@/lib/learning.functions";
 
 export const Route = createFileRoute("/_authenticated/lab")({
