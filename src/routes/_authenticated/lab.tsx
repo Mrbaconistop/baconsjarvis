@@ -181,6 +181,32 @@ function LabPage() {
     }
   }
 
+  async function runCheckAnswer() {
+    if (!answer.trim()) {
+      toast.error("Type your answer first, Sir.");
+      return;
+    }
+    const sel = typeof window !== "undefined" ? window.getSelection()?.toString().trim() : "";
+    const problem = sel && sel.length > 4 ? sel : content;
+    if (!problem.trim()) {
+      toast.error("Select the problem in the notes (or write one) before checking.");
+      return;
+    }
+    setBusy("check");
+    setAiOutput("");
+    try {
+      const res: any = await checkAns({ data: { problem, answer } });
+      setAiOutput(res.markdown);
+      if (res.status === "correct") toast.success("Correct, Sir. ✅");
+      else if (res.status === "partial") toast.message("Partially correct ⚠️");
+      else toast.error("Not quite ❌");
+    } catch (e: any) {
+      toast.error(e?.message ?? "Check failed");
+    } finally {
+      setBusy(null);
+    }
+  }
+
 
 
   const savedLabel = useMemo(() => {
