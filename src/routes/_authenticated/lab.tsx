@@ -39,6 +39,7 @@ function LabPage() {
   const genProblems = useServerFn(generateProblems);
   const explain = useServerFn(explainSolution);
   const assess = useServerFn(assessGradeLevel);
+  const checkAns = useServerFn(checkAnswer);
 
   const { data: sessions = [] } = useQuery<SessionRow[]>({
     queryKey: ["learning_sessions"],
@@ -51,7 +52,8 @@ function LabPage() {
   const [aiOutput, setAiOutput] = useState("");
   const [topic, setTopic] = useState("");
   const [difficulty, setDifficulty] = useState<"easy" | "medium" | "hard">("medium");
-  const [busy, setBusy] = useState<"problems" | "solution" | "grade" | null>(null);
+  const [busy, setBusy] = useState<"problems" | "solution" | "grade" | "check" | null>(null);
+  const [answer, setAnswer] = useState("");
   const [editingTitle, setEditingTitle] = useState(false);
   const [savedAt, setSavedAt] = useState<Date | null>(null);
   const [tutorExpanded, setTutorExpanded] = useState(false);
