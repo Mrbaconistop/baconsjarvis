@@ -16,6 +16,8 @@ import {
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
 import { useQueryClient } from "@tanstack/react-query";
 import { applyClientAction } from "@/lib/mapBus";
 import { toast } from "sonner";
@@ -322,7 +324,7 @@ const MessageBubble = memo(function MessageBubble({ msg }: { msg: UIMessage }) {
                 key={i}
                 className="prose prose-invert prose-sm max-w-none text-foreground prose-p:my-2 prose-headings:text-arc prose-strong:text-foreground prose-code:text-arc prose-code:bg-arc/10 prose-code:px-1 prose-code:rounded"
               >
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{part.text}</ReactMarkdown>
+                <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>{part.text}</ReactMarkdown>
               </div>
             );
           }
