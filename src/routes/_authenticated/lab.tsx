@@ -156,6 +156,27 @@ function LabPage() {
     }
   }
 
+  async function runGradeAssessment() {
+    const sel = typeof window !== "undefined" ? window.getSelection()?.toString().trim() : "";
+    const sample = sel && sel.length > 20 ? sel : content;
+    if (!sample.trim() || sample.trim().length < 20) {
+      toast.error("Write or select at least a short paragraph to assess.");
+      return;
+    }
+    setBusy("grade");
+    setAiOutput("");
+    try {
+      const res: any = await assess({ data: { sample, subjectHint: topic || undefined } });
+      setAiOutput(res.markdown);
+    } catch (e: any) {
+      toast.error(e?.message ?? "Assessment failed");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+
+
   const savedLabel = useMemo(() => {
     if (!savedAt) return "Not yet saved";
     return `Saved ${savedAt.toLocaleTimeString()}`;
