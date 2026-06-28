@@ -241,6 +241,33 @@ export type Database = {
         }
         Relationships: []
       }
+      learning_sessions: {
+        Row: {
+          content: string | null
+          created_at: string | null
+          id: string
+          title: string
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          content?: string | null
+          created_at?: string | null
+          id?: string
+          title?: string
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          content?: string | null
+          created_at?: string | null
+          id?: string
+          title?: string
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       map_places: {
         Row: {
           address: string | null
