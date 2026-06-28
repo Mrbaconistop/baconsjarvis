@@ -7,7 +7,7 @@ import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import { toast } from "sonner";
-import { Plus, Trash2, Save, Sparkles, BookOpen, Loader2, Pencil, Check, GraduationCap, Maximize2, X } from "lucide-react";
+import { Plus, Trash2, Save, Sparkles, BookOpen, Loader2, Pencil, Check, GraduationCap, Maximize2, X, CircleCheck } from "lucide-react";
 import { PageHeader } from "@/components/jarvis/HudBits";
 import {
   listLearningSessions,
@@ -18,6 +18,7 @@ import {
   generateProblems,
   explainSolution,
   assessGradeLevel,
+  checkAnswer,
 } from "@/lib/learning.functions";
 
 export const Route = createFileRoute("/_authenticated/lab")({
@@ -38,6 +39,7 @@ function LabPage() {
   const genProblems = useServerFn(generateProblems);
   const explain = useServerFn(explainSolution);
   const assess = useServerFn(assessGradeLevel);
+  const checkAns = useServerFn(checkAnswer);
 
   const { data: sessions = [] } = useQuery<SessionRow[]>({
     queryKey: ["learning_sessions"],
@@ -50,7 +52,8 @@ function LabPage() {
   const [aiOutput, setAiOutput] = useState("");
   const [topic, setTopic] = useState("");
   const [difficulty, setDifficulty] = useState<"easy" | "medium" | "hard">("medium");
-  const [busy, setBusy] = useState<"problems" | "solution" | "grade" | null>(null);
+  const [busy, setBusy] = useState<"problems" | "solution" | "grade" | "check" | null>(null);
+  const [answer, setAnswer] = useState("");
   const [editingTitle, setEditingTitle] = useState(false);
   const [savedAt, setSavedAt] = useState<Date | null>(null);
   const [tutorExpanded, setTutorExpanded] = useState(false);
@@ -173,6 +176,32 @@ function LabPage() {
       setAiOutput(res.markdown);
     } catch (e: any) {
       toast.error(e?.message ?? "Assessment failed");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function runCheckAnswer() {
+    if (!answer.trim()) {
+      toast.error("Type your answer first, Sir.");
+      return;
+    }
+    const sel = typeof window !== "undefined" ? window.getSelection()?.toString().trim() : "";
+    const problem = sel && sel.length > 4 ? sel : content;
+    if (!problem.trim()) {
+      toast.error("Select the problem in the notes (or write one) before checking.");
+      return;
+    }
+    setBusy("check");
+    setAiOutput("");
+    try {
+      const res: any = await checkAns({ data: { problem, answer } });
+      setAiOutput(res.markdown);
+      if (res.status === "correct") toast.success("Correct, Sir. ✅");
+      else if (res.status === "partial") toast.message("Partially correct ⚠️");
+      else toast.error("Not quite ❌");
+    } catch (e: any) {
+      toast.error(e?.message ?? "Check failed");
     } finally {
       setBusy(null);
     }
@@ -310,6 +339,7 @@ function LabPage() {
               runGenerateProblems={runGenerateProblems}
               runExplainSelection={runExplainSelection}
               runGradeAssessment={runGradeAssessment}
+              answer={answer} setAnswer={setAnswer} runCheckAnswer={runCheckAnswer}
               setContent={setContent}
             />
           </aside>
@@ -330,6 +360,7 @@ function LabPage() {
               runGenerateProblems={runGenerateProblems}
               runExplainSelection={runExplainSelection}
               runGradeAssessment={runGradeAssessment}
+              answer={answer} setAnswer={setAnswer} runCheckAnswer={runCheckAnswer}
               setContent={setContent}
             />
           </div>
@@ -346,11 +377,14 @@ type TutorPanelProps = {
   setTopic: (v: string) => void;
   difficulty: "easy" | "medium" | "hard";
   setDifficulty: (d: "easy" | "medium" | "hard") => void;
-  busy: "problems" | "solution" | "grade" | null;
+  busy: "problems" | "solution" | "grade" | "check" | null;
   aiOutput: string;
   runGenerateProblems: () => void;
   runExplainSelection: () => void;
   runGradeAssessment: () => void;
+  answer: string;
+  setAnswer: (v: string) => void;
+  runCheckAnswer: () => void;
   setContent: (updater: (c: string) => string) => void;
 };
 
@@ -358,7 +392,9 @@ function TutorPanel({
   expanded, onToggleExpand,
   topic, setTopic, difficulty, setDifficulty,
   busy, aiOutput,
-  runGenerateProblems, runExplainSelection, runGradeAssessment, setContent,
+  runGenerateProblems, runExplainSelection, runGradeAssessment,
+  answer, setAnswer, runCheckAnswer,
+  setContent,
 }: TutorPanelProps) {
   return (
     <div className={`flex flex-col min-h-0 h-full ${expanded ? "p-5" : ""}`}>
@@ -431,6 +467,24 @@ function TutorPanel({
             {busy === "grade" ? <Loader2 size={12} className="animate-spin" /> : <GraduationCap size={12} />}
             Assess Grade Level (OAS)
           </button>
+          <div className="pt-2 mt-1 border-t border-arc/15 space-y-2">
+            <div className="font-mono text-[9px] tracking-[0.25em] text-hud-dim">YOUR ANSWER</div>
+            <textarea
+              value={answer}
+              onChange={(e) => setAnswer(e.target.value)}
+              placeholder="Type your answer (select the problem in notes first)"
+              rows={expanded ? 4 : 2}
+              className={`w-full rounded border border-arc/20 bg-background/60 px-2 py-1.5 text-xs resize-none focus:outline-none focus:border-arc/50`}
+            />
+            <button
+              onClick={runCheckAnswer}
+              disabled={busy !== null}
+              className={`w-full inline-flex items-center justify-center gap-1.5 rounded border border-arc/40 bg-arc/15 px-2 text-arc hover:bg-arc/25 disabled:opacity-40 ${expanded ? "py-2 text-sm" : "py-1.5 text-xs"}`}
+            >
+              {busy === "check" ? <Loader2 size={12} className="animate-spin" /> : <CircleCheck size={12} />}
+              Check Answer
+            </button>
+          </div>
           <p className="text-[10px] text-hud-dim font-mono">
             Tip: select a passage to grade just that text, or assess the whole board. Calibrated to Oklahoma Academic Standards.
           </p>
