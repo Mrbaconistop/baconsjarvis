@@ -297,64 +297,155 @@ function LabPage() {
           </div>
         </section>
 
-        {/* AI panel */}
-        <aside className="col-span-3 rounded-lg border border-arc/15 bg-background/40 backdrop-blur-xl p-3 flex flex-col min-h-0">
-          <div className="font-mono text-[10px] tracking-[0.3em] text-arc mb-3">JARVIS · TUTOR</div>
-
-          <div className="space-y-2 mb-3">
-            <input
-              value={topic}
-              onChange={(e) => setTopic(e.target.value)}
-              placeholder="Topic (e.g. recursion, calc derivatives)"
-              className="w-full rounded border border-arc/20 bg-background/60 px-2 py-1.5 text-xs focus:outline-none focus:border-arc/50"
+        {/* AI panel (collapsed inline) */}
+        {!tutorExpanded && (
+          <aside className="col-span-3 rounded-lg border border-arc/15 bg-background/40 backdrop-blur-xl p-3 flex flex-col min-h-0 relative">
+            <TutorPanel
+              expanded={false}
+              onToggleExpand={() => setTutorExpanded(true)}
+              topic={topic} setTopic={setTopic}
+              difficulty={difficulty} setDifficulty={setDifficulty}
+              busy={busy}
+              aiOutput={aiOutput}
+              runGenerateProblems={runGenerateProblems}
+              runExplainSelection={runExplainSelection}
+              runGradeAssessment={runGradeAssessment}
+              setContent={setContent}
             />
-            <div className="flex gap-1">
-              {(["easy", "medium", "hard"] as const).map((d) => (
-                <button
-                  key={d}
-                  onClick={() => setDifficulty(d)}
-                  className={`flex-1 rounded border px-2 py-1 text-[10px] font-mono uppercase tracking-wider transition ${
-                    difficulty === d
-                      ? "border-arc/40 bg-arc/15 text-arc"
-                      : "border-arc/15 text-hud-dim hover:text-arc"
-                  }`}
-                >
-                  {d}
-                </button>
-              ))}
-            </div>
-            <button
-              onClick={runGenerateProblems}
-              disabled={busy !== null}
-              className="w-full inline-flex items-center justify-center gap-1.5 rounded border border-arc/30 bg-arc/10 px-2 py-1.5 text-xs text-arc hover:bg-arc/20 disabled:opacity-40"
-            >
-              {busy === "problems" ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
-              Generate Problems
-            </button>
-            <button
-              onClick={runExplainSelection}
-              disabled={busy !== null}
-              className="w-full inline-flex items-center justify-center gap-1.5 rounded border border-arc/30 bg-arc/5 px-2 py-1.5 text-xs text-foreground hover:bg-arc/15 disabled:opacity-40"
-            >
-              {busy === "solution" ? <Loader2 size={12} className="animate-spin" /> : <BookOpen size={12} />}
-              Explain Selection
-            </button>
-            <button
-              onClick={runGradeAssessment}
-              disabled={busy !== null}
-              className="w-full inline-flex items-center justify-center gap-1.5 rounded border border-arc/30 bg-arc/5 px-2 py-1.5 text-xs text-foreground hover:bg-arc/15 disabled:opacity-40"
-            >
-              {busy === "grade" ? <Loader2 size={12} className="animate-spin" /> : <GraduationCap size={12} />}
-              Assess Grade Level (OAS)
-            </button>
-            <p className="text-[10px] text-hud-dim font-mono">
-              Tip: select a passage to grade just that text, or assess the whole board. Calibrated to Oklahoma Academic Standards.
-            </p>
-          </div>
+          </aside>
+        )}
+      </div>
 
-          <div className="flex-1 min-h-0 rounded border border-arc/15 bg-background/60 p-3 overflow-auto prose prose-invert prose-sm max-w-none">
+      {/* Expanded tutor session overlay */}
+      {tutorExpanded && (
+        <div className="fixed inset-0 z-50 bg-background/85 backdrop-blur-xl flex items-center justify-center p-4 md:p-8 animate-in fade-in">
+          <div className="relative w-full max-w-5xl h-full max-h-[92vh] rounded-xl border border-arc/30 bg-background/70 shadow-[0_0_60px_-10px_hsl(var(--arc)/0.4)] flex flex-col">
+            <TutorPanel
+              expanded={true}
+              onToggleExpand={() => setTutorExpanded(false)}
+              topic={topic} setTopic={setTopic}
+              difficulty={difficulty} setDifficulty={setDifficulty}
+              busy={busy}
+              aiOutput={aiOutput}
+              runGenerateProblems={runGenerateProblems}
+              runExplainSelection={runExplainSelection}
+              runGradeAssessment={runGradeAssessment}
+              setContent={setContent}
+            />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+type TutorPanelProps = {
+  expanded: boolean;
+  onToggleExpand: () => void;
+  topic: string;
+  setTopic: (v: string) => void;
+  difficulty: "easy" | "medium" | "hard";
+  setDifficulty: (d: "easy" | "medium" | "hard") => void;
+  busy: "problems" | "solution" | "grade" | null;
+  aiOutput: string;
+  runGenerateProblems: () => void;
+  runExplainSelection: () => void;
+  runGradeAssessment: () => void;
+  setContent: (updater: (c: string) => string) => void;
+};
+
+function TutorPanel({
+  expanded, onToggleExpand,
+  topic, setTopic, difficulty, setDifficulty,
+  busy, aiOutput,
+  runGenerateProblems, runExplainSelection, runGradeAssessment, setContent,
+}: TutorPanelProps) {
+  return (
+    <div className={`flex flex-col min-h-0 h-full ${expanded ? "p-5" : ""}`}>
+      <div className="flex items-center justify-between mb-3 gap-2">
+        <div className="flex items-center gap-2">
+          <div className={`font-mono tracking-[0.3em] text-arc ${expanded ? "text-xs" : "text-[10px]"}`}>
+            JARVIS · TUTOR
+          </div>
+          {busy && (
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-arc/40 bg-arc/15 px-2 py-0.5 font-mono text-[9px] uppercase tracking-widest text-arc animate-pulse">
+              <span className="h-1.5 w-1.5 rounded-full bg-arc shadow-[0_0_8px_hsl(var(--arc))]" />
+              Accessing · {busy}
+            </span>
+          )}
+        </div>
+        <button
+          onClick={onToggleExpand}
+          className="inline-flex items-center gap-1 rounded border border-arc/30 px-2 py-1 text-[10px] text-arc hover:bg-arc/15"
+          title={expanded ? "Collapse" : "Expand session"}
+        >
+          {expanded ? <><X size={11} /> Close</> : <><Maximize2 size={11} /> Expand</>}
+        </button>
+      </div>
+
+      <div className={expanded ? "grid grid-cols-1 md:grid-cols-3 gap-4 flex-1 min-h-0" : "flex flex-col flex-1 min-h-0"}>
+        {/* Controls */}
+        <div className={`space-y-2 ${expanded ? "md:col-span-1" : "mb-3"}`}>
+          <input
+            value={topic}
+            onChange={(e) => setTopic(e.target.value)}
+            placeholder="Topic (e.g. recursion, calc derivatives)"
+            className={`w-full rounded border border-arc/20 bg-background/60 px-2 focus:outline-none focus:border-arc/50 ${expanded ? "py-2 text-sm" : "py-1.5 text-xs"}`}
+          />
+          <div className="flex gap-1">
+            {(["easy", "medium", "hard"] as const).map((d) => (
+              <button
+                key={d}
+                onClick={() => setDifficulty(d)}
+                className={`flex-1 rounded border px-2 py-1 text-[10px] font-mono uppercase tracking-wider transition ${
+                  difficulty === d
+                    ? "border-arc/40 bg-arc/15 text-arc"
+                    : "border-arc/15 text-hud-dim hover:text-arc"
+                }`}
+              >
+                {d}
+              </button>
+            ))}
+          </div>
+          <button
+            onClick={runGenerateProblems}
+            disabled={busy !== null}
+            className={`w-full inline-flex items-center justify-center gap-1.5 rounded border border-arc/30 bg-arc/10 px-2 text-arc hover:bg-arc/20 disabled:opacity-40 ${expanded ? "py-2 text-sm" : "py-1.5 text-xs"}`}
+          >
+            {busy === "problems" ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
+            Generate Problems
+          </button>
+          <button
+            onClick={runExplainSelection}
+            disabled={busy !== null}
+            className={`w-full inline-flex items-center justify-center gap-1.5 rounded border border-arc/30 bg-arc/5 px-2 text-foreground hover:bg-arc/15 disabled:opacity-40 ${expanded ? "py-2 text-sm" : "py-1.5 text-xs"}`}
+          >
+            {busy === "solution" ? <Loader2 size={12} className="animate-spin" /> : <BookOpen size={12} />}
+            Explain Selection
+          </button>
+          <button
+            onClick={runGradeAssessment}
+            disabled={busy !== null}
+            className={`w-full inline-flex items-center justify-center gap-1.5 rounded border border-arc/30 bg-arc/5 px-2 text-foreground hover:bg-arc/15 disabled:opacity-40 ${expanded ? "py-2 text-sm" : "py-1.5 text-xs"}`}
+          >
+            {busy === "grade" ? <Loader2 size={12} className="animate-spin" /> : <GraduationCap size={12} />}
+            Assess Grade Level (OAS)
+          </button>
+          <p className="text-[10px] text-hud-dim font-mono">
+            Tip: select a passage to grade just that text, or assess the whole board. Calibrated to Oklahoma Academic Standards.
+          </p>
+        </div>
+
+        {/* Output */}
+        <div className={`flex flex-col min-h-0 ${expanded ? "md:col-span-2" : "flex-1"}`}>
+          <div className={`flex-1 min-h-0 rounded border bg-background/60 p-3 overflow-auto prose prose-invert max-w-none ${
+            busy ? "border-arc/40 shadow-[inset_0_0_30px_-10px_hsl(var(--arc)/0.4)]" : "border-arc/15"
+          } ${expanded ? "prose-base" : "prose-sm"}`}>
             {busy && !aiOutput && (
-              <div className="text-xs text-arc font-mono animate-pulse">// JARVIS is thinking…</div>
+              <div className="flex items-center gap-2 text-arc font-mono text-xs animate-pulse">
+                <Loader2 size={14} className="animate-spin" />
+                <span>// JARVIS is thinking…</span>
+              </div>
             )}
             {!busy && !aiOutput && (
               <div className="text-xs text-hud-dim font-mono">// Output will appear here.</div>
@@ -365,12 +456,12 @@ function LabPage() {
           {aiOutput && (
             <button
               onClick={() => setContent((c) => (c ? `${c}\n\n${aiOutput}` : aiOutput))}
-              className="mt-2 inline-flex items-center justify-center gap-1.5 rounded border border-arc/20 px-2 py-1 text-[10px] text-hud-dim hover:text-arc"
+              className="mt-2 inline-flex items-center justify-center gap-1.5 rounded border border-arc/20 px-2 py-1 text-[10px] text-hud-dim hover:text-arc self-start"
             >
               <Plus size={11} /> Append to notes
             </button>
           )}
-        </aside>
+        </div>
       </div>
     </div>
   );
