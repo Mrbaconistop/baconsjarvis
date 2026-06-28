@@ -12,6 +12,7 @@ import {
   DollarSign,
   Bell,
   Map as MapIcon,
+  GraduationCap,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";

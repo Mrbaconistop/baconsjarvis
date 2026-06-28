@@ -22,6 +22,7 @@ import { Route as AuthenticatedSpendingRouteImport } from './routes/_authenticat
 import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
 import { Route as AuthenticatedPulseRouteImport } from './routes/_authenticated/pulse'
 import { Route as AuthenticatedMapRouteImport } from './routes/_authenticated/map'
+import { Route as AuthenticatedLabRouteImport } from './routes/_authenticated/lab'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
 import { Route as AuthenticatedBriefingRouteImport } from './routes/_authenticated/briefing'
 import { Route as AuthenticatedBackendRouteImport } from './routes/_authenticated/backend'
@@ -94,6 +95,11 @@ const AuthenticatedMapRoute = AuthenticatedMapRouteImport.update({
   path: '/map',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedLabRoute = AuthenticatedLabRouteImport.update({
+  id: '/lab',
+  path: '/lab',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
   id: '/dashboard',
   path: '/dashboard',
@@ -140,6 +146,7 @@ export interface FileRoutesByFullPath {
   '/backend': typeof AuthenticatedBackendRoute
   '/briefing': typeof AuthenticatedBriefingRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
+  '/lab': typeof AuthenticatedLabRoute
   '/map': typeof AuthenticatedMapRoute
   '/pulse': typeof AuthenticatedPulseRoute
   '/settings': typeof AuthenticatedSettingsRoute
@@ -161,6 +168,7 @@ export interface FileRoutesByTo {
   '/backend': typeof AuthenticatedBackendRoute
   '/briefing': typeof AuthenticatedBriefingRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
+  '/lab': typeof AuthenticatedLabRoute
   '/map': typeof AuthenticatedMapRoute
   '/pulse': typeof AuthenticatedPulseRoute
   '/settings': typeof AuthenticatedSettingsRoute
@@ -184,6 +192,7 @@ export interface FileRoutesById {
   '/_authenticated/backend': typeof AuthenticatedBackendRoute
   '/_authenticated/briefing': typeof AuthenticatedBriefingRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
+  '/_authenticated/lab': typeof AuthenticatedLabRoute
   '/_authenticated/map': typeof AuthenticatedMapRoute
   '/_authenticated/pulse': typeof AuthenticatedPulseRoute
   '/_authenticated/settings': typeof AuthenticatedSettingsRoute
@@ -207,6 +216,7 @@ export interface FileRouteTypes {
     | '/backend'
     | '/briefing'
     | '/dashboard'
+    | '/lab'
     | '/map'
     | '/pulse'
     | '/settings'
@@ -228,6 +238,7 @@ export interface FileRouteTypes {
     | '/backend'
     | '/briefing'
     | '/dashboard'
+    | '/lab'
     | '/map'
     | '/pulse'
     | '/settings'
@@ -250,6 +261,7 @@ export interface FileRouteTypes {
     | '/_authenticated/backend'
     | '/_authenticated/briefing'
     | '/_authenticated/dashboard'
+    | '/_authenticated/lab'
     | '/_authenticated/map'
     | '/_authenticated/pulse'
     | '/_authenticated/settings'
@@ -369,6 +381,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedMapRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/lab': {
+      id: '/_authenticated/lab'
+      path: '/lab'
+      fullPath: '/lab'
+      preLoaderRoute: typeof AuthenticatedLabRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/dashboard': {
       id: '/_authenticated/dashboard'
       path: '/dashboard'
@@ -425,6 +444,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedBackendRoute: typeof AuthenticatedBackendRoute
   AuthenticatedBriefingRoute: typeof AuthenticatedBriefingRoute
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
+  AuthenticatedLabRoute: typeof AuthenticatedLabRoute
   AuthenticatedMapRoute: typeof AuthenticatedMapRoute
   AuthenticatedPulseRoute: typeof AuthenticatedPulseRoute
   AuthenticatedSettingsRoute: typeof AuthenticatedSettingsRoute
@@ -440,6 +460,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedBackendRoute: AuthenticatedBackendRoute,
   AuthenticatedBriefingRoute: AuthenticatedBriefingRoute,
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
+  AuthenticatedLabRoute: AuthenticatedLabRoute,
   AuthenticatedMapRoute: AuthenticatedMapRoute,
   AuthenticatedPulseRoute: AuthenticatedPulseRoute,
   AuthenticatedSettingsRoute: AuthenticatedSettingsRoute,
