@@ -54,11 +54,18 @@ function LabPage() {
   const [aiOutput, setAiOutput] = useState("");
   const [topic, setTopic] = useState("");
   const [difficulty, setDifficulty] = useState<"easy" | "medium" | "hard">("medium");
-  const [busy, setBusy] = useState<"problems" | "solution" | "grade" | "check" | null>(null);
+  const [busy, setBusy] = useState<"problems" | "solution" | "grade" | "check" | "drawing" | null>(null);
   const [answer, setAnswer] = useState("");
   const [editingTitle, setEditingTitle] = useState(false);
   const [savedAt, setSavedAt] = useState<Date | null>(null);
   const [tutorExpanded, setTutorExpanded] = useState(false);
+  const [view, setView] = useState<"edit" | "render" | "draw">("edit");
+  const [drawingQuestion, setDrawingQuestion] = useState("");
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const drawingRef = useRef<{ drawing: boolean; last: { x: number; y: number } | null; tool: "pen" | "eraser"; size: number; color: string; snapshots: ImageData[] }>({
+    drawing: false, last: null, tool: "pen", size: 3, color: "#67e8f9", snapshots: [],
+  });
+  const [, forceTick] = useState(0);
   const lastSavedRef = useRef<{ title: string; content: string } | null>(null);
 
   // Load active session content
