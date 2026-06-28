@@ -336,8 +336,16 @@ function LabPage() {
               {busy === "solution" ? <Loader2 size={12} className="animate-spin" /> : <BookOpen size={12} />}
               Explain Selection
             </button>
+            <button
+              onClick={runGradeAssessment}
+              disabled={busy !== null}
+              className="w-full inline-flex items-center justify-center gap-1.5 rounded border border-arc/30 bg-arc/5 px-2 py-1.5 text-xs text-foreground hover:bg-arc/15 disabled:opacity-40"
+            >
+              {busy === "grade" ? <Loader2 size={12} className="animate-spin" /> : <GraduationCap size={12} />}
+              Assess Grade Level (OAS)
+            </button>
             <p className="text-[10px] text-hud-dim font-mono">
-              Tip: select a problem in the notes, then click Explain.
+              Tip: select a passage to grade just that text, or assess the whole board. Calibrated to Oklahoma Academic Standards.
             </p>
           </div>
 
