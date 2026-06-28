@@ -87,7 +87,7 @@ export const Route = createFileRoute("/api/chat")({
         // Store all user messages in memory (auto)
         for (const msg of messages) {
           if (msg.role === "user") {
-            const text = msg.parts.find((p: any) => p.type === "text")?.text || "";
+            const text = (msg.parts.find((p: any) => p.type === "text") as any)?.text || "";
             if (text) await storeMemory(userId, text, "user", supabase);
           }
         }
