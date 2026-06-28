@@ -288,7 +288,7 @@ function LabPage() {
             />
             <div className="rounded-md border border-arc/15 bg-background/60 p-3 overflow-auto prose prose-invert prose-sm max-w-none">
               {content.trim() ? (
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+                <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>{content}</ReactMarkdown>
               ) : (
                 <div className="text-xs text-hud-dim font-mono">// Live Markdown preview appears here.</div>
               )}
@@ -358,7 +358,7 @@ function LabPage() {
             {!busy && !aiOutput && (
               <div className="text-xs text-hud-dim font-mono">// Output will appear here.</div>
             )}
-            {aiOutput && <ReactMarkdown remarkPlugins={[remarkGfm]}>{aiOutput}</ReactMarkdown>}
+            {aiOutput && <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>{aiOutput}</ReactMarkdown>}
           </div>
 
           {aiOutput && (
