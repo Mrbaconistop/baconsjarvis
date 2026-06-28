@@ -45,7 +45,7 @@ export const updateLLMConfig = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) =>
     z
       .object({
-        provider: z.enum(["groq", "deepseek", "lovable", "system", "lmstudio"]),
+        provider: z.enum(["groq", "deepseek", "lovable", "system", "lmstudio", "gemini"]),
         apiKey: z.string().optional(),
         mode: z.enum(["thinking", "coding", "basic"]).optional(),
       })
@@ -54,7 +54,6 @@ export const updateLLMConfig = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     const { supabase, userId } = context as any;
 
-    // Delete existing llm facts
     await supabase.from("user_facts").delete().eq("user_id", userId).eq("category", "llm");
 
     const facts: Array<{ user_id: string; category: string; key: string; value: string }> = [];
@@ -75,5 +74,25 @@ export const updateLLMConfig = createServerFn({ method: "POST" })
       if (error) throw error;
     }
 
+    return { ok: true };
+  });
+
+export const storeGoogleConnection = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { supabase, userId } = context as any;
+    const platforms = ["gmail", "calendar"];
+    for (const platform of platforms) {
+      const { error } = await supabase.from("connected_accounts").upsert(
+        {
+          user_id: userId,
+          platform: platform,
+          status: "connected",
+          handle: null,
+        },
+        { onConflict: "user_id,platform" },
+      );
+      if (error) console.error(`Failed to store ${platform}:`, error);
+    }
     return { ok: true };
   });
