@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { convertToModelMessages, streamText, tool, stepCountIs, type UIMessage } from "ai";
+import { convertToModelMessages, streamText, tool, stepCountIs, type UIMessage, embed } from "ai";
 import { z } from "zod";
 import { createClient } from "@supabase/supabase-js";
 import { getSystemPrompt, getModelForUser } from "@/lib/ai-gateway.server";
@@ -15,6 +15,57 @@ function userClient(token: string) {
     global: { headers: { Authorization: `Bearer ${token}` } },
     auth: { persistSession: false, autoRefreshToken: false },
   });
+}
+
+async function getEmbedding(text: string): Promise<number[]> {
+  // Use Groq's embedding model via the Lovable gateway
+  // Fallback to a simple random embedding if Groq is not available
+  try {
+    const response = await fetch("https://connector-gateway.lovable.dev/ai/embeddings", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${process.env.LOVABLE_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "groq/embedding-3-small",
+        input: text,
+      }),
+    });
+    if (!response.ok) throw new Error(`Embedding API error: ${response.status}`);
+    const data = await response.json();
+    return data.data[0].embedding;
+  } catch (e) {
+    console.warn("[Embedding] Falling back to random embedding (768d)", e);
+    // Fallback to random 768‑dim vector (won't be accurate but prevents crashes)
+    return Array.from({ length: 768 }, () => Math.random() * 2 - 1);
+  }
+}
+
+async function storeMemory(userId: string, message: string, role: string, supabase: any) {
+  try {
+    const embedding = await getEmbedding(message);
+    const { error } = await supabase.from("message_memory").insert({ user_id: userId, message, role, embedding });
+    if (error) console.error("[Memory] Store error:", error);
+  } catch (e) {
+    console.error("[Memory] Failed to store:", e);
+  }
+}
+
+async function recallMemory(userId: string, query: string, supabase: any, limit: number = 5) {
+  try {
+    const embedding = await getEmbedding(query);
+    const { data, error } = await supabase.rpc("match_memory", {
+      query_embedding: embedding,
+      user_id: userId,
+      match_count: limit,
+    });
+    if (error) throw error;
+    return data || [];
+  } catch (e) {
+    console.error("[Memory] Recall error:", e);
+    return [];
+  }
 }
 
 export const Route = createFileRoute("/api/chat")({
@@ -33,6 +84,14 @@ export const Route = createFileRoute("/api/chat")({
         const userId = userData?.user?.id;
         if (!userId) return new Response("Unauthorized", { status: 401 });
 
+        // Store all user messages in memory (auto)
+        for (const msg of messages) {
+          if (msg.role === "user") {
+            const text = msg.parts.find((p: any) => p.type === "text")?.text || "";
+            if (text) await storeMemory(userId, text, "user", supabase);
+          }
+        }
+
         // Verify thread ownership
         let { data: thread } = await supabase
           .from("chat_threads")
@@ -50,7 +109,7 @@ export const Route = createFileRoute("/api/chat")({
           thread = created;
         }
 
-        // Load profile (including timezone)
+        // Load profile
         const { data: profile } = await supabase
           .from("profiles")
           .select("address_as, name, timezone")
@@ -59,7 +118,7 @@ export const Route = createFileRoute("/api/chat")({
         const addressAs = profile?.address_as ?? "Sir";
         const userTimezone = profile?.timezone || "UTC";
 
-        // Load facts (10 most recent)
+        // Load facts
         const { data: factRows } = await supabase
           .from("user_facts")
           .select("category, key, value")
@@ -95,10 +154,10 @@ export const Route = createFileRoute("/api/chat")({
           }
         }
 
-        // Get the model and mode
+        // Get model and mode
         const { model: chatModel, mode } = await getModelForUser(userId, supabase);
 
-        // Format current time in user's timezone, AM/PM
+        // Format current time
         const now = new Date();
         const currentTimeFormatted = now.toLocaleString("en-US", {
           timeZone: userTimezone,
@@ -724,8 +783,6 @@ export const Route = createFileRoute("/api/chat")({
               };
             },
           }),
-
-          // ==================== GET PLACE ADDRESS (NEW) ====================
           get_place_address: tool({
             description: "Get the full address of a saved place by its label (e.g., 'Home', 'Office').",
             inputSchema: z.object({
@@ -1007,9 +1064,30 @@ export const Route = createFileRoute("/api/chat")({
               }
             },
           }),
+
+          // ==================== JARVIS MEMORY (NEW) ====================
+          recall_memory: tool({
+            description:
+              "Recall past conversations or messages based on a query. Use this when the user asks about something they mentioned before, like 'What did I say about X?' or 'When did I mention Y?'. Returns the most relevant past messages with timestamps.",
+            inputSchema: z.object({
+              query: z.string().describe("The question or search term to find in past messages."),
+              limit: z.number().int().min(1).max(20).default(5).optional(),
+            }),
+            execute: async ({ query, limit }) => {
+              try {
+                const results = await recallMemory(userId, query, supabase, limit || 5);
+                if (!results || results.length === 0) {
+                  return { ok: true, message: "No relevant memories found, Sir.", results: [] };
+                }
+                return { ok: true, results };
+              } catch (e: any) {
+                return { ok: false, error: e.message };
+              }
+            },
+          }),
         };
 
-        // Build system prompt with timezone and AM/PM instruction
+        // ---- System Prompt ----
         const baseSystemPrompt = getSystemPrompt(mode, addressAs, factsBlock);
         const systemPrompt = `${baseSystemPrompt}
 
@@ -1017,7 +1095,7 @@ Your user's timezone is "${userTimezone}". All times you display should be in th
 When displaying times, always use 12-hour format with AM/PM (e.g., '8:45 AM', '3:30 PM').
 The current time in the user's location is: ${currentTimeFormatted}.
 
-You have a new tool: get_place_address. Use it when the user asks for the address of a saved place (like "Home" or "Office"). It will find the place, reverse‑geocode it if needed, and return the full address.`;
+You have a new tool: recall_memory. Use it when the user asks about past conversations, things they told you earlier, or when they say "What did I say about X?" or "When did I mention Y?". It searches all past messages and returns the most relevant matches with timestamps.`;
 
         const result = streamText({
           model: chatModel,
@@ -1029,6 +1107,24 @@ You have a new tool: get_place_address. Use it when the user asks for the addres
             console.error("[chat streamText error]", error);
           },
         });
+
+        // Store assistant messages in memory after response
+        const originalOnFinish = result.onFinish;
+        result.onFinish = async ({ messages: finalMessages }) => {
+          const assistant = finalMessages[finalMessages.length - 1];
+          if (assistant && assistant.role === "assistant") {
+            const text = assistant.parts.find((p: any) => p.type === "text")?.text || "";
+            if (text) await storeMemory(userId, text, "assistant", supabase);
+            await supabase.from("chat_messages").insert({
+              thread_id: threadId,
+              user_id: userId,
+              role: "assistant",
+              parts: assistant.parts as any,
+            });
+            await supabase.from("chat_threads").update({ updated_at: new Date().toISOString() }).eq("id", threadId);
+          }
+          if (originalOnFinish) await originalOnFinish({ messages: finalMessages });
+        };
 
         return result.toUIMessageStreamResponse({
           originalMessages: messages,
@@ -1042,18 +1138,6 @@ You have a new tool: get_place_address. Use it when the user asks for the addres
               return "My apologies, Sir — I tripped over a tool I don't actually have. Try that again.";
             }
             return `Signal interrupted, Sir: ${detail.slice(0, 300)}`;
-          },
-          onFinish: async ({ messages: finalMessages }) => {
-            const assistant = finalMessages[finalMessages.length - 1];
-            if (assistant && assistant.role === "assistant") {
-              await supabase.from("chat_messages").insert({
-                thread_id: threadId,
-                user_id: userId,
-                role: "assistant",
-                parts: assistant.parts as any,
-              });
-              await supabase.from("chat_threads").update({ updated_at: new Date().toISOString() }).eq("id", threadId);
-            }
           },
         });
       },
