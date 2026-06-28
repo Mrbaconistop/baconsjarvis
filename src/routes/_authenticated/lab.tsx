@@ -467,6 +467,24 @@ function TutorPanel({
             {busy === "grade" ? <Loader2 size={12} className="animate-spin" /> : <GraduationCap size={12} />}
             Assess Grade Level (OAS)
           </button>
+          <div className="pt-2 mt-1 border-t border-arc/15 space-y-2">
+            <div className="font-mono text-[9px] tracking-[0.25em] text-hud-dim">YOUR ANSWER</div>
+            <textarea
+              value={answer}
+              onChange={(e) => setAnswer(e.target.value)}
+              placeholder="Type your answer (select the problem in notes first)"
+              rows={expanded ? 4 : 2}
+              className={`w-full rounded border border-arc/20 bg-background/60 px-2 py-1.5 text-xs resize-none focus:outline-none focus:border-arc/50`}
+            />
+            <button
+              onClick={runCheckAnswer}
+              disabled={busy !== null}
+              className={`w-full inline-flex items-center justify-center gap-1.5 rounded border border-arc/40 bg-arc/15 px-2 text-arc hover:bg-arc/25 disabled:opacity-40 ${expanded ? "py-2 text-sm" : "py-1.5 text-xs"}`}
+            >
+              {busy === "check" ? <Loader2 size={12} className="animate-spin" /> : <CircleCheck size={12} />}
+              Check Answer
+            </button>
+          </div>
           <p className="text-[10px] text-hud-dim font-mono">
             Tip: select a passage to grade just that text, or assess the whole board. Calibrated to Oklahoma Academic Standards.
           </p>
