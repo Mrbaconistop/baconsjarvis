@@ -360,6 +360,7 @@ function LabPage() {
               runGenerateProblems={runGenerateProblems}
               runExplainSelection={runExplainSelection}
               runGradeAssessment={runGradeAssessment}
+              answer={answer} setAnswer={setAnswer} runCheckAnswer={runCheckAnswer}
               setContent={setContent}
             />
           </div>
