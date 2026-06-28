@@ -7,7 +7,6 @@ import { getWeather, getWeatherForecast, getWeatherNarrative } from "@/lib/jarvi
 import { getProfile, getLLMConfig, updateLLMConfig } from "@/lib/profile.functions";
 import { listAccounts } from "@/lib/profile.functions";
 import { getBackendOverview } from "@/lib/backend.functions";
-import { supabase as supabaseClient } from "@/integrations/supabase/client";
 
 type Body = { messages?: UIMessage[]; threadId?: string };
 
@@ -51,13 +50,14 @@ export const Route = createFileRoute("/api/chat")({
           thread = created;
         }
 
-        // Load profile
+        // Load profile (including timezone)
         const { data: profile } = await supabase
           .from("profiles")
-          .select("address_as, name")
+          .select("address_as, name, timezone")
           .eq("id", userId)
           .maybeSingle();
         const addressAs = profile?.address_as ?? "Sir";
+        const userTimezone = profile?.timezone || "UTC";
 
         // Load facts (10 most recent)
         const { data: factRows } = await supabase
@@ -68,7 +68,7 @@ export const Route = createFileRoute("/api/chat")({
           .limit(10);
 
         const factsBlock = (factRows ?? []).length
-          ? (factRows ?? [])
+          ? factRows
               .map((f: any) => {
                 const value = f.value.length > 60 ? f.value.slice(0, 60) + "…" : f.value;
                 return `- [${f.category}] ${f.key}: ${value}`;
@@ -97,6 +97,15 @@ export const Route = createFileRoute("/api/chat")({
 
         // Get the model and mode
         const { model: chatModel, mode } = await getModelForUser(userId, supabase);
+
+        // Format current time in user's timezone, AM/PM
+        const now = new Date();
+        const currentTimeFormatted = now.toLocaleString("en-US", {
+          timeZone: userTimezone,
+          hour: "numeric",
+          minute: "2-digit",
+          hour12: true,
+        });
 
         // ---- Tools ----
         const tools = {
@@ -716,6 +725,72 @@ export const Route = createFileRoute("/api/chat")({
             },
           }),
 
+          // ==================== GET PLACE ADDRESS (NEW) ====================
+          get_place_address: tool({
+            description: "Get the full address of a saved place by its label (e.g., 'Home', 'Office').",
+            inputSchema: z.object({
+              label: z.string().describe("The label of the saved place (e.g., 'Home', 'Office')"),
+            }),
+            execute: async ({ label }) => {
+              const { data: places, error } = await supabase
+                .from("map_places")
+                .select("id, label, lat, lng, address")
+                .eq("user_id", userId)
+                .ilike("label", `%${label}%`)
+                .limit(1);
+
+              if (error) return { ok: false, error: error.message };
+              if (!places || places.length === 0) {
+                return { ok: false, error: `No saved place found with label containing "${label}".` };
+              }
+
+              const place = places[0];
+
+              if (place.address) {
+                return {
+                  ok: true,
+                  label: place.label,
+                  address: place.address,
+                  lat: place.lat,
+                  lng: place.lng,
+                  source: "stored",
+                };
+              }
+
+              try {
+                const r = await fetch(
+                  `https://connector-gateway.lovable.dev/google_maps/maps/api/geocode/json?latlng=${place.lat},${place.lng}`,
+                  {
+                    headers: {
+                      Authorization: `Bearer ${process.env.LOVABLE_API_KEY}`,
+                      "X-Connection-Api-Key": process.env.GOOGLE_MAPS_API_KEY!,
+                    },
+                  },
+                );
+                const j: any = await r.json();
+                const result = j.results?.[0];
+                if (!result) {
+                  return { ok: false, error: "Could not reverse‑geocode this location." };
+                }
+
+                const formattedAddress = result.formatted_address;
+
+                await supabase.from("map_places").update({ address: formattedAddress }).eq("id", place.id);
+
+                return {
+                  ok: true,
+                  label: place.label,
+                  address: formattedAddress,
+                  lat: place.lat,
+                  lng: place.lng,
+                  source: "reverse_geocoded",
+                };
+              } catch (e: any) {
+                return { ok: false, error: e?.message || "Reverse‑geocoding failed" };
+              }
+            },
+          }),
+
           // ==================== WEATHER ====================
           get_current_weather: tool({
             description: "Get the current weather for the user's saved location.",
@@ -784,7 +859,7 @@ export const Route = createFileRoute("/api/chat")({
             },
           }),
 
-          // ==================== PROFILE & SETTINGS (FIXED) ====================
+          // ==================== PROFILE & SETTINGS ====================
           get_profile: tool({
             description: "Get the user's profile information (name, address_as, timezone, briefing time).",
             inputSchema: z.object({}),
@@ -934,11 +1009,15 @@ export const Route = createFileRoute("/api/chat")({
           }),
         };
 
-        const now = new Date();
-        const systemPrompt =
-          getSystemPrompt(mode, addressAs, factsBlock) +
-          "\n\nWhen displaying times, always use 12-hour format with AM/PM (e.g., '8:45 AM', '3:30 PM'). Current time is: " +
-          now.toLocaleString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
+        // Build system prompt with timezone and AM/PM instruction
+        const baseSystemPrompt = getSystemPrompt(mode, addressAs, factsBlock);
+        const systemPrompt = `${baseSystemPrompt}
+
+Your user's timezone is "${userTimezone}". All times you display should be in this timezone.
+When displaying times, always use 12-hour format with AM/PM (e.g., '8:45 AM', '3:30 PM').
+The current time in the user's location is: ${currentTimeFormatted}.
+
+You have a new tool: get_place_address. Use it when the user asks for the address of a saved place (like "Home" or "Office"). It will find the place, reverse‑geocode it if needed, and return the full address.`;
 
         const result = streamText({
           model: chatModel,
