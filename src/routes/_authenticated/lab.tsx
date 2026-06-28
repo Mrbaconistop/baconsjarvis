@@ -216,7 +216,109 @@ function LabPage() {
     }
   }
 
+  // ---------------- Drawing canvas ----------------
+  function getCtx() {
+    const c = canvasRef.current;
+    if (!c) return null;
+    return c.getContext("2d");
+  }
 
+  function snapshot() {
+    const ctx = getCtx();
+    const c = canvasRef.current;
+    if (!ctx || !c) return;
+    try {
+      const snap = ctx.getImageData(0, 0, c.width, c.height);
+      drawingRef.current.snapshots.push(snap);
+      if (drawingRef.current.snapshots.length > 30) drawingRef.current.snapshots.shift();
+    } catch {}
+  }
+
+  function undoDraw() {
+    const ctx = getCtx();
+    const stack = drawingRef.current.snapshots;
+    if (!ctx || stack.length === 0) return;
+    const snap = stack.pop()!;
+    ctx.putImageData(snap, 0, 0);
+  }
+
+  function clearDraw() {
+    const ctx = getCtx();
+    const c = canvasRef.current;
+    if (!ctx || !c) return;
+    snapshot();
+    ctx.fillStyle = "#0b1220";
+    ctx.fillRect(0, 0, c.width, c.height);
+  }
+
+  function pointerDown(e: React.PointerEvent<HTMLCanvasElement>) {
+    const c = canvasRef.current; if (!c) return;
+    c.setPointerCapture(e.pointerId);
+    const rect = c.getBoundingClientRect();
+    snapshot();
+    drawingRef.current.drawing = true;
+    drawingRef.current.last = {
+      x: ((e.clientX - rect.left) / rect.width) * c.width,
+      y: ((e.clientY - rect.top) / rect.height) * c.height,
+    };
+  }
+  function pointerMove(e: React.PointerEvent<HTMLCanvasElement>) {
+    if (!drawingRef.current.drawing) return;
+    const ctx = getCtx(); const c = canvasRef.current;
+    if (!ctx || !c) return;
+    const rect = c.getBoundingClientRect();
+    const x = ((e.clientX - rect.left) / rect.width) * c.width;
+    const y = ((e.clientY - rect.top) / rect.height) * c.height;
+    const last = drawingRef.current.last ?? { x, y };
+    ctx.lineCap = "round"; ctx.lineJoin = "round";
+    ctx.lineWidth = drawingRef.current.size * (drawingRef.current.tool === "eraser" ? 4 : 1);
+    ctx.strokeStyle = drawingRef.current.tool === "eraser" ? "#0b1220" : drawingRef.current.color;
+    ctx.beginPath();
+    ctx.moveTo(last.x, last.y);
+    ctx.lineTo(x, y);
+    ctx.stroke();
+    drawingRef.current.last = { x, y };
+  }
+  function pointerUp() {
+    drawingRef.current.drawing = false;
+    drawingRef.current.last = null;
+  }
+
+  function setTool(tool: "pen" | "eraser") { drawingRef.current.tool = tool; forceTick((n) => n + 1); }
+  function setSize(size: number) { drawingRef.current.size = size; forceTick((n) => n + 1); }
+  function setColor(color: string) { drawingRef.current.color = color; drawingRef.current.tool = "pen"; forceTick((n) => n + 1); }
+
+  // Init canvas background when first mounted in draw view
+  useEffect(() => {
+    if (view !== "draw") return;
+    const c = canvasRef.current; if (!c) return;
+    // Size canvas to its display box on first show
+    if (c.width === 0 || c.height === 0) {
+      const rect = c.getBoundingClientRect();
+      c.width = Math.max(800, Math.floor(rect.width));
+      c.height = Math.max(500, Math.floor(rect.height));
+      const ctx = c.getContext("2d");
+      if (ctx) { ctx.fillStyle = "#0b1220"; ctx.fillRect(0, 0, c.width, c.height); }
+    }
+  }, [view]);
+
+  async function runAskDrawing() {
+    const c = canvasRef.current;
+    if (!c) { toast.error("Drawing canvas not ready."); return; }
+    if (!drawingQuestion.trim()) { toast.error("Type a question about your drawing first."); return; }
+    let dataUrl = "";
+    try { dataUrl = c.toDataURL("image/png"); } catch { toast.error("Couldn't read the drawing."); return; }
+    setBusy("drawing");
+    setAiOutput("");
+    try {
+      const res: any = await askDrawing({ data: { imageDataUrl: dataUrl, question: drawingQuestion, context: content?.slice(0, 4000) } });
+      setAiOutput(res.markdown);
+    } catch (e: any) {
+      toast.error(e?.message ?? "Couldn't analyze the drawing");
+    } finally {
+      setBusy(null);
+    }
+  }
 
   const savedLabel = useMemo(() => {
     if (!savedAt) return "Not yet saved";
