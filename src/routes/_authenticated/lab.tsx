@@ -418,22 +418,111 @@ function LabPage() {
             )}
           </div>
 
-          <div className="flex-1 grid grid-rows-2 gap-2 p-3 min-h-0">
-            <textarea
-              value={content}
-              onChange={(e) => setContent(e.target.value)}
-              disabled={!activeId}
-              placeholder={activeId ? "Write notes in Markdown — **bold**, `code`, - bullets…" : "Create or select a board to begin."}
-              className="w-full h-full resize-none rounded-md border border-arc/15 bg-background/60 p-3 font-mono text-sm text-foreground/90 placeholder:text-hud-dim focus:outline-none focus:border-arc/40"
-              spellCheck={false}
-            />
-            <div className="rounded-md border border-arc/15 bg-background/60 p-3 overflow-auto prose prose-invert prose-sm max-w-none">
-              {content.trim() ? (
-                <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>{content}</ReactMarkdown>
-              ) : (
-                <div className="text-xs text-hud-dim font-mono">// Live Markdown preview appears here.</div>
-              )}
-            </div>
+          {/* View tabs: Edit | Rendered | Draw */}
+          <div className="flex items-center gap-1 px-3 pt-2">
+            {([
+              { id: "edit", label: "Edit", icon: FileText },
+              { id: "render", label: "Rendered", icon: Eye },
+              { id: "draw", label: "Draw", icon: Brush },
+            ] as const).map(({ id, label, icon: Icon }) => (
+              <button
+                key={id}
+                onClick={() => setView(id)}
+                className={`inline-flex items-center gap-1.5 rounded-t border-b-2 px-3 py-1.5 text-xs font-mono uppercase tracking-wider transition ${
+                  view === id
+                    ? "border-arc text-arc bg-arc/10"
+                    : "border-transparent text-hud-dim hover:text-arc"
+                }`}
+              >
+                <Icon size={12} /> {label}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex-1 p-3 min-h-0">
+            {view === "edit" && (
+              <textarea
+                value={content}
+                onChange={(e) => setContent(e.target.value)}
+                disabled={!activeId}
+                placeholder={activeId ? "Write notes in Markdown — **bold**, `code`, $\\frac{a}{b}$, $a \\div b$…" : "Create or select a board to begin."}
+                className="w-full h-full resize-none rounded-md border border-arc/15 bg-background/60 p-3 font-mono text-sm text-foreground/90 placeholder:text-hud-dim focus:outline-none focus:border-arc/40"
+                spellCheck={false}
+              />
+            )}
+            {view === "render" && (
+              <div className="w-full h-full rounded-md border border-arc/15 bg-background/60 p-4 overflow-auto prose prose-invert prose-sm max-w-none">
+                {content.trim() ? (
+                  <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>{content}</ReactMarkdown>
+                ) : (
+                  <div className="text-xs text-hud-dim font-mono">// Switch to Edit to write notes — they'll render here.</div>
+                )}
+              </div>
+            )}
+            {view === "draw" && (
+              <div className="w-full h-full flex flex-col gap-2 min-h-0">
+                {/* Toolbar */}
+                <div className="flex flex-wrap items-center gap-2 rounded-md border border-arc/15 bg-background/50 px-3 py-1.5">
+                  <button
+                    onClick={() => setTool("pen")}
+                    className={`inline-flex items-center gap-1 rounded border px-2 py-1 text-[10px] font-mono uppercase ${drawingRef.current.tool === "pen" ? "border-arc/50 bg-arc/15 text-arc" : "border-arc/15 text-hud-dim hover:text-arc"}`}
+                  ><Brush size={11} /> Pen</button>
+                  <button
+                    onClick={() => setTool("eraser")}
+                    className={`inline-flex items-center gap-1 rounded border px-2 py-1 text-[10px] font-mono uppercase ${drawingRef.current.tool === "eraser" ? "border-arc/50 bg-arc/15 text-arc" : "border-arc/15 text-hud-dim hover:text-arc"}`}
+                  ><Eraser size={11} /> Eraser</button>
+                  <div className="flex items-center gap-1 pl-2 border-l border-arc/15">
+                    {["#67e8f9", "#facc15", "#f472b6", "#a3e635", "#f87171", "#ffffff"].map((c) => (
+                      <button
+                        key={c}
+                        onClick={() => setColor(c)}
+                        className={`h-5 w-5 rounded-full border-2 transition ${drawingRef.current.color === c && drawingRef.current.tool === "pen" ? "border-arc scale-110" : "border-transparent"}`}
+                        style={{ background: c }}
+                        aria-label={`Color ${c}`}
+                      />
+                    ))}
+                  </div>
+                  <div className="flex items-center gap-1.5 pl-2 border-l border-arc/15">
+                    <span className="font-mono text-[9px] text-hud-dim">SIZE</span>
+                    <input type="range" min={1} max={20} value={drawingRef.current.size} onChange={(e) => setSize(Number(e.target.value))} className="w-20" />
+                  </div>
+                  <button onClick={undoDraw} className="inline-flex items-center gap-1 rounded border border-arc/15 px-2 py-1 text-[10px] text-hud-dim hover:text-arc"><Undo2 size={11} /> Undo</button>
+                  <button onClick={clearDraw} className="inline-flex items-center gap-1 rounded border border-critical/30 px-2 py-1 text-[10px] text-critical hover:bg-critical/10"><X size={11} /> Clear</button>
+                </div>
+
+                {/* Canvas */}
+                <div className="flex-1 min-h-0 rounded-md border border-arc/15 bg-[#0b1220] overflow-hidden relative">
+                  <canvas
+                    ref={canvasRef}
+                    onPointerDown={pointerDown}
+                    onPointerMove={pointerMove}
+                    onPointerUp={pointerUp}
+                    onPointerCancel={pointerUp}
+                    onPointerLeave={pointerUp}
+                    className="w-full h-full touch-none cursor-crosshair"
+                  />
+                </div>
+
+                {/* Ask about drawing */}
+                <div className="flex gap-2">
+                  <input
+                    value={drawingQuestion}
+                    onChange={(e) => setDrawingQuestion(e.target.value)}
+                    placeholder="Ask JARVIS about this drawing — circle the part you're confused about, then ask…"
+                    onKeyDown={(e) => { if (e.key === "Enter") runAskDrawing(); }}
+                    className="flex-1 rounded border border-arc/20 bg-background/60 px-3 py-2 text-sm focus:outline-none focus:border-arc/50"
+                  />
+                  <button
+                    onClick={runAskDrawing}
+                    disabled={busy !== null}
+                    className="inline-flex items-center gap-1.5 rounded border border-arc/40 bg-arc/15 px-3 py-2 text-sm text-arc hover:bg-arc/25 disabled:opacity-40"
+                  >
+                    {busy === "drawing" ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+                    Ask
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </section>
 
