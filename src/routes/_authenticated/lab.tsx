@@ -577,7 +577,7 @@ type TutorPanelProps = {
   setTopic: (v: string) => void;
   difficulty: "easy" | "medium" | "hard";
   setDifficulty: (d: "easy" | "medium" | "hard") => void;
-  busy: "problems" | "solution" | "grade" | "check" | null;
+  busy: "problems" | "solution" | "grade" | "check" | "drawing" | null;
   aiOutput: string;
   runGenerateProblems: () => void;
   runExplainSelection: () => void;
