@@ -53,6 +53,7 @@ function LabPage() {
   const [busy, setBusy] = useState<"problems" | "solution" | "grade" | null>(null);
   const [editingTitle, setEditingTitle] = useState(false);
   const [savedAt, setSavedAt] = useState<Date | null>(null);
+  const [tutorExpanded, setTutorExpanded] = useState(false);
   const lastSavedRef = useRef<{ title: string; content: string } | null>(null);
 
   // Load active session content
