@@ -1331,7 +1331,9 @@ Your user's timezone is "${userTimezone}". All times you display should be in th
 When displaying times, always use 12-hour format with AM/PM (e.g., '8:45 AM', '3:30 PM').
 The current time in the user's location is: ${currentTimeFormatted}.
 
-You have a new tool: recall_memory. Use it when the user asks about past conversations, things they told you earlier, or when they say "What did I say about X?" or "When did I mention Y?". It searches all past messages and returns the most relevant matches with timestamps.`;
+You have full operational access to the user's command center. When in doubt about the current state of anything — time, date, day of week, account counts, what's in their vault/files/reminders/spending/places/check-ins/briefings, or which AI model you're running on — call the system_status tool. Never guess time or date; query it.
+
+You also have recall_memory for semantic search across past conversations. Use it whenever the user references something they told you before.`;
 
         const result = streamText({
           model: chatModel,
