@@ -214,3 +214,37 @@ status=<correct|partial|incorrect>
     const status = (m?.[1]?.toLowerCase() ?? "incorrect") as "correct" | "partial" | "incorrect";
     return { markdown, status, correct: status === "correct" };
   });
+
+export const askAboutDrawing = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) =>
+    z
+      .object({
+        // data URL: data:image/png;base64,....
+        imageDataUrl: z.string().startsWith("data:image/").max(8_000_000),
+        question: z.string().min(1).max(2000),
+        context: z.string().max(8000).optional(),
+      })
+      .parse(input),
+  )
+  .handler(async ({ data }) => {
+    const { generateText } = await import("ai");
+    const { resolveChatModel } = await import("./ai-gateway.server");
+    const { model } = resolveChatModel({});
+    const system = `You are JARVIS, Sir's elite visual tutor. Sir has sketched something on a whiteboard and is asking a question about it (sometimes about a small section he's circled or pointed at). Read the drawing carefully — diagrams, equations, handwriting, arrows, highlights — and answer precisely in clean Markdown. Use ## headings, bullets, and LaTeX ($...$ / $$...$$) for math. If the drawing is ambiguous, say what you see and ask one clarifying question.`;
+    const { text } = await generateText({
+      model,
+      system,
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: `${data.context ? `Context from Sir's notes:\n${data.context}\n\n` : ""}Question about the drawing:\n${data.question}` },
+            { type: "image", image: data.imageDataUrl },
+          ],
+        },
+      ],
+      temperature: 0.5,
+    });
+    return { markdown: text };
+  });
