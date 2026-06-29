@@ -1220,7 +1220,88 @@ export const Route = createFileRoute("/api/chat")({
           }),
 
 
-          // ==================== JARVIS MEMORY (NEW) ====================
+          // ==================== SYSTEM ACCESS ====================
+          system_status: tool({
+            description:
+              "Get live system information: current date/time, day-of-week, timezone, ISO timestamp, unix epoch, week number, days until weekend, user profile, request region/locale, and counts of reminders, transactions, vault items, files, threads, facts, places, check-ins, and webhooks. Use whenever the user asks about time, date, day, 'what time is it', 'today', 'now', system info, account status, or 'what do you know about me'.",
+            inputSchema: z.object({}),
+            execute: async () => {
+              const nowIso = new Date();
+              const localeOpts: Intl.DateTimeFormatOptions = {
+                timeZone: userTimezone,
+                weekday: "long",
+                year: "numeric",
+                month: "long",
+                day: "numeric",
+                hour: "numeric",
+                minute: "2-digit",
+                second: "2-digit",
+                hour12: true,
+                timeZoneName: "short",
+              };
+              const tzDate = new Date(nowIso.toLocaleString("en-US", { timeZone: userTimezone }));
+              const dayOfWeek = tzDate.getDay();
+              const daysToSaturday = (6 - dayOfWeek + 7) % 7;
+              const startOfYear = new Date(tzDate.getFullYear(), 0, 1);
+              const weekNumber = Math.ceil(((tzDate.getTime() - startOfYear.getTime()) / 86400000 + startOfYear.getDay() + 1) / 7);
+
+              const tables = [
+                "reminders",
+                "transactions",
+                "vault_items",
+                "chat_threads",
+                "user_facts",
+                "map_places",
+                "daily_checkins",
+                "discord_webhooks",
+                "social_feeds",
+              ];
+              const counts: Record<string, number> = {};
+              await Promise.all(
+                tables.map(async (t) => {
+                  const { count } = await supabase
+                    .from(t)
+                    .select("*", { count: "exact", head: true })
+                    .eq("user_id", userId);
+                  counts[t] = count ?? 0;
+                }),
+              );
+
+              let fileCount = 0;
+              try {
+                const { data } = await supabase.storage.from("user-files").list(userId, { limit: 1000 });
+                fileCount = (data ?? []).filter((f) => f.name !== ".emptyFolderPlaceholder").length;
+              } catch {}
+
+              return {
+                time: {
+                  formatted: nowIso.toLocaleString("en-US", localeOpts),
+                  iso_utc: nowIso.toISOString(),
+                  unix_ms: nowIso.getTime(),
+                  timezone: userTimezone,
+                  hour_24: tzDate.getHours(),
+                  minute: tzDate.getMinutes(),
+                  day_of_week: ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][dayOfWeek],
+                  is_weekend: dayOfWeek === 0 || dayOfWeek === 6,
+                  days_until_weekend: daysToSaturday,
+                  week_number: weekNumber,
+                  month: tzDate.toLocaleString("en-US", { month: "long", timeZone: userTimezone }),
+                  year: tzDate.getFullYear(),
+                },
+                profile: {
+                  user_id: userId,
+                  name: profile?.name ?? null,
+                  address_as: addressAs,
+                  timezone: userTimezone,
+                },
+                ai: { mode, model_id: (chatModel as any)?.modelId ?? null },
+                counts: { ...counts, files: fileCount },
+                runtime: { platform: "Cloudflare Workers (TanStack Start)", node_compat: true },
+              };
+            },
+          }),
+
+          // ==================== JARVIS MEMORY ====================
           recall_memory: tool({
             description:
               "Recall past conversations or messages based on a query. Use this when the user asks about something they mentioned before, like 'What did I say about X?' or 'When did I mention Y?'. Returns the most relevant past messages with timestamps.",
