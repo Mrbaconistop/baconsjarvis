@@ -1065,6 +1065,161 @@ export const Route = createFileRoute("/api/chat")({
             },
           }),
 
+          // ==================== CHECK-INS & BRIEFINGS ====================
+          log_checkin: tool({
+            description:
+              "Log or update today's daily check-in (weight, height, mood, energy, sleep, notes). Any field can be omitted; existing values are preserved.",
+            inputSchema: z.object({
+              weight_lbs: z.number().nullable().optional(),
+              height_in: z.number().nullable().optional(),
+              mood: z.string().nullable().optional(),
+              energy: z.number().int().min(1).max(10).nullable().optional(),
+              sleep_hours: z.number().nullable().optional(),
+              notes: z.string().nullable().optional(),
+              day: z.string().nullable().optional().describe("YYYY-MM-DD; defaults to today UTC"),
+            }),
+            execute: async (input) => {
+              const day = input.day ?? new Date().toISOString().slice(0, 10);
+              const patch: any = { user_id: userId, day };
+              for (const k of ["weight_lbs", "height_in", "mood", "energy", "sleep_hours", "notes"] as const) {
+                if (input[k] !== undefined && input[k] !== null) patch[k] = input[k];
+              }
+              const { data, error } = await supabase
+                .from("daily_checkins")
+                .upsert(patch, { onConflict: "user_id,day" })
+                .select("*")
+                .single();
+              if (error) return { ok: false, error: error.message };
+              return { ok: true, checkin: data };
+            },
+          }),
+          get_checkin: tool({
+            description: "Get a check-in for a specific day (defaults to today).",
+            inputSchema: z.object({ day: z.string().nullable().optional() }),
+            execute: async ({ day }) => {
+              const d = day ?? new Date().toISOString().slice(0, 10);
+              const { data } = await supabase
+                .from("daily_checkins")
+                .select("*")
+                .eq("user_id", userId)
+                .eq("day", d)
+                .maybeSingle();
+              return { day: d, checkin: data ?? null };
+            },
+          }),
+          list_checkins: tool({
+            description: "List recent daily check-ins (default last 14 days).",
+            inputSchema: z.object({ days: z.number().int().min(1).max(180).default(14) }),
+            execute: async ({ days }) => {
+              const since = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
+              const { data } = await supabase
+                .from("daily_checkins")
+                .select("day, weight_lbs, height_in, mood, energy, sleep_hours, notes")
+                .eq("user_id", userId)
+                .gte("day", since)
+                .order("day", { ascending: false });
+              return { checkins: data ?? [], count: data?.length ?? 0 };
+            },
+          }),
+          checkin_summary: tool({
+            description: "Compute averages and trends across recent check-ins.",
+            inputSchema: z.object({ days: z.number().int().min(2).max(180).default(30) }),
+            execute: async ({ days }) => {
+              const since = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
+              const { data } = await supabase
+                .from("daily_checkins")
+                .select("day, weight_lbs, energy, sleep_hours, mood")
+                .eq("user_id", userId)
+                .gte("day", since)
+                .order("day", { ascending: true });
+              const rows = data ?? [];
+              const avg = (key: string) => {
+                const vals = rows.map((r: any) => r[key]).filter((v: any) => typeof v === "number");
+                return vals.length ? vals.reduce((a: number, b: number) => a + b, 0) / vals.length : null;
+              };
+              const weights = rows.map((r: any) => r.weight_lbs).filter((v: any) => typeof v === "number");
+              return {
+                count: rows.length,
+                averages: {
+                  weight_lbs: avg("weight_lbs"),
+                  energy: avg("energy"),
+                  sleep_hours: avg("sleep_hours"),
+                },
+                weight_change_lbs:
+                  weights.length >= 2 ? weights[weights.length - 1] - weights[0] : null,
+                moods: rows.map((r: any) => r.mood).filter(Boolean).slice(-7),
+              };
+            },
+          }),
+          list_briefing_webhooks: tool({
+            description: "List configured Discord briefing webhooks and which sections they include.",
+            inputSchema: z.object({}),
+            execute: async () => {
+              const { data } = await supabase
+                .from("discord_webhooks")
+                .select(
+                  "id, name, enabled, include_email, include_calendar, include_reminders, include_spending, include_checkin, include_mention_everyone, last_sent_at",
+                )
+                .eq("user_id", userId)
+                .order("created_at", { ascending: true });
+              return { webhooks: data ?? [], count: data?.length ?? 0 };
+            },
+          }),
+          configure_briefing: tool({
+            description:
+              "Toggle sections on a Discord briefing webhook (by id or name). Any flag left undefined is unchanged.",
+            inputSchema: z.object({
+              id: z.string().uuid().nullable().optional(),
+              name: z.string().nullable().optional(),
+              enabled: z.boolean().nullable().optional(),
+              include_email: z.boolean().nullable().optional(),
+              include_calendar: z.boolean().nullable().optional(),
+              include_reminders: z.boolean().nullable().optional(),
+              include_spending: z.boolean().nullable().optional(),
+              include_checkin: z.boolean().nullable().optional(),
+              include_mention_everyone: z.boolean().nullable().optional(),
+            }),
+            execute: async ({ id, name, ...flags }) => {
+              const patch: any = {};
+              for (const [k, v] of Object.entries(flags)) if (v !== undefined && v !== null) patch[k] = v;
+              if (!Object.keys(patch).length) return { ok: false, error: "No fields to update." };
+              let q = supabase.from("discord_webhooks").update(patch).eq("user_id", userId);
+              if (id) q = q.eq("id", id);
+              else if (name) q = q.eq("name", name);
+              else return { ok: false, error: "Provide id or name." };
+              const { data, error } = await q.select("id, name, enabled").limit(5);
+              if (error) return { ok: false, error: error.message };
+              return { ok: true, updated: data };
+            },
+          }),
+          send_briefing_now: tool({
+            description: "Fire all enabled Discord briefings immediately.",
+            inputSchema: z.object({}),
+            execute: async () => {
+              try {
+                const { sendForUserHooks } = await import("@/lib/discord.server");
+                const { data: hooks } = await supabase
+                  .from("discord_webhooks")
+                  .select("*")
+                  .eq("user_id", userId)
+                  .eq("enabled", true);
+                let sent = 0;
+                for (const h of hooks ?? []) {
+                  try {
+                    await sendForUserHooks(userId, h);
+                    sent++;
+                  } catch (e) {
+                    console.error("[briefing tool] failed:", e);
+                  }
+                }
+                return { ok: true, sent, total: hooks?.length ?? 0 };
+              } catch (e: any) {
+                return { ok: false, error: e.message };
+              }
+            },
+          }),
+
+
           // ==================== JARVIS MEMORY (NEW) ====================
           recall_memory: tool({
             description:
