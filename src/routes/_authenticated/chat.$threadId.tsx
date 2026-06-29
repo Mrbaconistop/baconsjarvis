@@ -53,7 +53,7 @@ function ChatPage() {
     <div className="flex flex-col h-screen">
       <PageHeader tag="05 · CHAT" title="Conversation" subtitle="Speak with JARVIS. Tools for reminders & vault are wired in." />
       <div className="flex-1 flex min-h-0">
-        <aside className="w-64 border-r border-arc/15 flex flex-col bg-background/30">
+        <aside className="hidden md:flex w-64 border-r border-arc/15 flex-col bg-background/30">
           <div className="p-3 border-b border-arc/10">
             <button onClick={newThread} disabled={creating}
               className="w-full flex items-center gap-2 px-3 py-2 rounded-md bg-arc text-arc-foreground shadow-arc text-xs font-medium hover:opacity-90 disabled:opacity-50">
