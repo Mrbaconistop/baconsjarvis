@@ -23,7 +23,7 @@ function ChatPage() {
   const remove = useServerFn(deleteThread);
   const fetchMessages = useServerFn(getMessages);
 
-  const { data: threads = [] } = useQuery({ queryKey: ["threads"], queryFn: () => list() });
+  const { data: threads = [] } = useQuery({ queryKey: ["threads"], queryFn: () => list({ data: { scope: "general" } }) });
   const { data: initial = [], isLoading } = useQuery({
     queryKey: ["chat-messages", threadId],
     queryFn: () => fetchMessages({ data: { threadId } }),
