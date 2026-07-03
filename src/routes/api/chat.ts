@@ -76,7 +76,7 @@ export const Route = createFileRoute("/api/chat")({
         const token = auth.replace(/^Bearer\s+/i, "");
         if (!token) return new Response("Unauthorized", { status: 401 });
 
-        const { messages, threadId } = (await request.json()) as Body;
+        const { messages, threadId, tabSlug } = (await request.json()) as Body;
         if (!Array.isArray(messages) || !threadId) return new Response("Bad request", { status: 400 });
 
         const supabase = userClient(token);
@@ -95,19 +95,33 @@ export const Route = createFileRoute("/api/chat")({
         // Verify thread ownership
         let { data: thread } = await supabase
           .from("chat_threads")
-          .select("id, title")
+          .select("id, title, tab_slug")
           .eq("id", threadId)
           .eq("user_id", userId)
           .maybeSingle();
         if (!thread) {
           const { data: created, error: createErr } = await supabase
             .from("chat_threads")
-            .insert({ id: threadId, user_id: userId, title: "New conversation" })
-            .select("id, title")
+            .insert({ id: threadId, user_id: userId, title: "New conversation", tab_slug: tabSlug ?? null })
+            .select("id, title, tab_slug")
             .single();
           if (createErr || !created) return new Response("Thread not found", { status: 404 });
           thread = created;
         }
+
+        // Load bound tab context (if this thread is scoped to a custom tab)
+        const boundTabSlug = (thread as any).tab_slug || tabSlug || null;
+        let tabContext: { slug: string; label: string; description: string | null; content_html: string } | null = null;
+        if (boundTabSlug) {
+          const { data: tabRow } = await supabase
+            .from("custom_tabs")
+            .select("slug, label, description, content_html")
+            .eq("user_id", userId)
+            .eq("slug", boundTabSlug)
+            .maybeSingle();
+          if (tabRow) tabContext = tabRow as any;
+        }
+
 
         // Load profile
         const { data: profile } = await supabase
