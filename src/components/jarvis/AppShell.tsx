@@ -75,6 +75,60 @@ export function AppShell({ children }: { children: ReactNode }) {
     setNavOpen(false);
   }, [loc.pathname]);
 
+  // Global JARVIS client-action bus (navigate, toast, theme, reload…)
+  useEffect(() => {
+    return appBus.register((a: AppAction) => {
+      try {
+        switch (a.type) {
+          case "navigate":
+            navigate({ to: a.to as any, replace: a.replace });
+            break;
+          case "reload":
+            window.location.reload();
+            break;
+          case "open_url":
+            if (a.new_tab === false) window.location.href = a.url;
+            else window.open(a.url, "_blank", "noopener");
+            break;
+          case "toast": {
+            const k = a.kind ?? "info";
+            (toast as any)[k]?.(a.message) ?? toast(a.message);
+            break;
+          }
+          case "set_theme": {
+            const root = document.documentElement;
+            root.classList.remove("light", "dark");
+            if (a.theme !== "system") root.classList.add(a.theme);
+            try { localStorage.setItem("theme", a.theme); } catch {}
+            break;
+          }
+          case "scroll_to": {
+            const el = document.querySelector(a.selector);
+            if (el) (el as HTMLElement).scrollIntoView({ behavior: "smooth", block: "center" });
+            break;
+          }
+          case "focus_chat": {
+            const ta = document.querySelector<HTMLTextAreaElement>("textarea");
+            ta?.focus();
+            break;
+          }
+          case "copy_to_clipboard":
+            navigator.clipboard?.writeText(a.text).then(
+              () => toast.success(a.label ? `Copied ${a.label}` : "Copied to clipboard"),
+              () => toast.error("Clipboard copy failed"),
+            );
+            break;
+          case "invalidate_queries":
+            if (a.keys && a.keys.length) a.keys.forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
+            else qc.invalidateQueries();
+            break;
+        }
+      } catch (e) {
+        console.error("[appBus]", e);
+      }
+    });
+  }, [navigate, qc]);
+
   async function signOut() {
     await qc.cancelQueries();
     qc.clear();
