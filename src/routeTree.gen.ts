@@ -27,6 +27,7 @@ import { Route as AuthenticatedDashboardRouteImport } from './routes/_authentica
 import { Route as AuthenticatedBriefingRouteImport } from './routes/_authenticated/briefing'
 import { Route as AuthenticatedBackendRouteImport } from './routes/_authenticated/backend'
 import { Route as AuthenticatedChatIndexRouteImport } from './routes/_authenticated/chat.index'
+import { Route as AuthenticatedTabsSlugRouteImport } from './routes/_authenticated/tabs.$slug'
 import { Route as AuthenticatedChatThreadIdRouteImport } from './routes/_authenticated/chat.$threadId'
 import { Route as ApiPublicHooksIngestCashappRouteImport } from './routes/api/public/hooks/ingest-cashapp'
 import { Route as ApiPublicHooksDailyDiscordRouteImport } from './routes/api/public/hooks/daily-discord'
@@ -120,6 +121,11 @@ const AuthenticatedChatIndexRoute = AuthenticatedChatIndexRouteImport.update({
   path: '/chat/',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedTabsSlugRoute = AuthenticatedTabsSlugRouteImport.update({
+  id: '/tabs/$slug',
+  path: '/tabs/$slug',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedChatThreadIdRoute =
   AuthenticatedChatThreadIdRouteImport.update({
     id: '/chat/$threadId',
@@ -157,6 +163,7 @@ export interface FileRoutesByFullPath {
   '/api/chat': typeof ApiChatRoute
   '/api/transcribe': typeof ApiTranscribeRoute
   '/chat/$threadId': typeof AuthenticatedChatThreadIdRoute
+  '/tabs/$slug': typeof AuthenticatedTabsSlugRoute
   '/chat/': typeof AuthenticatedChatIndexRoute
   '/api/public/hooks/daily-discord': typeof ApiPublicHooksDailyDiscordRoute
   '/api/public/hooks/ingest-cashapp': typeof ApiPublicHooksIngestCashappRoute
@@ -179,6 +186,7 @@ export interface FileRoutesByTo {
   '/api/chat': typeof ApiChatRoute
   '/api/transcribe': typeof ApiTranscribeRoute
   '/chat/$threadId': typeof AuthenticatedChatThreadIdRoute
+  '/tabs/$slug': typeof AuthenticatedTabsSlugRoute
   '/chat': typeof AuthenticatedChatIndexRoute
   '/api/public/hooks/daily-discord': typeof ApiPublicHooksDailyDiscordRoute
   '/api/public/hooks/ingest-cashapp': typeof ApiPublicHooksIngestCashappRoute
@@ -203,6 +211,7 @@ export interface FileRoutesById {
   '/api/chat': typeof ApiChatRoute
   '/api/transcribe': typeof ApiTranscribeRoute
   '/_authenticated/chat/$threadId': typeof AuthenticatedChatThreadIdRoute
+  '/_authenticated/tabs/$slug': typeof AuthenticatedTabsSlugRoute
   '/_authenticated/chat/': typeof AuthenticatedChatIndexRoute
   '/api/public/hooks/daily-discord': typeof ApiPublicHooksDailyDiscordRoute
   '/api/public/hooks/ingest-cashapp': typeof ApiPublicHooksIngestCashappRoute
@@ -227,6 +236,7 @@ export interface FileRouteTypes {
     | '/api/chat'
     | '/api/transcribe'
     | '/chat/$threadId'
+    | '/tabs/$slug'
     | '/chat/'
     | '/api/public/hooks/daily-discord'
     | '/api/public/hooks/ingest-cashapp'
@@ -249,6 +259,7 @@ export interface FileRouteTypes {
     | '/api/chat'
     | '/api/transcribe'
     | '/chat/$threadId'
+    | '/tabs/$slug'
     | '/chat'
     | '/api/public/hooks/daily-discord'
     | '/api/public/hooks/ingest-cashapp'
@@ -272,6 +283,7 @@ export interface FileRouteTypes {
     | '/api/chat'
     | '/api/transcribe'
     | '/_authenticated/chat/$threadId'
+    | '/_authenticated/tabs/$slug'
     | '/_authenticated/chat/'
     | '/api/public/hooks/daily-discord'
     | '/api/public/hooks/ingest-cashapp'
@@ -416,6 +428,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedChatIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/tabs/$slug': {
+      id: '/_authenticated/tabs/$slug'
+      path: '/tabs/$slug'
+      fullPath: '/tabs/$slug'
+      preLoaderRoute: typeof AuthenticatedTabsSlugRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/chat/$threadId': {
       id: '/_authenticated/chat/$threadId'
       path: '/chat/$threadId'
@@ -453,6 +472,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedVaultRoute: typeof AuthenticatedVaultRoute
   AuthenticatedWorldRoute: typeof AuthenticatedWorldRoute
   AuthenticatedChatThreadIdRoute: typeof AuthenticatedChatThreadIdRoute
+  AuthenticatedTabsSlugRoute: typeof AuthenticatedTabsSlugRoute
   AuthenticatedChatIndexRoute: typeof AuthenticatedChatIndexRoute
 }
 
@@ -469,6 +489,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedVaultRoute: AuthenticatedVaultRoute,
   AuthenticatedWorldRoute: AuthenticatedWorldRoute,
   AuthenticatedChatThreadIdRoute: AuthenticatedChatThreadIdRoute,
+  AuthenticatedTabsSlugRoute: AuthenticatedTabsSlugRoute,
   AuthenticatedChatIndexRoute: AuthenticatedChatIndexRoute,
 }
 
