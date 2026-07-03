@@ -46,6 +46,23 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [time, setTime] = useState(() => new Date());
   const [navOpen, setNavOpen] = useState(false);
 
+  // Custom tabs (created by JARVIS or via /tabs/$slug edit)
+  const fetchTabs = useServerFn(listCustomTabs);
+  const { data: customTabs = [] } = useQuery({
+    queryKey: ["custom-tabs-nav"],
+    queryFn: () => fetchTabs(),
+    staleTime: 30_000,
+  });
+  useEffect(() => {
+    const ch = supabase
+      .channel("custom_tabs_nav")
+      .on("postgres_changes", { event: "*", schema: "public", table: "custom_tabs" }, () => {
+        qc.invalidateQueries({ queryKey: ["custom-tabs-nav"] });
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(ch); };
+  }, [qc]);
+
   useEffect(() => {
     const t = setInterval(() => setTime(new Date()), 1000);
     return () => clearInterval(t);
