@@ -1321,6 +1321,134 @@ export const Route = createFileRoute("/api/chat")({
               }
             },
           }),
+
+          // ==================== CUSTOM TABS (client-side mini-apps) ====================
+          create_custom_tab: tool({
+            description:
+              "Create a new custom tab in the user's sidebar. The tab renders arbitrary HTML/CSS/JS inside a sandboxed iframe — use this to build small client-side mini-apps (calculators, trackers, dashboards, widgets, notes, timers, games). Prefer inline <style> and <script>; no external network/module imports. Body only (no <html>/<head> wrapper — one is added). Return the slug so the user can visit /tabs/<slug>.",
+            inputSchema: z.object({
+              label: z.string().min(1).max(40).describe("Short sidebar label, e.g. 'Habit Tracker'."),
+              icon: z
+                .string()
+                .max(40)
+                .nullable()
+                .optional()
+                .describe("Lucide icon name (PascalCase), e.g. 'Calculator', 'Timer', 'Heart'. Defaults to Sparkles."),
+              description: z.string().max(300).nullable().optional(),
+              content_html: z
+                .string()
+                .max(200_000)
+                .describe("HTML body content. May include <style> and <script>. Runs in a sandboxed iframe."),
+            }),
+            execute: async ({ label, icon, description, content_html }) => {
+              const baseSlug =
+                label
+                  .toLowerCase()
+                  .replace(/[^a-z0-9]+/g, "-")
+                  .replace(/^-+|-+$/g, "")
+                  .slice(0, 40) || "tab";
+              let slug = baseSlug;
+              let n = 2;
+              // eslint-disable-next-line no-constant-condition
+              while (true) {
+                const { data: existing } = await supabase
+                  .from("custom_tabs")
+                  .select("id")
+                  .eq("user_id", userId)
+                  .eq("slug", slug)
+                  .maybeSingle();
+                if (!existing) break;
+                slug = `${baseSlug}-${n++}`;
+              }
+              const { data, error } = await supabase
+                .from("custom_tabs")
+                .insert({
+                  user_id: userId,
+                  slug,
+                  label,
+                  icon: icon || "Sparkles",
+                  description: description ?? null,
+                  content_html,
+                })
+                .select("id, slug, label")
+                .single();
+              if (error) return { ok: false, error: error.message };
+              return { ok: true, tab: data, url: `/tabs/${data.slug}` };
+            },
+          }),
+          list_custom_tabs: tool({
+            description: "List the user's custom tabs.",
+            inputSchema: z.object({}),
+            execute: async () => {
+              const { data } = await supabase
+                .from("custom_tabs")
+                .select("id, slug, label, icon, description, updated_at")
+                .eq("user_id", userId)
+                .order("sort_order", { ascending: true });
+              return { tabs: data ?? [] };
+            },
+          }),
+          update_custom_tab: tool({
+            description:
+              "Update a custom tab's label, icon, description, or HTML content. Provide id OR slug to identify it.",
+            inputSchema: z.object({
+              id: z.string().uuid().nullable().optional(),
+              slug: z.string().nullable().optional(),
+              label: z.string().min(1).max(40).nullable().optional(),
+              icon: z.string().max(40).nullable().optional(),
+              description: z.string().max(300).nullable().optional(),
+              content_html: z.string().max(200_000).nullable().optional(),
+            }),
+            execute: async ({ id, slug, label, icon, description, content_html }) => {
+              if (!id && !slug) return { ok: false, error: "Provide id or slug." };
+              let q = supabase.from("custom_tabs").select("id").eq("user_id", userId);
+              q = id ? q.eq("id", id) : q.eq("slug", slug!);
+              const { data: found } = await q.maybeSingle();
+              if (!found) return { ok: false, error: "Tab not found." };
+              const patch: any = { updated_at: new Date().toISOString() };
+              if (label != null) patch.label = label;
+              if (icon != null) patch.icon = icon;
+              if (description !== undefined) patch.description = description;
+              if (content_html != null) patch.content_html = content_html;
+              const { data, error } = await supabase
+                .from("custom_tabs")
+                .update(patch)
+                .eq("id", found.id)
+                .eq("user_id", userId)
+                .select("id, slug, label")
+                .single();
+              if (error) return { ok: false, error: error.message };
+              return { ok: true, tab: data };
+            },
+          }),
+          delete_custom_tab: tool({
+            description: "Delete a custom tab. Provide id OR slug.",
+            inputSchema: z.object({
+              id: z.string().uuid().nullable().optional(),
+              slug: z.string().nullable().optional(),
+            }),
+            execute: async ({ id, slug }) => {
+              if (!id && !slug) return { ok: false, error: "Provide id or slug." };
+              let q = supabase.from("custom_tabs").delete().eq("user_id", userId);
+              q = id ? q.eq("id", id) : q.eq("slug", slug!);
+              const { error } = await q;
+              return { ok: !error, error: error?.message };
+            },
+          }),
+          get_custom_tab: tool({
+            description: "Get full HTML/content of a custom tab (for editing/inspection).",
+            inputSchema: z.object({
+              id: z.string().uuid().nullable().optional(),
+              slug: z.string().nullable().optional(),
+            }),
+            execute: async ({ id, slug }) => {
+              if (!id && !slug) return { ok: false, error: "Provide id or slug." };
+              let q = supabase.from("custom_tabs").select("*").eq("user_id", userId);
+              q = id ? q.eq("id", id) : q.eq("slug", slug!);
+              const { data } = await q.maybeSingle();
+              return { ok: !!data, tab: data };
+            },
+          }),
         };
 
         // ---- System Prompt ----
