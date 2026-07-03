@@ -1906,7 +1906,13 @@ ${(tabContext.content_html || "").slice(0, 8000)}
 `
     : ""
 }
-You also have recall_memory for semantic search across past conversations. Use it whenever the user references something they told you before.`;
+You also have recall_memory for semantic search across past conversations. Use it whenever the user references something they told you before.
+
+FULL APP CONTROL — drive the UI directly instead of just describing:
+- navigate_app({to:"/vault"}) to jump pages, open_external_url for outside links, show_toast for feedback, set_theme, copy_to_clipboard, reload_page.
+- Manage chat threads, notifications, stock holdings, cash balances, learning sessions, social feeds, discord webhooks, connected accounts, custom tabs — use the matching tools instead of asking the user to do it manually.
+- Admin tools (admin_list_users, admin_grant_role, admin_revoke_role) only work if the user has the admin role. Check list_my_roles when unsure.
+When the user says "take me to X" or "open X", actually navigate — don't just describe the link.`;
 
         const result = streamText({
           model: chatModel,
