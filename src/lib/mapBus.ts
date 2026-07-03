@@ -17,7 +17,9 @@ export type AppAction =
   | { type: "scroll_to"; selector: string }
   | { type: "focus_chat" }
   | { type: "copy_to_clipboard"; text: string; label?: string }
-  | { type: "invalidate_queries"; keys?: string[] };
+  | { type: "invalidate_queries"; keys?: string[] }
+  | { type: "start_timer"; seconds: number; label?: string; sound?: boolean }
+  | { type: "speak"; text: string; voice?: string };
 
 type Handler<T> = (a: T) => void;
 
