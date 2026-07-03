@@ -165,8 +165,9 @@ export function ChatWindow({ threadId, initial, tabSlug, compact }: { threadId: 
           return { body: { messages, threadId, tabSlug: tabSlug ?? null, ...(body ?? {}) }, headers };
         },
       }),
-    [threadId],
+    [threadId, tabSlug],
   );
+
 
   const { messages, sendMessage, status, stop, error } = useChat({
     id: threadId,
