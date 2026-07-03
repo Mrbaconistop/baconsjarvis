@@ -1501,6 +1501,17 @@ ${(tabContext.content_html || "").slice(0, 8000)}
 }
 You also have recall_memory for semantic search across past conversations. Use it whenever the user references something they told you before.`;
 
+        const result = streamText({
+          model: chatModel,
+          system: systemPrompt,
+          messages: await convertToModelMessages(messages),
+          tools,
+          stopWhen: stepCountIs(8),
+          onError: ({ error }) => {
+            console.error("[chat streamText error]", error);
+          },
+
+
           onFinish: async ({ response }) => {
             try {
               const finalMessages = response.messages as any[];
