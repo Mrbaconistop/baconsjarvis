@@ -23,6 +23,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { listCustomTabs } from "@/lib/custom-tabs.functions";
 import { JarvisOrb } from "./JarvisOrb";
+import { appBus, type AppAction } from "@/lib/mapBus";
+import { toast } from "sonner";
 
 const NAV = [
   { to: "/dashboard", label: "Command", icon: LayoutDashboard, tag: "00" },
