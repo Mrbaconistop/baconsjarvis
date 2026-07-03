@@ -2426,6 +2426,8 @@ export const Route = createFileRoute("/api/chat")({
               return { ok: true, years: y, months: m, days: d };
             },
           }),
+        };
+
 
 
         // ---- System Prompt ----
