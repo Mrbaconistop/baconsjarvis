@@ -1,10 +1,12 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { getCustomTab, updateCustomTab, deleteCustomTab } from "@/lib/custom-tabs.functions";
+import { listThreads, createThread, deleteThread, getMessages } from "@/lib/chat.functions";
 import { PageHeader } from "@/components/jarvis/HudBits";
-import { Pencil, Save, Trash2, X, Sparkles } from "lucide-react";
+import { ChatWindow } from "@/components/jarvis/ChatWindow";
+import { Pencil, Save, Trash2, X, Sparkles, MessageSquare, Plus, PanelRightOpen, PanelRightClose } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -13,6 +15,7 @@ export const Route = createFileRoute("/_authenticated/tabs/$slug")({
   head: () => ({ meta: [{ title: "Custom Tab — JARVIS" }] }),
   component: CustomTabPage,
 });
+
 
 function CustomTabPage() {
   const { slug } = Route.useParams();
