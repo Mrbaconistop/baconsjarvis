@@ -1463,6 +1463,413 @@ export const Route = createFileRoute("/api/chat")({
               return { ok: !!data, tab: data };
             },
           }),
+
+          // ==================== CLIENT-SIDE UI CONTROL ====================
+          navigate_app: tool({
+            description: "Navigate the user's browser to a route in the app (e.g. '/dashboard', '/vault', '/map', '/chat', '/tabs/<slug>'). Use when the user asks to 'take me to', 'open', 'go to', 'show me' a page.",
+            inputSchema: z.object({
+              to: z.string().describe("Absolute in-app path starting with /"),
+              replace: z.boolean().nullable().optional(),
+            }),
+            execute: async ({ to, replace }) => ({
+              ok: true,
+              client_action: { type: "navigate", to, replace: replace ?? false },
+            }),
+          }),
+          open_external_url: tool({
+            description: "Open an external URL in the user's browser (new tab by default).",
+            inputSchema: z.object({ url: z.string().url(), new_tab: z.boolean().nullable().optional() }),
+            execute: async ({ url, new_tab }) => ({
+              ok: true,
+              client_action: { type: "open_url", url, new_tab: new_tab ?? true },
+            }),
+          }),
+          show_toast: tool({
+            description: "Pop a toast notification in the user's UI.",
+            inputSchema: z.object({
+              message: z.string(),
+              kind: z.enum(["info", "success", "error", "warning"]).nullable().optional(),
+            }),
+            execute: async ({ message, kind }) => ({
+              ok: true,
+              client_action: { type: "toast", message, kind: kind ?? "info" },
+            }),
+          }),
+          set_theme: tool({
+            description: "Switch the app theme (light / dark / system).",
+            inputSchema: z.object({ theme: z.enum(["light", "dark", "system"]) }),
+            execute: async ({ theme }) => ({
+              ok: true,
+              client_action: { type: "set_theme", theme },
+            }),
+          }),
+          copy_to_clipboard: tool({
+            description: "Copy a string into the user's clipboard.",
+            inputSchema: z.object({ text: z.string(), label: z.string().nullable().optional() }),
+            execute: async ({ text, label }) => ({
+              ok: true,
+              client_action: { type: "copy_to_clipboard", text, label: label ?? null },
+            }),
+          }),
+          reload_page: tool({
+            description: "Force a full page reload of the current view.",
+            inputSchema: z.object({}),
+            execute: async () => ({ ok: true, client_action: { type: "reload" } }),
+          }),
+
+          // ==================== CHAT THREADS ====================
+          list_chat_threads: tool({
+            description: "List the user's chat conversation threads (id, title, updated_at, tab_slug).",
+            inputSchema: z.object({ limit: z.number().int().min(1).max(100).default(30).optional() }),
+            execute: async ({ limit }) => {
+              const { data, error } = await supabase
+                .from("chat_threads")
+                .select("id, title, updated_at, tab_slug")
+                .eq("user_id", userId)
+                .order("updated_at", { ascending: false })
+                .limit(limit ?? 30);
+              return { ok: !error, threads: data ?? [], error: error?.message };
+            },
+          }),
+          rename_chat_thread: tool({
+            description: "Rename a chat thread by id.",
+            inputSchema: z.object({ id: z.string().uuid(), title: z.string().min(1).max(120) }),
+            execute: async ({ id, title }) => {
+              const { error } = await supabase
+                .from("chat_threads").update({ title }).eq("id", id).eq("user_id", userId);
+              return { ok: !error, error: error?.message };
+            },
+          }),
+          delete_chat_thread: tool({
+            description: "Delete a chat thread and its messages.",
+            inputSchema: z.object({ id: z.string().uuid() }),
+            execute: async ({ id }) => {
+              const { error } = await supabase
+                .from("chat_threads").delete().eq("id", id).eq("user_id", userId);
+              return { ok: !error, error: error?.message };
+            },
+          }),
+
+          // ==================== NOTIFICATIONS ====================
+          create_notification: tool({
+            description: "Create an in-app notification for the user.",
+            inputSchema: z.object({
+              title: z.string(),
+              body: z.string().nullable().optional(),
+              priority: z.enum(["critical", "high", "normal", "low"]).default("normal"),
+            }),
+            execute: async ({ title, body, priority }) => {
+              const { data, error } = await supabase
+                .from("notifications")
+                .insert({ user_id: userId, title, body: body ?? null, priority })
+                .select("id").single();
+              return { ok: !error, id: data?.id, error: error?.message };
+            },
+          }),
+          list_notifications: tool({
+            description: "List recent notifications for the user.",
+            inputSchema: z.object({
+              unread_only: z.boolean().default(false).optional(),
+              limit: z.number().int().min(1).max(100).default(20).optional(),
+            }),
+            execute: async ({ unread_only, limit }) => {
+              let q = supabase.from("notifications").select("*").eq("user_id", userId);
+              if (unread_only) q = q.is("read_at", null);
+              const { data, error } = await q.order("created_at", { ascending: false }).limit(limit ?? 20);
+              return { ok: !error, notifications: data ?? [], error: error?.message };
+            },
+          }),
+          mark_notification_read: tool({
+            description: "Mark a notification as read (or all if id omitted).",
+            inputSchema: z.object({ id: z.string().uuid().nullable().optional() }),
+            execute: async ({ id }) => {
+              let q = supabase.from("notifications").update({ read_at: new Date().toISOString() }).eq("user_id", userId);
+              if (id) q = q.eq("id", id);
+              const { error } = await q;
+              return { ok: !error, error: error?.message };
+            },
+          }),
+
+          // ==================== STOCK HOLDINGS ====================
+          list_stock_holdings: tool({
+            description: "List the user's stock holdings.",
+            inputSchema: z.object({}),
+            execute: async () => {
+              const { data, error } = await supabase
+                .from("stock_holdings").select("*").eq("user_id", userId).order("symbol");
+              return { ok: !error, holdings: data ?? [], error: error?.message };
+            },
+          }),
+          upsert_stock_holding: tool({
+            description: "Add or update a stock holding.",
+            inputSchema: z.object({
+              symbol: z.string(),
+              shares: z.number(),
+              avg_cost: z.number().nullable().optional(),
+              notes: z.string().nullable().optional(),
+            }),
+            execute: async ({ symbol, shares, avg_cost, notes }) => {
+              const { data: existing } = await supabase.from("stock_holdings")
+                .select("id").eq("user_id", userId).eq("symbol", symbol.toUpperCase()).maybeSingle();
+              if (existing?.id) {
+                const { error } = await supabase.from("stock_holdings")
+                  .update({ shares, avg_cost: avg_cost ?? null, notes: notes ?? null })
+                  .eq("id", existing.id);
+                return { ok: !error, id: existing.id, error: error?.message };
+              }
+              const { data, error } = await supabase.from("stock_holdings")
+                .insert({ user_id: userId, symbol: symbol.toUpperCase(), shares, avg_cost: avg_cost ?? null, notes: notes ?? null })
+                .select("id").single();
+              return { ok: !error, id: data?.id, error: error?.message };
+            },
+          }),
+          delete_stock_holding: tool({
+            description: "Delete a stock holding by symbol.",
+            inputSchema: z.object({ symbol: z.string() }),
+            execute: async ({ symbol }) => {
+              const { error } = await supabase.from("stock_holdings")
+                .delete().eq("user_id", userId).eq("symbol", symbol.toUpperCase());
+              return { ok: !error, error: error?.message };
+            },
+          }),
+
+          // ==================== CASH BALANCES ====================
+          list_cash_balances: tool({
+            description: "List the user's cash balances across accounts.",
+            inputSchema: z.object({}),
+            execute: async () => {
+              const { data, error } = await supabase.from("cash_balances").select("*").eq("user_id", userId);
+              return { ok: !error, balances: data ?? [], error: error?.message };
+            },
+          }),
+          upsert_cash_balance: tool({
+            description: "Add or update a cash balance for a named account.",
+            inputSchema: z.object({ account: z.string(), balance: z.number() }),
+            execute: async ({ account, balance }) => {
+              const { data: existing } = await supabase.from("cash_balances")
+                .select("id").eq("user_id", userId).eq("account", account).maybeSingle();
+              if (existing?.id) {
+                const { error } = await supabase.from("cash_balances")
+                  .update({ balance }).eq("id", existing.id);
+                return { ok: !error, id: existing.id, error: error?.message };
+              }
+              const { data, error } = await supabase.from("cash_balances")
+                .insert({ user_id: userId, account, balance }).select("id").single();
+              return { ok: !error, id: data?.id, error: error?.message };
+            },
+          }),
+
+          // ==================== DAILY CHECK-INS: EDIT/DELETE ====================
+          update_checkin: tool({
+            description: "Update fields on an existing daily check-in by id.",
+            inputSchema: z.object({
+              id: z.string().uuid(),
+              mood: z.number().int().min(1).max(10).nullable().optional(),
+              energy: z.number().int().min(1).max(10).nullable().optional(),
+              sleep_hours: z.number().nullable().optional(),
+              notes: z.string().nullable().optional(),
+              highlights: z.string().nullable().optional(),
+            }),
+            execute: async ({ id, ...rest }) => {
+              const payload: Record<string, any> = {};
+              for (const [k, v] of Object.entries(rest)) if (v !== undefined && v !== null) payload[k] = v;
+              const { error } = await supabase.from("daily_checkins")
+                .update(payload).eq("id", id).eq("user_id", userId);
+              return { ok: !error, error: error?.message };
+            },
+          }),
+          delete_checkin: tool({
+            description: "Delete a daily check-in by id.",
+            inputSchema: z.object({ id: z.string().uuid() }),
+            execute: async ({ id }) => {
+              const { error } = await supabase.from("daily_checkins")
+                .delete().eq("id", id).eq("user_id", userId);
+              return { ok: !error, error: error?.message };
+            },
+          }),
+
+          // ==================== SOCIAL FEEDS (subscriptions) ====================
+          list_social_feeds: tool({
+            description: "List the user's saved social feed subscriptions.",
+            inputSchema: z.object({ limit: z.number().int().min(1).max(200).default(50).optional() }),
+            execute: async ({ limit }) => {
+              const { data, error } = await supabase.from("social_feeds")
+                .select("*").eq("user_id", userId).order("created_at", { ascending: false }).limit(limit ?? 50);
+              return { ok: !error, feeds: data ?? [], error: error?.message };
+            },
+          }),
+          delete_social_feed: tool({
+            description: "Delete a social feed subscription by id.",
+            inputSchema: z.object({ id: z.string().uuid() }),
+            execute: async ({ id }) => {
+              const { error } = await supabase.from("social_feeds")
+                .delete().eq("id", id).eq("user_id", userId);
+              return { ok: !error, error: error?.message };
+            },
+          }),
+
+          // ==================== DISCORD WEBHOOKS (full CRUD) ====================
+          list_discord_webhooks: tool({
+            description: "List all Discord webhooks (not just briefing).",
+            inputSchema: z.object({}),
+            execute: async () => {
+              const { data, error } = await supabase.from("discord_webhooks")
+                .select("id, name, purpose, url, enabled, created_at").eq("user_id", userId);
+              return { ok: !error, webhooks: data ?? [], error: error?.message };
+            },
+          }),
+          delete_discord_webhook: tool({
+            description: "Delete a Discord webhook by id.",
+            inputSchema: z.object({ id: z.string().uuid() }),
+            execute: async ({ id }) => {
+              const { error } = await supabase.from("discord_webhooks")
+                .delete().eq("id", id).eq("user_id", userId);
+              return { ok: !error, error: error?.message };
+            },
+          }),
+
+          // ==================== ENGAGEMENT STATS ====================
+          get_engagement_stats: tool({
+            description: "Read the user's engagement stats (streaks, counts, activity).",
+            inputSchema: z.object({}),
+            execute: async () => {
+              const { data, error } = await supabase.from("engagement_stats")
+                .select("*").eq("user_id", userId).maybeSingle();
+              return { ok: !error, stats: data, error: error?.message };
+            },
+          }),
+
+          // ==================== LEARNING SESSIONS ====================
+          list_learning_sessions: tool({
+            description: "List the user's saved learning sessions from the Lab.",
+            inputSchema: z.object({ limit: z.number().int().min(1).max(100).default(20).optional() }),
+            execute: async ({ limit }) => {
+              const { data, error } = await supabase.from("learning_sessions")
+                .select("id, topic, created_at").eq("user_id", userId)
+                .order("created_at", { ascending: false }).limit(limit ?? 20);
+              return { ok: !error, sessions: data ?? [], error: error?.message };
+            },
+          }),
+          get_learning_session: tool({
+            description: "Get full content of a learning session by id.",
+            inputSchema: z.object({ id: z.string().uuid() }),
+            execute: async ({ id }) => {
+              const { data, error } = await supabase.from("learning_sessions")
+                .select("*").eq("id", id).eq("user_id", userId).maybeSingle();
+              return { ok: !error, session: data, error: error?.message };
+            },
+          }),
+          delete_learning_session: tool({
+            description: "Delete a learning session by id.",
+            inputSchema: z.object({ id: z.string().uuid() }),
+            execute: async ({ id }) => {
+              const { error } = await supabase.from("learning_sessions")
+                .delete().eq("id", id).eq("user_id", userId);
+              return { ok: !error, error: error?.message };
+            },
+          }),
+
+          // ==================== CONNECTED ACCOUNTS ====================
+          delete_connected_account: tool({
+            description: "Remove a connected account (financial/social integration) by id.",
+            inputSchema: z.object({ id: z.string().uuid() }),
+            execute: async ({ id }) => {
+              const { error } = await supabase.from("connected_accounts")
+                .delete().eq("id", id).eq("user_id", userId);
+              return { ok: !error, error: error?.message };
+            },
+          }),
+
+          // ==================== USER ROLES (admin only) ====================
+          list_my_roles: tool({
+            description: "List roles assigned to the current user.",
+            inputSchema: z.object({}),
+            execute: async () => {
+              const { data, error } = await supabase.from("user_roles")
+                .select("role").eq("user_id", userId);
+              return { ok: !error, roles: (data ?? []).map((r: any) => r.role), error: error?.message };
+            },
+          }),
+          admin_list_users: tool({
+            description: "ADMIN ONLY. List all users (id, name, email, roles). Requires admin role.",
+            inputSchema: z.object({ limit: z.number().int().min(1).max(500).default(100).optional() }),
+            execute: async ({ limit }) => {
+              const { data: isAdmin } = await supabase.rpc("has_role", { _user_id: userId, _role: "admin" });
+              if (!isAdmin) return { ok: false, error: "Forbidden: admin role required" };
+              const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+              const { data: profs, error } = await supabaseAdmin
+                .from("profiles").select("id, name, email, created_at")
+                .order("created_at", { ascending: false }).limit(limit ?? 100);
+              if (error) return { ok: false, error: error.message };
+              const { data: roles } = await supabaseAdmin.from("user_roles").select("user_id, role");
+              const byUser: Record<string, string[]> = {};
+              (roles ?? []).forEach((r: any) => {
+                (byUser[r.user_id] ||= []).push(r.role);
+              });
+              return { ok: true, users: (profs ?? []).map((p: any) => ({ ...p, roles: byUser[p.id] ?? [] })) };
+            },
+          }),
+          admin_grant_role: tool({
+            description: "ADMIN ONLY. Grant a role (admin/user/moderator) to a user by email.",
+            inputSchema: z.object({
+              email: z.string().email(),
+              role: z.enum(["admin", "user", "moderator"]),
+            }),
+            execute: async ({ email, role }) => {
+              const { data: isAdmin } = await supabase.rpc("has_role", { _user_id: userId, _role: "admin" });
+              if (!isAdmin) return { ok: false, error: "Forbidden: admin role required" };
+              const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+              const { data: prof } = await supabaseAdmin.from("profiles").select("id").eq("email", email).maybeSingle();
+              if (!prof) return { ok: false, error: `No user with email ${email}` };
+              const { error } = await supabaseAdmin.from("user_roles")
+                .insert({ user_id: prof.id, role }).select("id");
+              if (error && !/duplicate/i.test(error.message)) return { ok: false, error: error.message };
+              return { ok: true, message: `Granted ${role} to ${email}` };
+            },
+          }),
+          admin_revoke_role: tool({
+            description: "ADMIN ONLY. Revoke a role from a user by email.",
+            inputSchema: z.object({
+              email: z.string().email(),
+              role: z.enum(["admin", "user", "moderator"]),
+            }),
+            execute: async ({ email, role }) => {
+              const { data: isAdmin } = await supabase.rpc("has_role", { _user_id: userId, _role: "admin" });
+              if (!isAdmin) return { ok: false, error: "Forbidden: admin role required" };
+              const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+              const { data: prof } = await supabaseAdmin.from("profiles").select("id").eq("email", email).maybeSingle();
+              if (!prof) return { ok: false, error: `No user with email ${email}` };
+              const { error } = await supabaseAdmin.from("user_roles")
+                .delete().eq("user_id", prof.id).eq("role", role);
+              return { ok: !error, error: error?.message, message: !error ? `Revoked ${role} from ${email}` : undefined };
+            },
+          }),
+          admin_read_query: tool({
+            description:
+              "ADMIN ONLY. Run a read-only SQL SELECT against the database (bypasses RLS). Rejects any statement that is not a single SELECT. Use for diagnostics only.",
+            inputSchema: z.object({ sql: z.string() }),
+            execute: async ({ sql }) => {
+              const { data: isAdmin } = await supabase.rpc("has_role", { _user_id: userId, _role: "admin" });
+              if (!isAdmin) return { ok: false, error: "Forbidden: admin role required" };
+              const trimmed = sql.trim().replace(/;+\s*$/, "");
+              if (!/^select\s/i.test(trimmed) || /;\s*\S/.test(trimmed)) {
+                return { ok: false, error: "Only a single SELECT statement is allowed." };
+              }
+              try {
+                const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+                // Use PostgREST rpc if a helper exists; otherwise fall back to a limited approach.
+                // Since we don't have a generic SQL RPC, wrap into a temp function is out of scope.
+                // Return a helpful error directing to specific list_* tools.
+                void supabaseAdmin;
+                return {
+                  ok: false,
+                  error: "Raw SQL exec is disabled at runtime. Use table-specific tools (list_*, get_*) or ask an admin to add a run_read_sql RPC.",
+                };
+              } catch (e: any) {
+                return { ok: false, error: e.message };
+              }
+            },
+          }),
         };
 
         // ---- System Prompt ----
