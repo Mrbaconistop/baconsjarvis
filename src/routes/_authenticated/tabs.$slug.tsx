@@ -120,12 +120,21 @@ function CustomTabPage() {
           </>
         )}
         <button
+          onClick={() => setAssistantOpen((v) => !v)}
+          className="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-arc/30 text-xs hover:bg-arc/10"
+          title={assistantOpen ? "Hide JARVIS" : "Show JARVIS"}
+        >
+          {assistantOpen ? <PanelRightClose size={12} /> : <PanelRightOpen size={12} />}
+          JARVIS
+        </button>
+        <button
           onClick={remove}
-          className="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-critical/40 text-critical text-xs hover:bg-critical/10"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-critical/40 text-critical text-xs hover:bg-critical/10"
         >
           <Trash2 size={12} /> Delete
         </button>
       </div>
+
 
       <div className="flex-1 min-h-0 px-4 sm:px-8 pb-6">
         {editing ? (
