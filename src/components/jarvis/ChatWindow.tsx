@@ -37,7 +37,7 @@ const TOOL_META: Record<string, { icon: any; label: string }> = {
   "tool-get_directions": { icon: MapPin, label: "Getting directions" },
 };
 
-export function ChatWindow({ threadId, initial }: { threadId: string; initial: UIMessage[] }) {
+export function ChatWindow({ threadId, initial, tabSlug, compact }: { threadId: string; initial: UIMessage[]; tabSlug?: string | null; compact?: boolean }) {
   const qc = useQueryClient();
   const [input, setInput] = useState("");
   const [isRecording, setIsRecording] = useState(false);
@@ -162,11 +162,12 @@ export function ChatWindow({ threadId, initial }: { threadId: string; initial: U
           } = await supabase.auth.getSession();
           const headers: Record<string, string> = {};
           if (session?.access_token) headers.Authorization = `Bearer ${session.access_token}`;
-          return { body: { messages, threadId, ...(body ?? {}) }, headers };
+          return { body: { messages, threadId, tabSlug: tabSlug ?? null, ...(body ?? {}) }, headers };
         },
       }),
-    [threadId],
+    [threadId, tabSlug],
   );
+
 
   const { messages, sendMessage, status, stop, error } = useChat({
     id: threadId,
