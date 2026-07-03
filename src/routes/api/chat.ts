@@ -1813,7 +1813,7 @@ export const Route = createFileRoute("/api/chat")({
             description: "ADMIN ONLY. Grant a role (admin/user/moderator) to a user by email.",
             inputSchema: z.object({
               email: z.string().email(),
-              role: z.enum(["admin", "user", "moderator"]),
+              role: z.enum(["admin", "user"]),
             }),
             execute: async ({ email, role }) => {
               const { data: isAdmin } = await supabase.rpc("has_role", { _user_id: userId, _role: "admin" });
@@ -1831,7 +1831,7 @@ export const Route = createFileRoute("/api/chat")({
             description: "ADMIN ONLY. Revoke a role from a user by email.",
             inputSchema: z.object({
               email: z.string().email(),
-              role: z.enum(["admin", "user", "moderator"]),
+              role: z.enum(["admin", "user"]),
             }),
             execute: async ({ email, role }) => {
               const { data: isAdmin } = await supabase.rpc("has_role", { _user_id: userId, _role: "admin" });
