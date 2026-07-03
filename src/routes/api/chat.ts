@@ -1919,7 +1919,7 @@ When the user says "take me to X" or "open X", actually navigate — don't just 
           system: systemPrompt,
           messages: await convertToModelMessages(messages),
           tools,
-          stopWhen: stepCountIs(8),
+          stopWhen: stepCountIs(50),
           onError: ({ error }) => {
             console.error("[chat streamText error]", error);
           },
