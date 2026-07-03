@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState, useRef } from "react";
+import { useEffect, useMemo, useState, useRef, useCallback } from "react";
 import { getCustomTab, updateCustomTab, deleteCustomTab, createCustomTab } from "@/lib/custom-tabs.functions";
 import { listThreads, createThread, deleteThread, getMessages } from "@/lib/chat.functions";
 import { PageHeader } from "@/components/jarvis/HudBits";
@@ -24,7 +24,10 @@ import {
   Upload,
   RotateCcw,
   Check,
-  Clock,
+  RefreshCw,
+  Code2,
+  FilePlus,
+  GitPullRequest,
 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -110,6 +113,7 @@ function CustomTabPage() {
     return localStorage.getItem(`tab-fullscreen-${tab?.id}`) === "true";
   });
   const containerRef = useRef<HTMLDivElement>(null);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
 
   // Modals
   const [showConfig, setShowConfig] = useState(false);
@@ -123,6 +127,9 @@ function CustomTabPage() {
     const v = window.localStorage.getItem("tab-assistant-open");
     return v === null ? true : v === "1";
   });
+
+  // Auto‑save debounce
+  const saveTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // --- Effects ---
   useEffect(() => {
@@ -154,7 +161,77 @@ function CustomTabPage() {
     }
   }, [assistantOpen]);
 
-  // --- Helpers ---
+  // ---- postMessage listener for localStorage (used by the iframe) ----
+  useEffect(() => {
+    const handler = (event: MessageEvent) => {
+      const { type, key, value, requestId } = event.data || {};
+      if (type === "storage-get") {
+        const stored = localStorage.getItem(key);
+        const iframe = iframeRef.current;
+        if (iframe && iframe.contentWindow) {
+          iframe.contentWindow.postMessage(
+            {
+              type: "storage-get-response",
+              key,
+              value: stored,
+              requestId,
+            },
+            "*",
+          );
+        }
+      } else if (type === "storage-set") {
+        localStorage.setItem(key, value);
+        const iframe = iframeRef.current;
+        if (iframe && iframe.contentWindow) {
+          iframe.contentWindow.postMessage(
+            {
+              type: "storage-set-response",
+              key,
+              requestId,
+            },
+            "*",
+          );
+        }
+      }
+    };
+    window.addEventListener("message", handler);
+    return () => window.removeEventListener("message", handler);
+  }, []);
+
+  // ---- Keyboard shortcuts ----
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.ctrlKey || e.metaKey) {
+        switch (e.key) {
+          case "s": // Ctrl+S -> Save
+            e.preventDefault();
+            if (editing) save();
+            break;
+          case "e": // Ctrl+E -> Toggle edit
+            e.preventDefault();
+            if (editing) save();
+            else setEditing(true);
+            break;
+          case "f": // Ctrl+Shift+F -> Fullscreen
+            if (e.shiftKey) {
+              e.preventDefault();
+              setIsFullscreen(!isFullscreen);
+            }
+            break;
+          case "r": // Ctrl+Shift+R -> Reload
+            if (e.shiftKey) {
+              e.preventDefault();
+              reloadIframe();
+            }
+            break;
+        }
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [editing]);
+
+  // ---- Helpers ----
   const srcDoc = useMemo(() => {
     return wrapHtml(draft, config);
   }, [draft, config]);
@@ -171,7 +248,6 @@ function CustomTabPage() {
     });
     toast.success("Tab saved");
     setEditing(false);
-    // Save a version snapshot
     saveSnapshot({
       id: tab.id,
       slug: tab.slug,
@@ -195,18 +271,60 @@ function CustomTabPage() {
     window.location.href = "/dashboard";
   }
 
-  // --- Versioning ---
+  function reloadIframe() {
+    if (iframeRef.current) {
+      iframeRef.current.src = iframeRef.current.src;
+    }
+    toast.info("Iframe reloaded");
+  }
+
+  // ---- Format / Template helpers ----
+  function formatCode() {
+    let formatted = draft
+      .replace(/>\s*</g, ">\n<")
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0)
+      .join("\n");
+    let indent = 0;
+    const lines = formatted.split("\n");
+    const indented = lines.map((line) => {
+      const close = line.match(/<\/[^>]+>/);
+      if (close) indent = Math.max(0, indent - 1);
+      const result = "  ".repeat(indent) + line;
+      const open = line.match(/<[^/][^>]*>/);
+      if (open && !line.includes("/>")) indent++;
+      return result;
+    });
+    setDraft(indented.join("\n"));
+    toast.info("Code formatted");
+  }
+
+  function insertTemplate() {
+    const template = `<!-- Paste your HTML/JS here -->
+<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;background:#0b1220;color:#e6f2ff;font-family:system-ui;">
+  <h1>Hello, JARVIS!</h1>
+  <p>This tab was built from a template.</p>
+  <button onclick="alert('Clicked!')" style="padding:8px 16px;background:#7c3aed;border:none;border-radius:8px;color:white;cursor:pointer;">Click me</button>
+  <div id="counter" style="margin-top:20px;font-size:24px;">0</div>
+</div>
+<script>
+  let count = 0;
+  document.querySelector('button')?.addEventListener('click', () => {
+    document.getElementById('counter').textContent = ++count;
+  });
+<\/script>`;
+    setDraft(template);
+    toast.info("Template inserted");
+  }
+
+  // ---- Versioning ----
   function saveSnapshot(t: any) {
     const key = `tab-versions-${t.id}`;
     const stored = localStorage.getItem(key);
     let versions: Snapshot[] = stored ? JSON.parse(stored) : [];
-    const newSnap: Snapshot = {
-      ...t,
-      timestamp: Date.now(),
-    };
-    // Avoid duplicates (same content_hash check is optional)
+    const newSnap: Snapshot = { ...t, timestamp: Date.now() };
     versions = [newSnap, ...versions.filter((v) => v.id === t.id)];
-    // Keep only latest 5
     if (versions.length > 5) versions = versions.slice(0, 5);
     localStorage.setItem(key, JSON.stringify(versions));
   }
@@ -236,7 +354,7 @@ function CustomTabPage() {
     qc.invalidateQueries({ queryKey: ["custom-tabs-nav"] });
   }
 
-  // --- Export / Import ---
+  // ---- Export / Import ----
   function exportTab() {
     if (!tab) return;
     const exportData = {
@@ -266,7 +384,6 @@ function CustomTabPage() {
     reader.onload = (ev) => {
       try {
         const json = JSON.parse(ev.target?.result as string);
-        // Basic validation
         if (!json.label || !json.content_html) {
           toast.error("Invalid import file: missing label or content_html");
           return;
@@ -285,10 +402,8 @@ function CustomTabPage() {
     if (!importPreview) return;
     try {
       const { id, slug: oldSlug, label, icon, description, content_html, config } = importPreview;
-      // Check if this slug already exists
       const existing = await fetchTab({ data: { slug: oldSlug } }).catch(() => null);
       if (existing && existing.id) {
-        // Overwrite if same id, or ask
         if (!confirm(`A tab with slug "${oldSlug}" already exists. Overwrite it?`)) return;
         await doUpdate({
           data: {
@@ -302,7 +417,6 @@ function CustomTabPage() {
         });
         toast.success(`Tab "${label}" updated from import`);
       } else {
-        // Create new
         const newTab = await doCreate({
           data: {
             label,
@@ -310,11 +424,10 @@ function CustomTabPage() {
             description: description || null,
             content_html,
             config: config || { layout: "default", theme: "dark", containerPadding: 16 },
-            slug: oldSlug, // try to use original slug
+            slug: oldSlug,
           },
         });
         toast.success(`Tab "${label}" created from import`);
-        // Redirect to new slug
         window.location.href = `/tabs/${newTab.slug}`;
       }
       setShowImport(false);
@@ -326,7 +439,7 @@ function CustomTabPage() {
     }
   }
 
-  // --- Render ---
+  // ---- Render ----
   if (isLoading) {
     return <div className="p-8 font-mono text-sm text-hud-dim">Loading…</div>;
   }
@@ -351,7 +464,6 @@ function CustomTabPage() {
       ref={containerRef}
       className={`flex flex-col h-screen ${isFullscreen ? "fixed inset-0 z-[9999] bg-background" : ""}`}
     >
-      {/* Header / Toolbar */}
       <div className={`px-4 sm:px-8 pt-4 ${isFullscreen ? "hidden" : ""}`}>
         <PageHeader
           tag={`TAB · ${tab.slug.toUpperCase()}`}
@@ -360,7 +472,6 @@ function CustomTabPage() {
         />
       </div>
 
-      {/* Action Bar */}
       <div
         className={`px-4 sm:px-8 pb-3 flex flex-wrap items-center gap-2 ${isFullscreen ? "border-b border-arc/15 bg-background/60 backdrop-blur sticky top-0 z-10" : ""}`}
       >
@@ -369,6 +480,7 @@ function CustomTabPage() {
             <button
               onClick={() => setEditing(true)}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-arc/30 text-xs hover:bg-arc/10"
+              title="Edit (Ctrl+E)"
             >
               <Pencil size={12} /> Edit
             </button>
@@ -394,6 +506,20 @@ function CustomTabPage() {
               <Upload size={12} /> Import
               <input type="file" accept=".json" className="hidden" onChange={handleImportFile} />
             </label>
+            <button
+              onClick={reloadIframe}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-arc/30 text-xs hover:bg-arc/10"
+              title="Reload iframe (Ctrl+Shift+R)"
+            >
+              <RefreshCw size={12} /> Reload
+            </button>
+            <button
+              onClick={() => refetch()}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-arc/30 text-xs hover:bg-arc/10"
+              title="Sync from AI (refresh from database)"
+            >
+              <GitPullRequest size={12} /> Sync AI
+            </button>
           </>
         ) : (
           <>
@@ -401,7 +527,7 @@ function CustomTabPage() {
               onClick={save}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-arc text-arc-foreground shadow-arc text-xs"
             >
-              <Save size={12} /> Save
+              <Save size={12} /> Save (Ctrl+S)
             </button>
             <button
               onClick={() => {
@@ -413,13 +539,25 @@ function CustomTabPage() {
             >
               <X size={12} /> Cancel
             </button>
+            <button
+              onClick={formatCode}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-arc/30 text-xs hover:bg-arc/10"
+            >
+              <Code2 size={12} /> Format
+            </button>
+            <button
+              onClick={insertTemplate}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-arc/30 text-xs hover:bg-arc/10"
+            >
+              <FilePlus size={12} /> Template
+            </button>
           </>
         )}
 
         <button
           onClick={() => setIsFullscreen(!isFullscreen)}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-arc/30 text-xs hover:bg-arc/10 ml-auto"
-          title={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
+          title={isFullscreen ? "Exit fullscreen" : "Fullscreen (Ctrl+Shift+F)"}
         >
           {isFullscreen ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
         </button>
@@ -441,7 +579,6 @@ function CustomTabPage() {
         </button>
       </div>
 
-      {/* Main Content */}
       <div className={`flex-1 min-h-0 px-4 sm:px-8 pb-6 flex gap-4 ${isFullscreen ? "pt-0" : ""}`}>
         <div className="flex-1 min-w-0">
           {editing ? (
@@ -455,26 +592,42 @@ function CustomTabPage() {
                 />
                 <textarea
                   value={draft}
-                  onChange={(e) => setDraft(e.target.value)}
+                  onChange={(e) => {
+                    setDraft(e.target.value);
+                    if (saveTimeout.current) clearTimeout(saveTimeout.current);
+                    saveTimeout.current = setTimeout(() => {
+                      if (tab) {
+                        doUpdate({
+                          data: { id: tab.id, content_html: e.target.value, label, config },
+                        }).catch(() => {});
+                      }
+                    }, 500);
+                  }}
                   spellCheck={false}
                   className="flex-1 min-h-[300px] bg-background/40 border border-arc/20 rounded-md p-3 text-xs font-mono focus:border-arc focus:outline-none resize-none"
                   placeholder="<!-- Write HTML/CSS/JS here. It renders in a sandboxed iframe. -->"
                 />
+                <div className="text-[10px] text-hud-dim flex gap-3">
+                  <span>Ctrl+S → Save</span>
+                  <span>Ctrl+E → Toggle edit</span>
+                  <span>Ctrl+Shift+F → Fullscreen</span>
+                </div>
               </div>
               <div className="rounded-md overflow-hidden border border-arc/20 bg-white">
                 <iframe
                   title="preview"
                   srcDoc={wrapHtml(draft, config)}
-                  sandbox="allow-scripts"
+                  sandbox="allow-scripts allow-same-origin"
                   className="w-full h-full min-h-[300px]"
                 />
               </div>
             </div>
           ) : tab.content_html?.trim() ? (
             <iframe
+              ref={iframeRef}
               title={tab.label}
               srcDoc={srcDoc}
-              sandbox="allow-scripts allow-forms allow-popups"
+              sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
               className="w-full h-full min-h-[400px] rounded-2xl border border-arc/20 bg-white shadow-arc"
             />
           ) : (
@@ -487,7 +640,6 @@ function CustomTabPage() {
           )}
         </div>
 
-        {/* Assistant Panel */}
         {assistantOpen && (
           <aside className="hidden lg:flex w-[380px] shrink-0 flex-col rounded-2xl border border-arc/25 bg-background/40 backdrop-blur overflow-hidden shadow-arc">
             <TabAssistant tabSlug={slug} tabLabel={tab.label} />
@@ -495,7 +647,6 @@ function CustomTabPage() {
         )}
       </div>
 
-      {/* Config Modal */}
       {showConfig && (
         <ConfigModal
           config={config}
@@ -505,7 +656,6 @@ function CustomTabPage() {
           onSave={async (newConfig, newLabel, newIcon, newDesc) => {
             setConfig(newConfig);
             setLabel(newLabel);
-            // Update icon/description in the tab as well
             await doUpdate({
               data: {
                 id: tab.id,
@@ -524,7 +674,6 @@ function CustomTabPage() {
         />
       )}
 
-      {/* Versions Modal */}
       {showVersions && (
         <VersionsModal
           tabId={tab.id}
@@ -534,7 +683,6 @@ function CustomTabPage() {
         />
       )}
 
-      {/* Import Preview Modal */}
       {showImport && importPreview && (
         <ImportPreviewModal
           data={importPreview}
@@ -553,7 +701,6 @@ function CustomTabPage() {
 // Subcomponents
 // ------------------------------------------------------------
 
-// ----- Tab Assistant (unchanged, kept for reference) -----
 function TabAssistant({ tabSlug, tabLabel }: { tabSlug: string; tabLabel: string }) {
   const qc = useQueryClient();
   const list = useServerFn(listThreads);
@@ -655,7 +802,6 @@ function TabAssistant({ tabSlug, tabLabel }: { tabSlug: string; tabLabel: string
   );
 }
 
-// ----- Config Modal -----
 function ConfigModal({
   config,
   label,
@@ -788,7 +934,6 @@ function ConfigModal({
   );
 }
 
-// ----- Versions Modal -----
 function VersionsModal({
   tabId,
   snapshots,
@@ -844,7 +989,6 @@ function VersionsModal({
   );
 }
 
-// ----- Import Preview Modal -----
 function ImportPreviewModal({
   data,
   onConfirm,
@@ -911,7 +1055,7 @@ function ImportPreviewModal({
 }
 
 // ------------------------------------------------------------
-// Helpers
+// Helper: wrapHtml
 // ------------------------------------------------------------
 function wrapHtml(body: string, config: TabConfig): string {
   const theme = config.theme === "auto" ? "light dark" : config.theme;
