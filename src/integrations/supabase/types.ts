@@ -124,6 +124,45 @@ export type Database = {
         }
         Relationships: []
       }
+      custom_tabs: {
+        Row: {
+          content_html: string
+          created_at: string
+          description: string | null
+          icon: string
+          id: string
+          label: string
+          slug: string
+          sort_order: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          content_html?: string
+          created_at?: string
+          description?: string | null
+          icon?: string
+          id?: string
+          label: string
+          slug: string
+          sort_order?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          content_html?: string
+          created_at?: string
+          description?: string | null
+          icon?: string
+          id?: string
+          label?: string
+          slug?: string
+          sort_order?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       daily_checkins: {
         Row: {
           created_at: string
