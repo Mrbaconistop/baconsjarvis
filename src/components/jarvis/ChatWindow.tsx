@@ -162,7 +162,7 @@ export function ChatWindow({ threadId, initial, tabSlug, compact }: { threadId: 
           } = await supabase.auth.getSession();
           const headers: Record<string, string> = {};
           if (session?.access_token) headers.Authorization = `Bearer ${session.access_token}`;
-          return { body: { messages, threadId, ...(body ?? {}) }, headers };
+          return { body: { messages, threadId, tabSlug: tabSlug ?? null, ...(body ?? {}) }, headers };
         },
       }),
     [threadId],
