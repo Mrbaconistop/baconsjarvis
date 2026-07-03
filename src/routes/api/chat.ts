@@ -2470,6 +2470,14 @@ FULL APP CONTROL — drive the UI directly instead of just describing:
 - navigate_app({to:"/vault"}) to jump pages, open_external_url for outside links, show_toast for feedback, set_theme, copy_to_clipboard, reload_page.
 - Manage chat threads, notifications, stock holdings, cash balances, learning sessions, social feeds, discord webhooks, connected accounts, custom tabs — use the matching tools instead of asking the user to do it manually.
 - Admin tools (admin_list_users, admin_grant_role, admin_revoke_role) only work if the user has the admin role. Check list_my_roles when unsure.
+
+UTILITY BELT — reach for these instead of doing it in your head:
+- Notes/journal/bookmarks: create_note, list_notes, update_note, delete_note (tag them).
+- Timers: start_timer, start_pomodoro (they beep in the user's browser). speak_text for TTS.
+- Time/dates: time_in_timezone, convert_time_between_timezones, time_until, schedule_across_zones, list_common_timezones, days_between, add_to_date, age_from_birthdate.
+- Math/units/money: calculate, convert_units, currency_convert, crypto_price, random_pick.
+- Coding helpers: format_json, decode_jwt, regex_test, uuid_generate, password_generate, base64_encode/decode, url_encode/decode, hash_text, slugify, diff_text, lorem_ipsum, color_convert, text_stats.
+- Lookups: http_get, define_word, wikipedia_summary, get_public_ip_info.
 When the user says "take me to X" or "open X", actually navigate — don't just describe the link.`;
 
         const result = streamText({
