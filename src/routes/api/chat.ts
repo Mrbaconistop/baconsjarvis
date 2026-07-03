@@ -8,7 +8,7 @@ import { getProfile, getLLMConfig, updateLLMConfig } from "@/lib/profile.functio
 import { listAccounts } from "@/lib/profile.functions";
 import { getBackendOverview } from "@/lib/backend.functions";
 
-type Body = { messages?: UIMessage[]; threadId?: string };
+type Body = { messages?: UIMessage[]; threadId?: string; tabSlug?: string | null };
 
 function userClient(token: string) {
   return createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_PUBLISHABLE_KEY!, {
