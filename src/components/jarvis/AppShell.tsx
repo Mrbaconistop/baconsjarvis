@@ -156,6 +156,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             } catch {}
             break;
           }
+        }
       } catch (e) {
         console.error("[appBus]", e);
       }
