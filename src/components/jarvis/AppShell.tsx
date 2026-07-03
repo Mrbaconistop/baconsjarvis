@@ -1,5 +1,6 @@
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import { ReactNode, useEffect, useState } from "react";
+import * as LucideIcons from "lucide-react";
 import {
   LayoutDashboard,
   Clock,
@@ -15,9 +16,12 @@ import {
   GraduationCap,
   Menu,
   X,
+  Sparkles,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useServerFn } from "@tanstack/react-start";
+import { listCustomTabs } from "@/lib/custom-tabs.functions";
 import { JarvisOrb } from "./JarvisOrb";
 
 const NAV = [
