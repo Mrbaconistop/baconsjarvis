@@ -145,44 +145,52 @@ function CustomTabPage() {
       </div>
 
 
-      <div className="flex-1 min-h-0 px-4 sm:px-8 pb-6">
-        {editing ? (
-          <div className="grid lg:grid-cols-2 gap-4 h-full">
-            <div className="flex flex-col gap-2">
-              <input
-                value={label}
-                onChange={(e) => setLabel(e.target.value)}
-                className="bg-background/40 border border-arc/20 rounded-md px-3 py-2 text-sm font-mono focus:border-arc focus:outline-none"
-                placeholder="Tab label"
-              />
-              <textarea
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                spellCheck={false}
-                className="flex-1 min-h-[300px] bg-background/40 border border-arc/20 rounded-md p-3 text-xs font-mono focus:border-arc focus:outline-none resize-none"
-                placeholder="<!-- Write HTML/CSS/JS here. It renders in a sandboxed iframe. -->"
-              />
+      <div className="flex-1 min-h-0 px-4 sm:px-8 pb-6 flex gap-4">
+        <div className="flex-1 min-w-0">
+          {editing ? (
+            <div className="grid lg:grid-cols-2 gap-4 h-full">
+              <div className="flex flex-col gap-2">
+                <input
+                  value={label}
+                  onChange={(e) => setLabel(e.target.value)}
+                  className="bg-background/40 border border-arc/20 rounded-md px-3 py-2 text-sm font-mono focus:border-arc focus:outline-none"
+                  placeholder="Tab label"
+                />
+                <textarea
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  spellCheck={false}
+                  className="flex-1 min-h-[300px] bg-background/40 border border-arc/20 rounded-md p-3 text-xs font-mono focus:border-arc focus:outline-none resize-none"
+                  placeholder="<!-- Write HTML/CSS/JS here. It renders in a sandboxed iframe. -->"
+                />
+              </div>
+              <div className="rounded-md overflow-hidden border border-arc/20 bg-white">
+                <iframe title="preview" srcDoc={wrapHtml(draft)} sandbox="allow-scripts" className="w-full h-full min-h-[300px]" />
+              </div>
             </div>
-            <div className="rounded-md overflow-hidden border border-arc/20 bg-white">
-              <iframe title="preview" srcDoc={wrapHtml(draft)} sandbox="allow-scripts" className="w-full h-full min-h-[300px]" />
+          ) : tab.content_html?.trim() ? (
+            <iframe
+              title={tab.label}
+              srcDoc={srcDoc}
+              sandbox="allow-scripts allow-forms allow-popups"
+              className="w-full h-full min-h-[400px] rounded-2xl border border-arc/20 bg-white shadow-arc"
+            />
+          ) : (
+            <div className="glass hud-corners rounded-xl p-8 text-center">
+              <Sparkles className="mx-auto text-arc" size={20} />
+              <p className="mt-3 text-sm text-muted-foreground">
+                This tab is empty. Ask JARVIS in the side panel to build it — try "make it a bubbly pomodoro timer".
+              </p>
             </div>
-          </div>
-        ) : tab.content_html?.trim() ? (
-          <iframe
-            title={tab.label}
-            srcDoc={srcDoc}
-            sandbox="allow-scripts allow-forms allow-popups"
-            className="w-full h-full min-h-[400px] rounded-md border border-arc/20 bg-white"
-          />
-        ) : (
-          <div className="glass hud-corners rounded-xl p-8 text-center">
-            <Sparkles className="mx-auto text-arc" size={20} />
-            <p className="mt-3 text-sm text-muted-foreground">
-              This tab is empty. Ask JARVIS to fill it in, or hit Edit to write HTML yourself.
-            </p>
-          </div>
+          )}
+        </div>
+        {assistantOpen && (
+          <aside className="hidden lg:flex w-[380px] shrink-0 flex-col rounded-2xl border border-arc/25 bg-background/40 backdrop-blur overflow-hidden shadow-arc">
+            <TabAssistant tabSlug={slug} tabLabel={tab.label} />
+          </aside>
         )}
       </div>
+
     </div>
   );
 }
