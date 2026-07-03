@@ -1,5 +1,6 @@
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import { ReactNode, useEffect, useState } from "react";
+import * as LucideIcons from "lucide-react";
 import {
   LayoutDashboard,
   Clock,
@@ -15,9 +16,12 @@ import {
   GraduationCap,
   Menu,
   X,
+  Sparkles,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useServerFn } from "@tanstack/react-start";
+import { listCustomTabs } from "@/lib/custom-tabs.functions";
 import { JarvisOrb } from "./JarvisOrb";
 
 const NAV = [
@@ -41,6 +45,23 @@ export function AppShell({ children }: { children: ReactNode }) {
   const qc = useQueryClient();
   const [time, setTime] = useState(() => new Date());
   const [navOpen, setNavOpen] = useState(false);
+
+  // Custom tabs (created by JARVIS or via /tabs/$slug edit)
+  const fetchTabs = useServerFn(listCustomTabs);
+  const { data: customTabs = [] } = useQuery({
+    queryKey: ["custom-tabs-nav"],
+    queryFn: () => fetchTabs(),
+    staleTime: 30_000,
+  });
+  useEffect(() => {
+    const ch = supabase
+      .channel("custom_tabs_nav")
+      .on("postgres_changes", { event: "*", schema: "public", table: "custom_tabs" }, () => {
+        qc.invalidateQueries({ queryKey: ["custom-tabs-nav"] });
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(ch); };
+  }, [qc]);
 
   useEffect(() => {
     const t = setInterval(() => setTime(new Date()), 1000);
@@ -101,6 +122,37 @@ export function AppShell({ children }: { children: ReactNode }) {
             </Link>
           );
         })}
+
+        {customTabs.length > 0 && (
+          <div className="pt-4 mt-2 border-t border-arc/10">
+            <div className="px-3 pb-2 font-mono text-[9px] tracking-[0.3em] text-arc/60">CUSTOM</div>
+            {customTabs.map((t: any, i: number) => {
+              const to = `/tabs/${t.slug}`;
+              const active = loc.pathname === to;
+              const IconComp =
+                (LucideIcons as any)[t.icon] && typeof (LucideIcons as any)[t.icon] === "function"
+                  ? (LucideIcons as any)[t.icon]
+                  : Sparkles;
+              return (
+                <Link
+                  key={t.id}
+                  to="/tabs/$slug"
+                  params={{ slug: t.slug }}
+                  className={`group flex items-center gap-3 px-3 py-2.5 rounded-md transition relative ${
+                    active
+                      ? "bg-arc/15 text-arc shadow-arc"
+                      : "text-muted-foreground hover:text-foreground hover:bg-arc/5"
+                  }`}
+                >
+                  <span className="font-mono text-[10px] text-arc/60 w-5">C{String(i + 1).padStart(2, "0")}</span>
+                  <IconComp size={16} />
+                  <span className="text-sm font-medium truncate">{t.label}</span>
+                  {active && <span className="absolute left-0 top-2 bottom-2 w-0.5 bg-arc rounded-r animate-hud-pulse" />}
+                </Link>
+              );
+            })}
+          </div>
+        )}
       </nav>
 
       <div className="px-5 py-4 border-t border-arc/10 space-y-2">
