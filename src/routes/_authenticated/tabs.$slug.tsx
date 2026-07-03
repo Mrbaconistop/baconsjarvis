@@ -195,7 +195,97 @@ function CustomTabPage() {
   );
 }
 
+function TabAssistant({ tabSlug, tabLabel }: { tabSlug: string; tabLabel: string }) {
+  const qc = useQueryClient();
+  const list = useServerFn(listThreads);
+  const create = useServerFn(createThread);
+  const remove = useServerFn(deleteThread);
+  const fetchMessages = useServerFn(getMessages);
+
+  const { data: threads = [] } = useQuery({
+    queryKey: ["tab-threads", tabSlug],
+    queryFn: () => list({ data: { tabSlug } }),
+  });
+
+  const [activeId, setActiveId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!activeId && threads.length) setActiveId(threads[0].id);
+  }, [threads, activeId]);
+
+  const { data: initial = [], isLoading } = useQuery({
+    queryKey: ["tab-messages", activeId],
+    queryFn: () => (activeId ? fetchMessages({ data: { threadId: activeId } }) : Promise.resolve([])),
+    enabled: !!activeId,
+  });
+
+  async function newThread() {
+    const t = await create({ data: { tabSlug, title: `${tabLabel} chat` } });
+    qc.invalidateQueries({ queryKey: ["tab-threads", tabSlug] });
+    setActiveId(t.id);
+  }
+  async function onDelete(id: string) {
+    await remove({ data: { id } });
+    qc.invalidateQueries({ queryKey: ["tab-threads", tabSlug] });
+    if (id === activeId) setActiveId(null);
+  }
+
+  return (
+    <div className="flex flex-col h-full min-h-0">
+      <div className="px-3 py-2.5 border-b border-arc/15 flex items-center gap-2 bg-gradient-to-r from-arc/10 to-transparent">
+        <div className="size-6 rounded-full bg-arc/20 border border-arc/30 flex items-center justify-center text-arc font-mono text-[9px]">J</div>
+        <div className="flex-1 min-w-0">
+          <div className="text-[10px] font-mono tracking-[0.25em] text-arc/80">TAB · JARVIS</div>
+          <div className="text-xs text-muted-foreground truncate">Scoped to "{tabLabel}"</div>
+        </div>
+        <button
+          onClick={newThread}
+          className="p-1.5 rounded-full bg-arc text-arc-foreground shadow-arc hover:opacity-90"
+          title="New conversation"
+        >
+          <Plus size={12} />
+        </button>
+      </div>
+
+      {threads.length > 0 && (
+        <div className="px-2 py-2 border-b border-arc/10 flex gap-1 overflow-x-auto scrollbar-thin">
+          {threads.map((t: any) => {
+            const active = t.id === activeId;
+            return (
+              <div key={t.id} className={`group shrink-0 flex items-center rounded-full text-[10px] pl-2.5 pr-1 py-1 border transition ${active ? "bg-arc/20 border-arc/40 text-foreground" : "border-arc/15 text-hud-dim hover:bg-arc/10"}`}>
+                <button onClick={() => setActiveId(t.id)} className="flex items-center gap-1 max-w-[140px]">
+                  <MessageSquare size={10} />
+                  <span className="truncate">{t.title}</span>
+                </button>
+                <button onClick={() => onDelete(t.id)} className="ml-1 p-0.5 opacity-0 group-hover:opacity-100 text-hud-dim hover:text-critical" aria-label="Delete">
+                  <Trash2 size={10} />
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <div className="flex-1 min-h-0">
+        {!activeId ? (
+          <div className="p-6 text-center text-xs text-hud-dim">
+            <Sparkles className="mx-auto text-arc mb-2" size={16} />
+            <p>Start a conversation scoped to this tab. Ask JARVIS to tweak, rebuild, or add features — it can see the current HTML.</p>
+            <button onClick={newThread} className="mt-3 px-3 py-1.5 rounded-full bg-arc text-arc-foreground shadow-arc text-[11px]">
+              <Plus size={11} className="inline mr-1" /> New chat
+            </button>
+          </div>
+        ) : isLoading ? (
+          <div className="p-4 text-xs text-hud-dim font-mono">Loading…</div>
+        ) : (
+          <ChatWindow key={activeId} threadId={activeId} initial={initial as any} tabSlug={tabSlug} compact />
+        )}
+      </div>
+    </div>
+  );
+}
+
 function wrapHtml(body: string) {
+
   return `<!doctype html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
 <style>
   :root { color-scheme: light dark; }
