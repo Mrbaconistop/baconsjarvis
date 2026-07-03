@@ -37,7 +37,7 @@ const TOOL_META: Record<string, { icon: any; label: string }> = {
   "tool-get_directions": { icon: MapPin, label: "Getting directions" },
 };
 
-export function ChatWindow({ threadId, initial }: { threadId: string; initial: UIMessage[] }) {
+export function ChatWindow({ threadId, initial, tabSlug, compact }: { threadId: string; initial: UIMessage[]; tabSlug?: string | null; compact?: boolean }) {
   const qc = useQueryClient();
   const [input, setInput] = useState("");
   const [isRecording, setIsRecording] = useState(false);
