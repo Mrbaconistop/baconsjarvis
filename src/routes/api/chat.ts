@@ -1870,7 +1870,565 @@ export const Route = createFileRoute("/api/chat")({
               }
             },
           }),
+
+          // ==================== NOTES / JOURNAL / BOOKMARKS ====================
+          create_note: tool({
+            description: "Save a note, journal entry, snippet, or bookmark. Optional url makes it a bookmark; tags for filtering.",
+            inputSchema: z.object({
+              title: z.string().nullable().optional(),
+              body: z.string(),
+              tags: z.array(z.string()).nullable().optional(),
+              url: z.string().url().nullable().optional(),
+            }),
+            execute: async ({ title, body, tags, url }) => {
+              const { data, error } = await supabase.from("notes")
+                .insert({ user_id: userId, title: title ?? null, body, tags: tags ?? [], url: url ?? null })
+                .select("id").single();
+              return { ok: !error, id: data?.id, error: error?.message };
+            },
+          }),
+          list_notes: tool({
+            description: "List notes, optionally filtered by tag or free-text search in title/body.",
+            inputSchema: z.object({
+              tag: z.string().nullable().optional(),
+              search: z.string().nullable().optional(),
+              limit: z.number().int().min(1).max(200).default(30).optional(),
+            }),
+            execute: async ({ tag, search, limit }) => {
+              let q = supabase.from("notes").select("id, title, body, tags, url, created_at").eq("user_id", userId);
+              if (tag) q = q.contains("tags", [tag]);
+              if (search) q = q.or(`title.ilike.%${search}%,body.ilike.%${search}%`);
+              const { data, error } = await q.order("created_at", { ascending: false }).limit(limit ?? 30);
+              return { ok: !error, notes: data ?? [], error: error?.message };
+            },
+          }),
+          update_note: tool({
+            description: "Update a note by id.",
+            inputSchema: z.object({
+              id: z.string().uuid(),
+              title: z.string().nullable().optional(),
+              body: z.string().nullable().optional(),
+              tags: z.array(z.string()).nullable().optional(),
+              url: z.string().url().nullable().optional(),
+            }),
+            execute: async ({ id, ...rest }) => {
+              const patch: Record<string, any> = {};
+              for (const [k, v] of Object.entries(rest)) if (v !== undefined && v !== null) patch[k] = v;
+              const { error } = await supabase.from("notes").update(patch).eq("id", id).eq("user_id", userId);
+              return { ok: !error, error: error?.message };
+            },
+          }),
+          delete_note: tool({
+            description: "Delete a note by id.",
+            inputSchema: z.object({ id: z.string().uuid() }),
+            execute: async ({ id }) => {
+              const { error } = await supabase.from("notes").delete().eq("id", id).eq("user_id", userId);
+              return { ok: !error, error: error?.message };
+            },
+          }),
+
+          // ==================== TIMERS (client-side) ====================
+          start_timer: tool({
+            description: "Start a countdown timer in the user's browser. Pops a toast + chime when done. Use for pomodoros, cook times, break reminders.",
+            inputSchema: z.object({
+              seconds: z.number().int().min(1).max(86400).describe("Duration in seconds (1s–24h)."),
+              label: z.string().nullable().optional(),
+              sound: z.boolean().nullable().optional(),
+            }),
+            execute: async ({ seconds, label, sound }) => ({
+              ok: true,
+              client_action: { type: "start_timer", seconds, label: label ?? null, sound: sound ?? true },
+            }),
+          }),
+          start_pomodoro: tool({
+            description: "Start a 25-minute pomodoro focus session (fires a toast when done).",
+            inputSchema: z.object({ minutes: z.number().int().min(1).max(120).default(25).optional() }),
+            execute: async ({ minutes }) => {
+              const m = minutes ?? 25;
+              return { ok: true, client_action: { type: "start_timer", seconds: m * 60, label: `Pomodoro ${m}min`, sound: true } };
+            },
+          }),
+          speak_text: tool({
+            description: "Speak text aloud through the user's browser TTS.",
+            inputSchema: z.object({ text: z.string(), voice: z.string().nullable().optional() }),
+            execute: async ({ text, voice }) => ({
+              ok: true,
+              client_action: { type: "speak", text, voice: voice ?? null },
+            }),
+          }),
+
+          // ==================== TIMEZONES / TIME MATH ====================
+          time_in_timezone: tool({
+            description: "Get the current wall-clock time in one or more IANA timezones (e.g. 'America/New_York', 'Europe/London', 'Asia/Tokyo').",
+            inputSchema: z.object({
+              timezones: z.array(z.string()).min(1).max(20),
+            }),
+            execute: async ({ timezones }) => {
+              const now = new Date();
+              const out = timezones.map((tz) => {
+                try {
+                  const formatted = now.toLocaleString("en-US", {
+                    timeZone: tz, weekday: "short", month: "short", day: "numeric",
+                    hour: "numeric", minute: "2-digit", hour12: true, timeZoneName: "short",
+                  });
+                  return { timezone: tz, formatted, iso: now.toISOString() };
+                } catch (e: any) {
+                  return { timezone: tz, error: e.message };
+                }
+              });
+              return { ok: true, times: out };
+            },
+          }),
+          convert_time_between_timezones: tool({
+            description: "Convert a given wall-clock time from one timezone to another.",
+            inputSchema: z.object({
+              datetime_iso: z.string().describe("ISO 8601 datetime in the source timezone (with offset) or naive treated as source tz."),
+              from_tz: z.string(),
+              to_tz: z.string(),
+            }),
+            execute: async ({ datetime_iso, to_tz }) => {
+              try {
+                const d = new Date(datetime_iso);
+                if (isNaN(d.getTime())) return { ok: false, error: "Invalid datetime" };
+                const formatted = d.toLocaleString("en-US", {
+                  timeZone: to_tz, weekday: "short", month: "short", day: "numeric",
+                  hour: "numeric", minute: "2-digit", hour12: true, timeZoneName: "short",
+                });
+                return { ok: true, source_iso: d.toISOString(), converted: formatted };
+              } catch (e: any) { return { ok: false, error: e.message }; }
+            },
+          }),
+          time_until: tool({
+            description: "Compute the human-readable duration between now and a target datetime.",
+            inputSchema: z.object({ target_iso: z.string() }),
+            execute: async ({ target_iso }) => {
+              const t = new Date(target_iso).getTime();
+              if (isNaN(t)) return { ok: false, error: "Invalid datetime" };
+              const ms = t - Date.now();
+              const sign = ms >= 0 ? "in" : "ago";
+              const abs = Math.abs(ms);
+              const days = Math.floor(abs / 86400000);
+              const hours = Math.floor((abs % 86400000) / 3600000);
+              const mins = Math.floor((abs % 3600000) / 60000);
+              const parts = [days && `${days}d`, hours && `${hours}h`, mins && `${mins}m`].filter(Boolean).join(" ") || "0m";
+              return { ok: true, ms, human: `${parts} ${sign}` };
+            },
+          }),
+          list_common_timezones: tool({
+            description: "List common IANA timezones with their current offsets.",
+            inputSchema: z.object({}),
+            execute: async () => {
+              const zones = [
+                "UTC", "America/New_York", "America/Chicago", "America/Denver", "America/Los_Angeles",
+                "America/Sao_Paulo", "Europe/London", "Europe/Paris", "Europe/Berlin", "Europe/Moscow",
+                "Africa/Cairo", "Africa/Johannesburg", "Asia/Dubai", "Asia/Kolkata", "Asia/Singapore",
+                "Asia/Shanghai", "Asia/Tokyo", "Asia/Seoul", "Australia/Sydney", "Pacific/Auckland",
+              ];
+              const now = new Date();
+              return {
+                ok: true,
+                zones: zones.map((tz) => ({
+                  tz,
+                  now: now.toLocaleString("en-US", { timeZone: tz, hour: "numeric", minute: "2-digit", hour12: true }),
+                })),
+              };
+            },
+          }),
+          schedule_across_zones: tool({
+            description: "Show the same absolute moment across multiple timezones — useful for scheduling meetings.",
+            inputSchema: z.object({
+              datetime_iso: z.string(),
+              timezones: z.array(z.string()).min(1).max(20),
+            }),
+            execute: async ({ datetime_iso, timezones }) => {
+              const d = new Date(datetime_iso);
+              if (isNaN(d.getTime())) return { ok: false, error: "Invalid datetime" };
+              return {
+                ok: true,
+                anchor_iso: d.toISOString(),
+                rows: timezones.map((tz) => ({
+                  tz,
+                  local: d.toLocaleString("en-US", { timeZone: tz, weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", hour12: true, timeZoneName: "short" }),
+                })),
+              };
+            },
+          }),
+
+          // ==================== MATH / CALCULATOR ====================
+          calculate: tool({
+            description: "Evaluate a math expression. Supports +-*/%, parentheses, **, Math.* functions. No variables or assignments.",
+            inputSchema: z.object({ expression: z.string() }),
+            execute: async ({ expression }) => {
+              if (!/^[\d\s+\-*/%().,eE^]|Math\.[a-zA-Z]+(?=\()/.test(expression) || /[;={}\[\]`]/.test(expression) || /\b(process|require|import|global|window|fetch|eval)\b/.test(expression)) {
+                return { ok: false, error: "Expression contains disallowed characters." };
+              }
+              const safe = expression.replace(/\^/g, "**");
+              try {
+                // eslint-disable-next-line no-new-func
+                const val = Function(`"use strict"; return (${safe});`)();
+                if (typeof val !== "number" || !isFinite(val)) return { ok: false, error: "Non-numeric result" };
+                return { ok: true, result: val };
+              } catch (e: any) { return { ok: false, error: e.message }; }
+            },
+          }),
+          convert_units: tool({
+            description: "Convert between common units (length, mass, volume, temperature, time, data).",
+            inputSchema: z.object({
+              value: z.number(),
+              from: z.string().describe("Unit code, e.g. km, mi, kg, lb, l, gal, c, f, k, s, min, h, mb, gb"),
+              to: z.string(),
+            }),
+            execute: async ({ value, from, to }) => {
+              const toMeters: Record<string, number> = { mm: 0.001, cm: 0.01, m: 1, km: 1000, in: 0.0254, ft: 0.3048, yd: 0.9144, mi: 1609.344, nmi: 1852 };
+              const toGrams: Record<string, number> = { mg: 0.001, g: 1, kg: 1000, oz: 28.3495, lb: 453.592, ton: 1_000_000 };
+              const toLiters: Record<string, number> = { ml: 0.001, l: 1, cup: 0.2366, pt: 0.4732, qt: 0.9464, gal: 3.7854, floz: 0.02957 };
+              const toSeconds: Record<string, number> = { ms: 0.001, s: 1, min: 60, h: 3600, d: 86400, w: 604800 };
+              const toBytes: Record<string, number> = { b: 1, kb: 1024, mb: 1024 ** 2, gb: 1024 ** 3, tb: 1024 ** 4 };
+              const F = from.toLowerCase(); const T = to.toLowerCase();
+              function conv(map: Record<string, number>) { return (value * map[F]) / map[T]; }
+              if (F in toMeters && T in toMeters) return { ok: true, result: conv(toMeters), unit: T };
+              if (F in toGrams && T in toGrams) return { ok: true, result: conv(toGrams), unit: T };
+              if (F in toLiters && T in toLiters) return { ok: true, result: conv(toLiters), unit: T };
+              if (F in toSeconds && T in toSeconds) return { ok: true, result: conv(toSeconds), unit: T };
+              if (F in toBytes && T in toBytes) return { ok: true, result: conv(toBytes), unit: T };
+              // temperature
+              const temps = ["c", "f", "k"];
+              if (temps.includes(F) && temps.includes(T)) {
+                let c = F === "c" ? value : F === "f" ? (value - 32) * 5 / 9 : value - 273.15;
+                const out = T === "c" ? c : T === "f" ? c * 9 / 5 + 32 : c + 273.15;
+                return { ok: true, result: out, unit: T };
+              }
+              return { ok: false, error: `Cannot convert ${from} → ${to}` };
+            },
+          }),
+          currency_convert: tool({
+            description: "Convert an amount between fiat currencies using live rates (exchangerate.host).",
+            inputSchema: z.object({ amount: z.number(), from: z.string().length(3), to: z.string().length(3) }),
+            execute: async ({ amount, from, to }) => {
+              try {
+                const r = await fetch(`https://api.exchangerate.host/convert?from=${from.toUpperCase()}&to=${to.toUpperCase()}&amount=${amount}`);
+                const j: any = await r.json();
+                if (j?.result == null) return { ok: false, error: "Rate lookup failed" };
+                return { ok: true, result: j.result, rate: j.info?.rate, date: j.date };
+              } catch (e: any) { return { ok: false, error: e.message }; }
+            },
+          }),
+          random_pick: tool({
+            description: "Pick a random item, roll dice, flip a coin, or pick a random number in a range.",
+            inputSchema: z.object({
+              choices: z.array(z.string()).nullable().optional(),
+              min: z.number().nullable().optional(),
+              max: z.number().nullable().optional(),
+              dice: z.string().nullable().optional().describe("e.g. '2d6', '1d20'"),
+              coin: z.boolean().nullable().optional(),
+            }),
+            execute: async ({ choices, min, max, dice, coin }) => {
+              if (coin) return { ok: true, result: Math.random() < 0.5 ? "Heads" : "Tails" };
+              if (dice) {
+                const m = /^(\d+)d(\d+)$/i.exec(dice.trim());
+                if (!m) return { ok: false, error: "Format: NdM (e.g. 2d6)" };
+                const n = +m[1], s = +m[2];
+                if (n < 1 || n > 100 || s < 2 || s > 1000) return { ok: false, error: "Out of range" };
+                const rolls = Array.from({ length: n }, () => 1 + Math.floor(Math.random() * s));
+                return { ok: true, rolls, total: rolls.reduce((a, b) => a + b, 0) };
+              }
+              if (choices?.length) return { ok: true, result: choices[Math.floor(Math.random() * choices.length)] };
+              if (min != null && max != null) return { ok: true, result: min + Math.floor(Math.random() * (max - min + 1)) };
+              return { ok: false, error: "Provide choices, dice, coin, or min+max" };
+            },
+          }),
+
+          // ==================== TEXT / ENCODING UTILS ====================
+          text_stats: tool({
+            description: "Count words, characters, lines, reading time for a block of text.",
+            inputSchema: z.object({ text: z.string() }),
+            execute: async ({ text }) => {
+              const words = text.trim().split(/\s+/).filter(Boolean).length;
+              const chars = text.length;
+              const charsNoSpaces = text.replace(/\s/g, "").length;
+              const lines = text.split(/\r?\n/).length;
+              const readingMinutes = Math.max(1, Math.round(words / 220));
+              return { ok: true, words, chars, chars_no_spaces: charsNoSpaces, lines, reading_minutes: readingMinutes };
+            },
+          }),
+          base64_encode: tool({
+            description: "Base64 encode text.",
+            inputSchema: z.object({ text: z.string() }),
+            execute: async ({ text }) => ({ ok: true, result: Buffer.from(text, "utf8").toString("base64") }),
+          }),
+          base64_decode: tool({
+            description: "Base64 decode text.",
+            inputSchema: z.object({ text: z.string() }),
+            execute: async ({ text }) => {
+              try { return { ok: true, result: Buffer.from(text, "base64").toString("utf8") }; }
+              catch (e: any) { return { ok: false, error: e.message }; }
+            },
+          }),
+          url_encode: tool({
+            description: "URL-encode a string.",
+            inputSchema: z.object({ text: z.string() }),
+            execute: async ({ text }) => ({ ok: true, result: encodeURIComponent(text) }),
+          }),
+          url_decode: tool({
+            description: "URL-decode a string.",
+            inputSchema: z.object({ text: z.string() }),
+            execute: async ({ text }) => {
+              try { return { ok: true, result: decodeURIComponent(text) }; }
+              catch (e: any) { return { ok: false, error: e.message }; }
+            },
+          }),
+          hash_text: tool({
+            description: "Compute a cryptographic hash of text (md5, sha1, sha256, sha512).",
+            inputSchema: z.object({ text: z.string(), algorithm: z.enum(["md5", "sha1", "sha256", "sha512"]).default("sha256") }),
+            execute: async ({ text, algorithm }) => {
+              const { createHash } = await import("crypto");
+              return { ok: true, result: createHash(algorithm).update(text).digest("hex") };
+            },
+          }),
+          slugify: tool({
+            description: "Convert text to a URL-safe slug.",
+            inputSchema: z.object({ text: z.string() }),
+            execute: async ({ text }) => ({
+              ok: true,
+              result: text.toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g, "")
+                .replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""),
+            }),
+          }),
+          format_json: tool({
+            description: "Pretty-print or minify a JSON string.",
+            inputSchema: z.object({ json: z.string(), minify: z.boolean().default(false).optional() }),
+            execute: async ({ json, minify }) => {
+              try {
+                const obj = JSON.parse(json);
+                return { ok: true, result: JSON.stringify(obj, null, minify ? 0 : 2) };
+              } catch (e: any) { return { ok: false, error: e.message }; }
+            },
+          }),
+          decode_jwt: tool({
+            description: "Decode a JWT (header + payload). Does NOT verify signature.",
+            inputSchema: z.object({ jwt: z.string() }),
+            execute: async ({ jwt }) => {
+              const parts = jwt.split(".");
+              if (parts.length !== 3) return { ok: false, error: "Not a JWT" };
+              try {
+                const dec = (s: string) => JSON.parse(Buffer.from(s.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8"));
+                return { ok: true, header: dec(parts[0]), payload: dec(parts[1]) };
+              } catch (e: any) { return { ok: false, error: e.message }; }
+            },
+          }),
+          regex_test: tool({
+            description: "Test a regex against a string; returns all matches with groups.",
+            inputSchema: z.object({ pattern: z.string(), flags: z.string().default("g").optional(), text: z.string() }),
+            execute: async ({ pattern, flags, text }) => {
+              try {
+                const re = new RegExp(pattern, (flags ?? "g").includes("g") ? flags : (flags ?? "g") + "g");
+                const matches = [...text.matchAll(re)].map((m) => ({ match: m[0], groups: m.slice(1), index: m.index }));
+                return { ok: true, count: matches.length, matches };
+              } catch (e: any) { return { ok: false, error: e.message }; }
+            },
+          }),
+          uuid_generate: tool({
+            description: "Generate one or more random UUIDs v4.",
+            inputSchema: z.object({ count: z.number().int().min(1).max(50).default(1).optional() }),
+            execute: async ({ count }) => {
+              const { randomUUID } = await import("crypto");
+              return { ok: true, ids: Array.from({ length: count ?? 1 }, () => randomUUID()) };
+            },
+          }),
+          password_generate: tool({
+            description: "Generate a strong random password.",
+            inputSchema: z.object({
+              length: z.number().int().min(6).max(128).default(20).optional(),
+              symbols: z.boolean().default(true).optional(),
+            }),
+            execute: async ({ length, symbols }) => {
+              const alpha = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+              const sym = "!@#$%^&*()-_=+[]{};:,.?/";
+              const pool = alpha + (symbols !== false ? sym : "");
+              const { randomBytes } = await import("crypto");
+              const bytes = randomBytes(length ?? 20);
+              const pw = Array.from(bytes, (b) => pool[b % pool.length]).join("");
+              return { ok: true, password: pw };
+            },
+          }),
+          color_convert: tool({
+            description: "Convert between color formats (hex ↔ rgb ↔ hsl).",
+            inputSchema: z.object({ color: z.string().describe("e.g. '#ff8800' or 'rgb(255,136,0)'") }),
+            execute: async ({ color }) => {
+              const c = color.trim();
+              let r = 0, g = 0, b = 0;
+              const hex = c.match(/^#?([\da-f]{6}|[\da-f]{3})$/i);
+              const rgb = c.match(/rgb\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
+              if (hex) {
+                let h = hex[1]; if (h.length === 3) h = h.split("").map((x) => x + x).join("");
+                r = parseInt(h.slice(0, 2), 16); g = parseInt(h.slice(2, 4), 16); b = parseInt(h.slice(4, 6), 16);
+              } else if (rgb) { r = +rgb[1]; g = +rgb[2]; b = +rgb[3]; }
+              else return { ok: false, error: "Unrecognized color format" };
+              const toHex = (n: number) => n.toString(16).padStart(2, "0");
+              const rn = r / 255, gn = g / 255, bn = b / 255;
+              const max = Math.max(rn, gn, bn), min = Math.min(rn, gn, bn);
+              let h = 0, s = 0; const l = (max + min) / 2;
+              if (max !== min) {
+                const d = max - min;
+                s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+                h = max === rn ? (gn - bn) / d + (gn < bn ? 6 : 0) : max === gn ? (bn - rn) / d + 2 : (rn - gn) / d + 4;
+                h /= 6;
+              }
+              return { ok: true, hex: `#${toHex(r)}${toHex(g)}${toHex(b)}`, rgb: `rgb(${r}, ${g}, ${b})`, hsl: `hsl(${Math.round(h * 360)}, ${Math.round(s * 100)}%, ${Math.round(l * 100)}%)` };
+            },
+          }),
+          diff_text: tool({
+            description: "Line-by-line diff between two strings.",
+            inputSchema: z.object({ a: z.string(), b: z.string() }),
+            execute: async ({ a, b }) => {
+              const la = a.split("\n"), lb = b.split("\n");
+              const out: Array<{ line: number; kind: "same" | "add" | "remove"; text: string }> = [];
+              const max = Math.max(la.length, lb.length);
+              for (let i = 0; i < max; i++) {
+                if (la[i] === lb[i]) out.push({ line: i + 1, kind: "same", text: la[i] ?? "" });
+                else {
+                  if (la[i] !== undefined) out.push({ line: i + 1, kind: "remove", text: la[i] });
+                  if (lb[i] !== undefined) out.push({ line: i + 1, kind: "add", text: lb[i] });
+                }
+              }
+              return { ok: true, diff: out };
+            },
+          }),
+          lorem_ipsum: tool({
+            description: "Generate lorem ipsum placeholder text.",
+            inputSchema: z.object({
+              paragraphs: z.number().int().min(1).max(20).default(3).optional(),
+              sentences_per: z.number().int().min(1).max(20).default(5).optional(),
+            }),
+            execute: async ({ paragraphs, sentences_per }) => {
+              const words = "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua ut enim ad minim veniam quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat".split(" ");
+              const sentence = () => {
+                const len = 6 + Math.floor(Math.random() * 12);
+                const s = Array.from({ length: len }, () => words[Math.floor(Math.random() * words.length)]).join(" ");
+                return s[0].toUpperCase() + s.slice(1) + ".";
+              };
+              const paras = Array.from({ length: paragraphs ?? 3 }, () =>
+                Array.from({ length: sentences_per ?? 5 }, sentence).join(" "),
+              );
+              return { ok: true, text: paras.join("\n\n") };
+            },
+          }),
+
+          // ==================== HTTP / LOOKUPS ====================
+          http_get: tool({
+            description: "Fetch a public URL and return the response body (truncated to 8KB). Use for API JSON, RSS, plain-text pages. No auth headers.",
+            inputSchema: z.object({ url: z.string().url() }),
+            execute: async ({ url }) => {
+              try {
+                const controller = new AbortController();
+                const t = setTimeout(() => controller.abort(), 8000);
+                const r = await fetch(url, { signal: controller.signal });
+                clearTimeout(t);
+                const ct = r.headers.get("content-type") ?? "";
+                const text = (await r.text()).slice(0, 8192);
+                return { ok: r.ok, status: r.status, content_type: ct, body: text };
+              } catch (e: any) { return { ok: false, error: e.message }; }
+            },
+          }),
+          define_word: tool({
+            description: "Look up an English word's definition (dictionaryapi.dev).",
+            inputSchema: z.object({ word: z.string() }),
+            execute: async ({ word }) => {
+              try {
+                const r = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word)}`);
+                if (!r.ok) return { ok: false, error: `Not found` };
+                const j: any = await r.json();
+                const entry = j?.[0];
+                const meanings = (entry?.meanings ?? []).map((m: any) => ({
+                  part_of_speech: m.partOfSpeech,
+                  definitions: m.definitions.slice(0, 3).map((d: any) => d.definition),
+                }));
+                return { ok: true, word: entry?.word, phonetic: entry?.phonetic, meanings };
+              } catch (e: any) { return { ok: false, error: e.message }; }
+            },
+          }),
+          wikipedia_summary: tool({
+            description: "Fetch a Wikipedia article summary by title.",
+            inputSchema: z.object({ title: z.string() }),
+            execute: async ({ title }) => {
+              try {
+                const r = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title)}`);
+                if (!r.ok) return { ok: false, error: `Not found` };
+                const j: any = await r.json();
+                return { ok: true, title: j.title, extract: j.extract, url: j.content_urls?.desktop?.page };
+              } catch (e: any) { return { ok: false, error: e.message }; }
+            },
+          }),
+          get_public_ip_info: tool({
+            description: "Get the server's public IP geolocation (approximate — not the user's device).",
+            inputSchema: z.object({}),
+            execute: async () => {
+              try {
+                const r = await fetch("https://ipapi.co/json/");
+                const j: any = await r.json();
+                return { ok: true, ip: j.ip, city: j.city, region: j.region, country: j.country_name, timezone: j.timezone };
+              } catch (e: any) { return { ok: false, error: e.message }; }
+            },
+          }),
+          crypto_price: tool({
+            description: "Get current price of a cryptocurrency in USD (coingecko).",
+            inputSchema: z.object({ coin: z.string().describe("e.g. 'bitcoin', 'ethereum', 'solana'") }),
+            execute: async ({ coin }) => {
+              try {
+                const r = await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${encodeURIComponent(coin.toLowerCase())}&vs_currencies=usd&include_24hr_change=true`);
+                const j: any = await r.json();
+                const d = j[coin.toLowerCase()];
+                if (!d) return { ok: false, error: "Unknown coin" };
+                return { ok: true, coin, usd: d.usd, change_24h_pct: d.usd_24h_change };
+              } catch (e: any) { return { ok: false, error: e.message }; }
+            },
+          }),
+
+          // ==================== DATE / HOLIDAY / SUN ====================
+          days_between: tool({
+            description: "Number of days between two dates (ISO or YYYY-MM-DD).",
+            inputSchema: z.object({ from: z.string(), to: z.string() }),
+            execute: async ({ from, to }) => {
+              const a = new Date(from).getTime(), b = new Date(to).getTime();
+              if (isNaN(a) || isNaN(b)) return { ok: false, error: "Invalid date" };
+              return { ok: true, days: Math.round((b - a) / 86400000) };
+            },
+          }),
+          add_to_date: tool({
+            description: "Add days/hours/minutes to a date and return ISO.",
+            inputSchema: z.object({
+              base_iso: z.string(),
+              days: z.number().default(0).optional(),
+              hours: z.number().default(0).optional(),
+              minutes: z.number().default(0).optional(),
+            }),
+            execute: async ({ base_iso, days, hours, minutes }) => {
+              const d = new Date(base_iso);
+              if (isNaN(d.getTime())) return { ok: false, error: "Invalid date" };
+              d.setDate(d.getDate() + (days ?? 0));
+              d.setHours(d.getHours() + (hours ?? 0));
+              d.setMinutes(d.getMinutes() + (minutes ?? 0));
+              return { ok: true, iso: d.toISOString() };
+            },
+          }),
+          age_from_birthdate: tool({
+            description: "Compute age (years, months, days) from a birthdate.",
+            inputSchema: z.object({ birthdate: z.string() }),
+            execute: async ({ birthdate }) => {
+              const b = new Date(birthdate);
+              if (isNaN(b.getTime())) return { ok: false, error: "Invalid date" };
+              const now = new Date();
+              let y = now.getFullYear() - b.getFullYear();
+              let m = now.getMonth() - b.getMonth();
+              let d = now.getDate() - b.getDate();
+              if (d < 0) { m--; d += new Date(now.getFullYear(), now.getMonth(), 0).getDate(); }
+              if (m < 0) { y--; m += 12; }
+              return { ok: true, years: y, months: m, days: d };
+            },
+          }),
         };
+
+
 
         // ---- System Prompt ----
         const baseSystemPrompt = getSystemPrompt(mode, addressAs, factsBlock);
@@ -1912,6 +2470,14 @@ FULL APP CONTROL — drive the UI directly instead of just describing:
 - navigate_app({to:"/vault"}) to jump pages, open_external_url for outside links, show_toast for feedback, set_theme, copy_to_clipboard, reload_page.
 - Manage chat threads, notifications, stock holdings, cash balances, learning sessions, social feeds, discord webhooks, connected accounts, custom tabs — use the matching tools instead of asking the user to do it manually.
 - Admin tools (admin_list_users, admin_grant_role, admin_revoke_role) only work if the user has the admin role. Check list_my_roles when unsure.
+
+UTILITY BELT — reach for these instead of doing it in your head:
+- Notes/journal/bookmarks: create_note, list_notes, update_note, delete_note (tag them).
+- Timers: start_timer, start_pomodoro (they beep in the user's browser). speak_text for TTS.
+- Time/dates: time_in_timezone, convert_time_between_timezones, time_until, schedule_across_zones, list_common_timezones, days_between, add_to_date, age_from_birthdate.
+- Math/units/money: calculate, convert_units, currency_convert, crypto_price, random_pick.
+- Coding helpers: format_json, decode_jwt, regex_test, uuid_generate, password_generate, base64_encode/decode, url_encode/decode, hash_text, slugify, diff_text, lorem_ipsum, color_convert, text_stats.
+- Lookups: http_get, define_word, wikipedia_summary, get_public_ip_info.
 When the user says "take me to X" or "open X", actually navigate — don't just describe the link.`;
 
         const result = streamText({

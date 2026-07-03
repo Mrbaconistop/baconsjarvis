@@ -122,6 +122,40 @@ export function AppShell({ children }: { children: ReactNode }) {
             if (a.keys && a.keys.length) a.keys.forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
             else qc.invalidateQueries();
             break;
+          case "start_timer": {
+            const secs = Math.max(1, Math.min(24 * 60 * 60, Math.round(a.seconds)));
+            const label = a.label || `${secs}s timer`;
+            toast.info(`Timer set: ${label} (${secs}s)`);
+            setTimeout(() => {
+              toast.success(`⏰ ${label} done, Sir.`);
+              if (a.sound !== false) {
+                try {
+                  const AC = (window as any).AudioContext || (window as any).webkitAudioContext;
+                  const ctx = new AC();
+                  const o = ctx.createOscillator();
+                  const g = ctx.createGain();
+                  o.type = "sine"; o.frequency.value = 880;
+                  o.connect(g); g.connect(ctx.destination);
+                  g.gain.setValueAtTime(0.001, ctx.currentTime);
+                  g.gain.exponentialRampToValueAtTime(0.3, ctx.currentTime + 0.02);
+                  g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.6);
+                  o.start(); o.stop(ctx.currentTime + 0.6);
+                } catch {}
+              }
+            }, secs * 1000);
+            break;
+          }
+          case "speak": {
+            try {
+              const u = new SpeechSynthesisUtterance(a.text);
+              if (a.voice) {
+                const v = speechSynthesis.getVoices().find((x) => x.name.includes(a.voice!));
+                if (v) u.voice = v;
+              }
+              speechSynthesis.speak(u);
+            } catch {}
+            break;
+          }
         }
       } catch (e) {
         console.error("[appBus]", e);
