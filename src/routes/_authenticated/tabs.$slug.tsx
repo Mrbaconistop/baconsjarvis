@@ -1,35 +1,86 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
-import { getCustomTab, updateCustomTab, deleteCustomTab } from "@/lib/custom-tabs.functions";
+import { useEffect, useMemo, useState, useRef } from "react";
+import { getCustomTab, updateCustomTab, deleteCustomTab, createCustomTab } from "@/lib/custom-tabs.functions";
 import { listThreads, createThread, deleteThread, getMessages } from "@/lib/chat.functions";
 import { PageHeader } from "@/components/jarvis/HudBits";
 import { ChatWindow } from "@/components/jarvis/ChatWindow";
-import { Pencil, Save, Trash2, X, Sparkles, MessageSquare, Plus, PanelRightOpen, PanelRightClose } from "lucide-react";
+import {
+  Pencil,
+  Save,
+  Trash2,
+  X,
+  Sparkles,
+  MessageSquare,
+  Plus,
+  PanelRightOpen,
+  PanelRightClose,
+  Maximize2,
+  Minimize2,
+  Settings,
+  History,
+  Download,
+  Upload,
+  RotateCcw,
+  Check,
+  Clock,
+} from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 
+// ------------------------------------------------------------
+// Types
+// ------------------------------------------------------------
+type TabConfig = {
+  layout: "default" | "browser" | "chat" | "minimal";
+  theme: "dark" | "light" | "auto";
+  containerPadding: number;
+};
+
+type Snapshot = {
+  id: string;
+  slug: string;
+  label: string;
+  icon: string;
+  description: string | null;
+  content_html: string;
+  config: TabConfig;
+  updated_at: string;
+  timestamp: number;
+};
+
+// ------------------------------------------------------------
+// Route
+// ------------------------------------------------------------
 export const Route = createFileRoute("/_authenticated/tabs/$slug")({
   ssr: false,
   head: () => ({ meta: [{ title: "Custom Tab — JARVIS" }] }),
   component: CustomTabPage,
 });
 
-
+// ------------------------------------------------------------
+// Page Component
+// ------------------------------------------------------------
 function CustomTabPage() {
   const { slug } = Route.useParams();
   const qc = useQueryClient();
   const fetchTab = useServerFn(getCustomTab);
   const doUpdate = useServerFn(updateCustomTab);
   const doDelete = useServerFn(deleteCustomTab);
+  const doCreate = useServerFn(createCustomTab);
 
-  const { data: tab, isLoading, refetch } = useQuery({
+  // --- Data ---
+  const {
+    data: tab,
+    isLoading,
+    refetch,
+  } = useQuery({
     queryKey: ["custom-tab", slug],
     queryFn: () => fetchTab({ data: { slug } }),
   });
 
-  // Realtime: refresh when JARVIS updates this tab
+  // Realtime refresh
   useEffect(() => {
     const ch = supabase
       .channel(`custom_tabs:${slug}`)
@@ -38,35 +89,99 @@ function CustomTabPage() {
         qc.invalidateQueries({ queryKey: ["custom-tabs-nav"] });
       })
       .subscribe();
-    return () => { supabase.removeChannel(ch); };
+    return () => {
+      supabase.removeChannel(ch);
+    };
   }, [slug, refetch, qc]);
 
+  // --- State ---
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
   const [label, setLabel] = useState("");
+  const [config, setConfig] = useState<TabConfig>({
+    layout: "default",
+    theme: "dark",
+    containerPadding: 16,
+  });
+
+  // Fullscreen
+  const [isFullscreen, setIsFullscreen] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    return localStorage.getItem(`tab-fullscreen-${tab?.id}`) === "true";
+  });
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Modals
+  const [showConfig, setShowConfig] = useState(false);
+  const [showVersions, setShowVersions] = useState(false);
+  const [showImport, setShowImport] = useState(false);
+  const [importPreview, setImportPreview] = useState<any>(null);
+
+  // Assistant toggle
   const [assistantOpen, setAssistantOpen] = useState<boolean>(() => {
     if (typeof window === "undefined") return true;
     const v = window.localStorage.getItem("tab-assistant-open");
     return v === null ? true : v === "1";
   });
-  useEffect(() => {
-    if (typeof window !== "undefined") window.localStorage.setItem("tab-assistant-open", assistantOpen ? "1" : "0");
-  }, [assistantOpen]);
 
+  // --- Effects ---
   useEffect(() => {
     if (tab) {
       setDraft(tab.content_html || "");
       setLabel(tab.label || "");
+      setConfig(tab.config || { layout: "default", theme: "dark", containerPadding: 16 });
     }
   }, [tab]);
 
-  const srcDoc = useMemo(() => wrapHtml(tab?.content_html || ""), [tab?.content_html]);
+  // Persist fullscreen state
+  useEffect(() => {
+    if (tab?.id) {
+      localStorage.setItem(`tab-fullscreen-${tab.id}`, isFullscreen ? "true" : "false");
+    }
+    if (isFullscreen) {
+      document.documentElement.classList.add("tab-fullscreen-mode");
+    } else {
+      document.documentElement.classList.remove("tab-fullscreen-mode");
+    }
+    return () => {
+      document.documentElement.classList.remove("tab-fullscreen-mode");
+    };
+  }, [isFullscreen, tab?.id]);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("tab-assistant-open", assistantOpen ? "1" : "0");
+    }
+  }, [assistantOpen]);
+
+  // --- Helpers ---
+  const srcDoc = useMemo(() => {
+    return wrapHtml(draft, config);
+  }, [draft, config]);
 
   async function save() {
     if (!tab) return;
-    await doUpdate({ data: { id: tab.id, content_html: draft, label } });
+    await doUpdate({
+      data: {
+        id: tab.id,
+        content_html: draft,
+        label,
+        config,
+      },
+    });
     toast.success("Tab saved");
     setEditing(false);
+    // Save a version snapshot
+    saveSnapshot({
+      id: tab.id,
+      slug: tab.slug,
+      label,
+      icon: tab.icon || "Sparkles",
+      description: tab.description || null,
+      content_html: draft,
+      config,
+      updated_at: new Date().toISOString(),
+    });
     qc.invalidateQueries({ queryKey: ["custom-tab", slug] });
     qc.invalidateQueries({ queryKey: ["custom-tabs-nav"] });
   }
@@ -80,6 +195,138 @@ function CustomTabPage() {
     window.location.href = "/dashboard";
   }
 
+  // --- Versioning ---
+  function saveSnapshot(t: any) {
+    const key = `tab-versions-${t.id}`;
+    const stored = localStorage.getItem(key);
+    let versions: Snapshot[] = stored ? JSON.parse(stored) : [];
+    const newSnap: Snapshot = {
+      ...t,
+      timestamp: Date.now(),
+    };
+    // Avoid duplicates (same content_hash check is optional)
+    versions = [newSnap, ...versions.filter((v) => v.id === t.id)];
+    // Keep only latest 5
+    if (versions.length > 5) versions = versions.slice(0, 5);
+    localStorage.setItem(key, JSON.stringify(versions));
+  }
+
+  function getSnapshots(id: string): Snapshot[] {
+    const key = `tab-versions-${id}`;
+    const stored = localStorage.getItem(key);
+    return stored ? JSON.parse(stored) : [];
+  }
+
+  async function revertSnapshot(snap: Snapshot) {
+    if (!tab) return;
+    if (!confirm(`Revert to version from ${new Date(snap.timestamp).toLocaleString()}?`)) return;
+    await doUpdate({
+      data: {
+        id: tab.id,
+        label: snap.label,
+        icon: snap.icon,
+        description: snap.description,
+        content_html: snap.content_html,
+        config: snap.config,
+      },
+    });
+    toast.success("Reverted to snapshot");
+    setShowVersions(false);
+    qc.invalidateQueries({ queryKey: ["custom-tab", slug] });
+    qc.invalidateQueries({ queryKey: ["custom-tabs-nav"] });
+  }
+
+  // --- Export / Import ---
+  function exportTab() {
+    if (!tab) return;
+    const exportData = {
+      id: tab.id,
+      slug: tab.slug,
+      label: tab.label,
+      icon: tab.icon,
+      description: tab.description,
+      content_html: tab.content_html,
+      config: tab.config || { layout: "default", theme: "dark", containerPadding: 16 },
+      exported_at: new Date().toISOString(),
+    };
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `tab-${tab.slug}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success("Tab exported");
+  }
+
+  function handleImportFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const json = JSON.parse(ev.target?.result as string);
+        // Basic validation
+        if (!json.label || !json.content_html) {
+          toast.error("Invalid import file: missing label or content_html");
+          return;
+        }
+        setImportPreview(json);
+        setShowImport(true);
+      } catch {
+        toast.error("Invalid JSON file");
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  }
+
+  async function confirmImport() {
+    if (!importPreview) return;
+    try {
+      const { id, slug: oldSlug, label, icon, description, content_html, config } = importPreview;
+      // Check if this slug already exists
+      const existing = await fetchTab({ data: { slug: oldSlug } }).catch(() => null);
+      if (existing && existing.id) {
+        // Overwrite if same id, or ask
+        if (!confirm(`A tab with slug "${oldSlug}" already exists. Overwrite it?`)) return;
+        await doUpdate({
+          data: {
+            id: existing.id,
+            label,
+            icon: icon || "Sparkles",
+            description: description || null,
+            content_html,
+            config: config || { layout: "default", theme: "dark", containerPadding: 16 },
+          },
+        });
+        toast.success(`Tab "${label}" updated from import`);
+      } else {
+        // Create new
+        const newTab = await doCreate({
+          data: {
+            label,
+            icon: icon || "Sparkles",
+            description: description || null,
+            content_html,
+            config: config || { layout: "default", theme: "dark", containerPadding: 16 },
+            slug: oldSlug, // try to use original slug
+          },
+        });
+        toast.success(`Tab "${label}" created from import`);
+        // Redirect to new slug
+        window.location.href = `/tabs/${newTab.slug}`;
+      }
+      setShowImport(false);
+      setImportPreview(null);
+      qc.invalidateQueries({ queryKey: ["custom-tabs-nav"] });
+      refetch();
+    } catch (e: any) {
+      toast.error(e?.message || "Import failed");
+    }
+  }
+
+  // --- Render ---
   if (isLoading) {
     return <div className="p-8 font-mono text-sm text-hud-dim">Loading…</div>;
   }
@@ -91,27 +338,63 @@ function CustomTabPage() {
           <p className="mt-3 text-sm text-muted-foreground">
             No custom tab named "{slug}", Sir. Ask JARVIS in chat to create one.
           </p>
-          <Link to="/dashboard" className="inline-block mt-4 text-arc text-sm underline">Back to command</Link>
+          <Link to="/dashboard" className="inline-block mt-4 text-arc text-sm underline">
+            Back to command
+          </Link>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col h-screen">
-      <PageHeader
-        tag={`TAB · ${tab.slug.toUpperCase()}`}
-        title={tab.label}
-        subtitle={tab.description || "Custom mini-app created by JARVIS."}
-      />
-      <div className="px-4 sm:px-8 pb-3 flex flex-wrap items-center gap-2">
+    <div
+      ref={containerRef}
+      className={`flex flex-col h-screen ${isFullscreen ? "fixed inset-0 z-[9999] bg-background" : ""}`}
+    >
+      {/* Header / Toolbar */}
+      <div className={`px-4 sm:px-8 pt-4 ${isFullscreen ? "hidden" : ""}`}>
+        <PageHeader
+          tag={`TAB · ${tab.slug.toUpperCase()}`}
+          title={tab.label}
+          subtitle={tab.description || "Custom mini-app created by JARVIS."}
+        />
+      </div>
+
+      {/* Action Bar */}
+      <div
+        className={`px-4 sm:px-8 pb-3 flex flex-wrap items-center gap-2 ${isFullscreen ? "border-b border-arc/15 bg-background/60 backdrop-blur sticky top-0 z-10" : ""}`}
+      >
         {!editing ? (
-          <button
-            onClick={() => setEditing(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-arc/30 text-xs hover:bg-arc/10"
-          >
-            <Pencil size={12} /> Edit
-          </button>
+          <>
+            <button
+              onClick={() => setEditing(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-arc/30 text-xs hover:bg-arc/10"
+            >
+              <Pencil size={12} /> Edit
+            </button>
+            <button
+              onClick={() => setShowConfig(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-arc/30 text-xs hover:bg-arc/10"
+            >
+              <Settings size={12} /> Config
+            </button>
+            <button
+              onClick={() => setShowVersions(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-arc/30 text-xs hover:bg-arc/10"
+            >
+              <History size={12} /> Versions
+            </button>
+            <button
+              onClick={exportTab}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-arc/30 text-xs hover:bg-arc/10"
+            >
+              <Download size={12} /> Export
+            </button>
+            <label className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-arc/30 text-xs hover:bg-arc/10 cursor-pointer">
+              <Upload size={12} /> Import
+              <input type="file" accept=".json" className="hidden" onChange={handleImportFile} />
+            </label>
+          </>
         ) : (
           <>
             <button
@@ -121,21 +404,35 @@ function CustomTabPage() {
               <Save size={12} /> Save
             </button>
             <button
-              onClick={() => { setEditing(false); setDraft(tab.content_html); setLabel(tab.label); }}
+              onClick={() => {
+                setEditing(false);
+                setDraft(tab.content_html);
+                setLabel(tab.label);
+              }}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-arc/20 text-xs"
             >
               <X size={12} /> Cancel
             </button>
           </>
         )}
+
+        <button
+          onClick={() => setIsFullscreen(!isFullscreen)}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-arc/30 text-xs hover:bg-arc/10 ml-auto"
+          title={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
+        >
+          {isFullscreen ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
+        </button>
+
         <button
           onClick={() => setAssistantOpen((v) => !v)}
-          className="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-arc/30 text-xs hover:bg-arc/10"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-arc/30 text-xs hover:bg-arc/10"
           title={assistantOpen ? "Hide JARVIS" : "Show JARVIS"}
         >
           {assistantOpen ? <PanelRightClose size={12} /> : <PanelRightOpen size={12} />}
           JARVIS
         </button>
+
         <button
           onClick={remove}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-critical/40 text-critical text-xs hover:bg-critical/10"
@@ -144,8 +441,8 @@ function CustomTabPage() {
         </button>
       </div>
 
-
-      <div className="flex-1 min-h-0 px-4 sm:px-8 pb-6 flex gap-4">
+      {/* Main Content */}
+      <div className={`flex-1 min-h-0 px-4 sm:px-8 pb-6 flex gap-4 ${isFullscreen ? "pt-0" : ""}`}>
         <div className="flex-1 min-w-0">
           {editing ? (
             <div className="grid lg:grid-cols-2 gap-4 h-full">
@@ -165,7 +462,12 @@ function CustomTabPage() {
                 />
               </div>
               <div className="rounded-md overflow-hidden border border-arc/20 bg-white">
-                <iframe title="preview" srcDoc={wrapHtml(draft)} sandbox="allow-scripts" className="w-full h-full min-h-[300px]" />
+                <iframe
+                  title="preview"
+                  srcDoc={wrapHtml(draft, config)}
+                  sandbox="allow-scripts"
+                  className="w-full h-full min-h-[300px]"
+                />
               </div>
             </div>
           ) : tab.content_html?.trim() ? (
@@ -184,6 +486,8 @@ function CustomTabPage() {
             </div>
           )}
         </div>
+
+        {/* Assistant Panel */}
         {assistantOpen && (
           <aside className="hidden lg:flex w-[380px] shrink-0 flex-col rounded-2xl border border-arc/25 bg-background/40 backdrop-blur overflow-hidden shadow-arc">
             <TabAssistant tabSlug={slug} tabLabel={tab.label} />
@@ -191,10 +495,65 @@ function CustomTabPage() {
         )}
       </div>
 
+      {/* Config Modal */}
+      {showConfig && (
+        <ConfigModal
+          config={config}
+          label={label}
+          icon={tab.icon || "Sparkles"}
+          description={tab.description || ""}
+          onSave={async (newConfig, newLabel, newIcon, newDesc) => {
+            setConfig(newConfig);
+            setLabel(newLabel);
+            // Update icon/description in the tab as well
+            await doUpdate({
+              data: {
+                id: tab.id,
+                label: newLabel,
+                icon: newIcon || "Sparkles",
+                description: newDesc || null,
+                config: newConfig,
+              },
+            });
+            toast.success("Configuration updated");
+            setShowConfig(false);
+            qc.invalidateQueries({ queryKey: ["custom-tab", slug] });
+            qc.invalidateQueries({ queryKey: ["custom-tabs-nav"] });
+          }}
+          onClose={() => setShowConfig(false)}
+        />
+      )}
+
+      {/* Versions Modal */}
+      {showVersions && (
+        <VersionsModal
+          tabId={tab.id}
+          snapshots={getSnapshots(tab.id)}
+          onRevert={revertSnapshot}
+          onClose={() => setShowVersions(false)}
+        />
+      )}
+
+      {/* Import Preview Modal */}
+      {showImport && importPreview && (
+        <ImportPreviewModal
+          data={importPreview}
+          onConfirm={confirmImport}
+          onClose={() => {
+            setShowImport(false);
+            setImportPreview(null);
+          }}
+        />
+      )}
     </div>
   );
 }
 
+// ------------------------------------------------------------
+// Subcomponents
+// ------------------------------------------------------------
+
+// ----- Tab Assistant (unchanged, kept for reference) -----
 function TabAssistant({ tabSlug, tabLabel }: { tabSlug: string; tabLabel: string }) {
   const qc = useQueryClient();
   const list = useServerFn(listThreads);
@@ -232,7 +591,9 @@ function TabAssistant({ tabSlug, tabLabel }: { tabSlug: string; tabLabel: string
   return (
     <div className="flex flex-col h-full min-h-0">
       <div className="px-3 py-2.5 border-b border-arc/15 flex items-center gap-2 bg-gradient-to-r from-arc/10 to-transparent">
-        <div className="size-6 rounded-full bg-arc/20 border border-arc/30 flex items-center justify-center text-arc font-mono text-[9px]">J</div>
+        <div className="size-6 rounded-full bg-arc/20 border border-arc/30 flex items-center justify-center text-arc font-mono text-[9px]">
+          J
+        </div>
         <div className="flex-1 min-w-0">
           <div className="text-[10px] font-mono tracking-[0.25em] text-arc/80">TAB · JARVIS</div>
           <div className="text-xs text-muted-foreground truncate">Scoped to "{tabLabel}"</div>
@@ -251,12 +612,19 @@ function TabAssistant({ tabSlug, tabLabel }: { tabSlug: string; tabLabel: string
           {threads.map((t: any) => {
             const active = t.id === activeId;
             return (
-              <div key={t.id} className={`group shrink-0 flex items-center rounded-full text-[10px] pl-2.5 pr-1 py-1 border transition ${active ? "bg-arc/20 border-arc/40 text-foreground" : "border-arc/15 text-hud-dim hover:bg-arc/10"}`}>
+              <div
+                key={t.id}
+                className={`group shrink-0 flex items-center rounded-full text-[10px] pl-2.5 pr-1 py-1 border transition ${active ? "bg-arc/20 border-arc/40 text-foreground" : "border-arc/15 text-hud-dim hover:bg-arc/10"}`}
+              >
                 <button onClick={() => setActiveId(t.id)} className="flex items-center gap-1 max-w-[140px]">
                   <MessageSquare size={10} />
                   <span className="truncate">{t.title}</span>
                 </button>
-                <button onClick={() => onDelete(t.id)} className="ml-1 p-0.5 opacity-0 group-hover:opacity-100 text-hud-dim hover:text-critical" aria-label="Delete">
+                <button
+                  onClick={() => onDelete(t.id)}
+                  className="ml-1 p-0.5 opacity-0 group-hover:opacity-100 text-hud-dim hover:text-critical"
+                  aria-label="Delete"
+                >
                   <Trash2 size={10} />
                 </button>
               </div>
@@ -269,8 +637,11 @@ function TabAssistant({ tabSlug, tabLabel }: { tabSlug: string; tabLabel: string
         {!activeId ? (
           <div className="p-6 text-center text-xs text-hud-dim">
             <Sparkles className="mx-auto text-arc mb-2" size={16} />
-            <p>Start a conversation scoped to this tab. Ask JARVIS to tweak, rebuild, or add features — it can see the current HTML.</p>
-            <button onClick={newThread} className="mt-3 px-3 py-1.5 rounded-full bg-arc text-arc-foreground shadow-arc text-[11px]">
+            <p>Start a conversation scoped to this tab.</p>
+            <button
+              onClick={newThread}
+              className="mt-3 px-3 py-1.5 rounded-full bg-arc text-arc-foreground shadow-arc text-[11px]"
+            >
               <Plus size={11} className="inline mr-1" /> New chat
             </button>
           </div>
@@ -284,14 +655,324 @@ function TabAssistant({ tabSlug, tabLabel }: { tabSlug: string; tabLabel: string
   );
 }
 
-function wrapHtml(body: string) {
+// ----- Config Modal -----
+function ConfigModal({
+  config,
+  label,
+  icon,
+  description,
+  onSave,
+  onClose,
+}: {
+  config: TabConfig;
+  label: string;
+  icon: string;
+  description: string;
+  onSave: (config: TabConfig, label: string, icon: string, description: string) => Promise<void>;
+  onClose: () => void;
+}) {
+  const [localConfig, setLocalConfig] = useState<TabConfig>(config);
+  const [localLabel, setLocalLabel] = useState(label);
+  const [localIcon, setLocalIcon] = useState(icon);
+  const [localDesc, setLocalDesc] = useState(description);
+  const [saving, setSaving] = useState(false);
 
-  return `<!doctype html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+  async function handleSave() {
+    setSaving(true);
+    try {
+      await onSave(localConfig, localLabel, localIcon, localDesc);
+    } catch (e) {
+      toast.error("Failed to save config");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 bg-background/80 backdrop-blur-md z-50 flex items-center justify-center p-6"
+      onClick={onClose}
+    >
+      <div
+        className="glass-strong hud-corners rounded-xl p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="font-display text-lg">Tab Configuration</h2>
+          <button onClick={onClose} className="text-hud-dim hover:text-foreground">
+            <X size={16} />
+          </button>
+        </div>
+
+        <div className="space-y-4">
+          <div>
+            <label className="block font-mono text-[10px] tracking-[0.2em] text-hud-dim mb-1">LABEL</label>
+            <input
+              value={localLabel}
+              onChange={(e) => setLocalLabel(e.target.value)}
+              className="w-full bg-background/60 border border-arc/20 rounded-md px-3 py-2 text-sm focus:border-arc focus:outline-none"
+            />
+          </div>
+          <div>
+            <label className="block font-mono text-[10px] tracking-[0.2em] text-hud-dim mb-1">ICON (Lucide name)</label>
+            <input
+              value={localIcon}
+              onChange={(e) => setLocalIcon(e.target.value)}
+              placeholder="Sparkles"
+              className="w-full bg-background/60 border border-arc/20 rounded-md px-3 py-2 text-sm font-mono focus:border-arc focus:outline-none"
+            />
+          </div>
+          <div>
+            <label className="block font-mono text-[10px] tracking-[0.2em] text-hud-dim mb-1">DESCRIPTION</label>
+            <textarea
+              value={localDesc}
+              onChange={(e) => setLocalDesc(e.target.value)}
+              rows={2}
+              className="w-full bg-background/60 border border-arc/20 rounded-md px-3 py-2 text-sm focus:border-arc focus:outline-none resize-none"
+            />
+          </div>
+          <div>
+            <label className="block font-mono text-[10px] tracking-[0.2em] text-hud-dim mb-1">LAYOUT</label>
+            <select
+              value={localConfig.layout}
+              onChange={(e) => setLocalConfig({ ...localConfig, layout: e.target.value as any })}
+              className="w-full bg-background/60 border border-arc/20 rounded-md px-3 py-2 text-sm focus:border-arc focus:outline-none"
+            >
+              <option value="default">Default (content only)</option>
+              <option value="browser">Browser (toolbar header)</option>
+              <option value="chat">Chat (bubbles)</option>
+              <option value="minimal">Minimal (no chrome)</option>
+            </select>
+          </div>
+          <div>
+            <label className="block font-mono text-[10px] tracking-[0.2em] text-hud-dim mb-1">THEME</label>
+            <select
+              value={localConfig.theme}
+              onChange={(e) => setLocalConfig({ ...localConfig, theme: e.target.value as any })}
+              className="w-full bg-background/60 border border-arc/20 rounded-md px-3 py-2 text-sm focus:border-arc focus:outline-none"
+            >
+              <option value="dark">Dark</option>
+              <option value="light">Light</option>
+              <option value="auto">Auto (system)</option>
+            </select>
+          </div>
+          <div>
+            <label className="block font-mono text-[10px] tracking-[0.2em] text-hud-dim mb-1">
+              CONTAINER PADDING: {localConfig.containerPadding}px
+            </label>
+            <input
+              type="range"
+              min="0"
+              max="80"
+              value={localConfig.containerPadding}
+              onChange={(e) => setLocalConfig({ ...localConfig, containerPadding: parseInt(e.target.value) })}
+              className="w-full"
+            />
+          </div>
+        </div>
+
+        <div className="mt-6 flex justify-end gap-2">
+          <button onClick={onClose} className="text-xs px-3 py-2 rounded border border-arc/20 hover:bg-arc/5">
+            Cancel
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="text-xs px-3 py-2 rounded bg-arc text-arc-foreground shadow-arc inline-flex items-center gap-1.5 disabled:opacity-50"
+          >
+            <Save size={12} /> {saving ? "Saving…" : "Save Config"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ----- Versions Modal -----
+function VersionsModal({
+  tabId,
+  snapshots,
+  onRevert,
+  onClose,
+}: {
+  tabId: string;
+  snapshots: Snapshot[];
+  onRevert: (snap: Snapshot) => Promise<void>;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      className="fixed inset-0 bg-background/80 backdrop-blur-md z-50 flex items-center justify-center p-6"
+      onClick={onClose}
+    >
+      <div
+        className="glass-strong hud-corners rounded-xl p-6 w-full max-w-md max-h-[80vh] flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="font-display text-lg flex items-center gap-2">
+            <History size={16} className="text-arc" /> Version History
+          </h2>
+          <button onClick={onClose} className="text-hud-dim hover:text-foreground">
+            <X size={16} />
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto space-y-3">
+          {snapshots.length === 0 ? (
+            <div className="text-sm text-hud-dim">No versions saved yet. Save the tab to create a snapshot.</div>
+          ) : (
+            snapshots.map((snap, i) => (
+              <div key={i} className="glass p-3 rounded-md border border-arc/15 flex items-center justify-between">
+                <div>
+                  <div className="text-sm font-medium">{snap.label}</div>
+                  <div className="text-xs text-hud-dim font-mono">
+                    {new Date(snap.timestamp).toLocaleString()} · {snap.config.layout}
+                  </div>
+                </div>
+                <button
+                  onClick={() => onRevert(snap)}
+                  className="text-xs flex items-center gap-1 px-2 py-1 rounded border border-arc/30 hover:bg-arc/10"
+                >
+                  <RotateCcw size={12} /> Revert
+                </button>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ----- Import Preview Modal -----
+function ImportPreviewModal({
+  data,
+  onConfirm,
+  onClose,
+}: {
+  data: any;
+  onConfirm: () => Promise<void>;
+  onClose: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  return (
+    <div
+      className="fixed inset-0 bg-background/80 backdrop-blur-md z-50 flex items-center justify-center p-6"
+      onClick={onClose}
+    >
+      <div className="glass-strong hud-corners rounded-xl p-6 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="font-display text-lg flex items-center gap-2">
+            <Upload size={16} className="text-arc" /> Import Preview
+          </h2>
+          <button onClick={onClose} className="text-hud-dim hover:text-foreground">
+            <X size={16} />
+          </button>
+        </div>
+        <div className="space-y-2 text-sm">
+          <div>
+            <span className="text-hud-dim">Label:</span> {data.label}
+          </div>
+          <div>
+            <span className="text-hud-dim">Icon:</span> {data.icon || "Sparkles"}
+          </div>
+          <div>
+            <span className="text-hud-dim">Slug:</span> {data.slug}
+          </div>
+          <div>
+            <span className="text-hud-dim">Layout:</span> {data.config?.layout || "default"}
+          </div>
+          <div>
+            <span className="text-hud-dim">Content:</span> {data.content_html?.length || 0} chars
+          </div>
+          <div>
+            <span className="text-hud-dim">Exported:</span> {new Date(data.exported_at).toLocaleString()}
+          </div>
+        </div>
+        <div className="mt-5 flex justify-end gap-2">
+          <button onClick={onClose} className="text-xs px-3 py-2 rounded border border-arc/20 hover:bg-arc/5">
+            Cancel
+          </button>
+          <button
+            onClick={async () => {
+              setBusy(true);
+              await onConfirm();
+              setBusy(false);
+            }}
+            disabled={busy}
+            className="text-xs px-3 py-2 rounded bg-arc text-arc-foreground shadow-arc inline-flex items-center gap-1.5 disabled:opacity-50"
+          >
+            <Check size={12} /> {busy ? "Importing…" : "Confirm Import"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ------------------------------------------------------------
+// Helpers
+// ------------------------------------------------------------
+function wrapHtml(body: string, config: TabConfig): string {
+  const theme = config.theme === "auto" ? "light dark" : config.theme;
+  const padding = config.containerPadding || 16;
+  const layoutClass = config.layout || "default";
+
+  let layoutStyles = "";
+  if (layoutClass === "browser") {
+    layoutStyles = `
+      body { padding: 0; background: #111; }
+      .browser-bar { display: flex; align-items: center; gap: 8px; padding: 8px 16px; background: #1a1a1a; border-bottom: 1px solid #333; font-size: 13px; font-family: system-ui; color: #ccc; }
+      .browser-bar .dots { display: flex; gap: 6px; }
+      .browser-bar .dots span { display: block; width: 12px; height: 12px; border-radius: 50%; background: #555; }
+      .browser-bar .url { flex: 1; background: #222; padding: 4px 12px; border-radius: 6px; color: #aaa; text-align: center; font-size: 12px; }
+      .browser-body { padding: ${padding}px; }
+    `;
+  } else if (layoutClass === "chat") {
+    layoutStyles = `
+      body { background: #0b1220; padding: ${padding}px; font-family: system-ui; }
+      .chat-bubble { max-width: 80%; padding: 10px 16px; border-radius: 18px; margin-bottom: 8px; background: #1a2330; color: #e6f2ff; }
+      .chat-bubble.user { background: #2a4a6a; margin-left: auto; border-bottom-right-radius: 4px; }
+      .chat-bubble.bot { border-bottom-left-radius: 4px; }
+      .chat-bubble p { margin: 0; }
+    `;
+  } else if (layoutClass === "minimal") {
+    layoutStyles = `body { background: transparent; padding: 0; }`;
+  } else {
+    layoutStyles = `body { padding: ${padding}px; }`;
+  }
+
+  return `<!doctype html>
+<html>
+<head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
 <style>
-  :root { color-scheme: light dark; }
-  html,body { margin:0; padding:16px; font-family: system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background: #0b1220; color: #e6f2ff; }
+  :root { color-scheme: ${theme}; }
+  html,body {
+    margin:0;
+    min-height:100vh;
+    font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    background: ${config.theme === "light" ? "#f5f7fa" : "#0b1220"};
+    color: ${config.theme === "light" ? "#1a1a1a" : "#e6f2ff"};
+  }
+  ${layoutStyles}
+  .layout-${layoutClass} { display: block; }
   a { color: #4dd0ff; }
   button, input, select, textarea { font: inherit; }
+  * { box-sizing: border-box; }
 </style>
-</head><body>${body}</body></html>`;
+</head>
+<body class="layout-${layoutClass}">
+  ${
+    layoutClass === "browser"
+      ? `
+    <div class="browser-bar">
+      <div class="dots"><span style="background:#ff5f56"/><span style="background:#ffbd2e"/><span style="background:#27c93f"/></div>
+      <div class="url">${window.location.host}</div>
+    </div>
+    <div class="browser-body">${body}</div>
+  `
+      : body
+  }
+</body>
+</html>`;
 }
