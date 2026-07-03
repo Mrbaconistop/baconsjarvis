@@ -44,6 +44,15 @@ function CustomTabPage() {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
   const [label, setLabel] = useState("");
+  const [assistantOpen, setAssistantOpen] = useState<boolean>(() => {
+    if (typeof window === "undefined") return true;
+    const v = window.localStorage.getItem("tab-assistant-open");
+    return v === null ? true : v === "1";
+  });
+  useEffect(() => {
+    if (typeof window !== "undefined") window.localStorage.setItem("tab-assistant-open", assistantOpen ? "1" : "0");
+  }, [assistantOpen]);
+
   useEffect(() => {
     if (tab) {
       setDraft(tab.content_html || "");
