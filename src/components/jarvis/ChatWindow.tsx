@@ -18,7 +18,6 @@ import {
   X,
   FileText,
   FileIcon,
-  Sparkles,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -27,8 +26,6 @@ import rehypeKatex from "rehype-katex";
 import { useQueryClient } from "@tanstack/react-query";
 import { applyClientAction } from "@/lib/mapBus";
 import { toast } from "sonner";
-import { useServerFn } from "@tanstack/react-start";
-import { summarizeFileWithGemini } from "@/lib/jarvis.functions";
 
 const TOOL_META: Record<string, { icon: any; label: string }> = {
   "tool-create_reminder": { icon: Bell, label: "Setting reminder" },
@@ -64,8 +61,6 @@ export function ChatWindow({
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
-  const [summarizing, setSummarizing] = useState<Record<string, boolean>>({});
-  const summarizeFn = useServerFn(summarizeFileWithGemini);
 
   const taRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -224,7 +219,7 @@ export function ChatWindow({
     "conf",
   ]);
 
-  // ---- File processing with summarization ----
+  // ---- Process files: inline text files as collapsible blocks, binaries upload ----
   const processFiles = async (files: FileList) => {
     let added = 0;
     for (const file of files) {
@@ -239,28 +234,17 @@ export function ChatWindow({
         }
         try {
           const rawContent = await file.text();
+          // Build a collapsible block: user sees only the filename and size, AI sees everything
+          const content = `
+<details>
+<summary>📄 ${file.name} (${Math.round(file.size / 1024)}KB) – click to expand</summary>
 
-          // 🔮 Generate summary using Gemini (via server function)
-          setSummarizing((prev) => ({ ...prev, [id]: true }));
-          let summary = "";
-          try {
-            const result = await summarizeFn({
-              data: {
-                fileName: file.name,
-                content: rawContent,
-                maxLength: 200,
-              },
-            });
-            summary = result.summary;
-          } catch (err) {
-            console.error("Summarization failed:", err);
-            summary = `(Failed to summarise: ${err instanceof Error ? err.message : String(err)})`;
-          } finally {
-            setSummarizing((prev) => ({ ...prev, [id]: false }));
-          }
+\`\`\`${ext || "text"}
+${rawContent}
+\`\`\`
 
-          // Instead of raw content, insert the summary
-          const content = `\n\n📄 **File: ${file.name}** (${file.size / 1024 < 1 ? "<1" : Math.round(file.size / 1024)}KB)\n${summary}\n`;
+</details>
+`;
           setAttachments((prev) => [
             ...prev,
             { id, name: file.name, kind: "text", content, size: file.size, mime: file.type || "text/plain" },
@@ -451,7 +435,7 @@ export function ChatWindow({
             <Upload size={48} className="mx-auto text-arc mb-4" />
             <div className="font-display text-xl text-arc">Drop your files here</div>
             <div className="text-sm text-hud-dim mt-2">
-              Any file type — code is summarised with Gemini, binaries upload to storage
+              Text files are inlined (collapsible) – binaries upload to your storage
             </div>
           </div>
         </div>
@@ -462,9 +446,7 @@ export function ChatWindow({
           <div className="text-center text-hud-dim text-sm mt-12">
             <div className="font-mono text-[10px] tracking-[0.3em] text-arc mb-2">JARVIS ONLINE</div>
             <div>At your service, Sir. Ask for a reminder, save a credential, or simply talk.</div>
-            <div className="mt-4 text-xs text-hud-dim/60">
-              📎 Paperclip or drag-drop any file — text is summarised, binaries stored
-            </div>
+            <div className="mt-4 text-xs text-hud-dim/60">📎 Upload .txt/.lua files – AI sees the full content</div>
           </div>
         )}
         {messages.map((m: UIMessage) => (
@@ -486,22 +468,15 @@ export function ChatWindow({
           <div className="max-w-4xl mx-auto mb-2 flex flex-wrap gap-2">
             {attachments.map((a) => {
               const Icon = a.kind === "text" ? FileText : FileIcon;
-              const isSummarizing = summarizing[a.id];
               return (
                 <div
                   key={a.id}
                   className="flex items-center gap-2 pl-2 pr-1 py-1 rounded-md border border-arc/30 bg-arc/10 text-xs"
                   title={`${a.name} (${Math.round(a.size / 1024)}KB)`}
                 >
-                  {isSummarizing ? (
-                    <Sparkles size={12} className="text-arc animate-pulse" />
-                  ) : (
-                    <Icon size={12} className="text-arc" />
-                  )}
+                  <Icon size={12} className="text-arc" />
                   <span className="font-mono truncate max-w-[220px]">{a.name}</span>
-                  <span className="text-hud-dim/70 text-[10px]">
-                    {isSummarizing ? "summarizing…" : a.kind === "text" ? "summary" : "stored"}
-                  </span>
+                  <span className="text-hud-dim/70 text-[10px]">{a.kind === "text" ? "collapsible" : "stored"}</span>
                   <button
                     onClick={() => removeAttachment(a.id)}
                     className="p-0.5 rounded hover:bg-critical/20 text-hud-dim hover:text-critical transition"
@@ -582,7 +557,7 @@ export function ChatWindow({
           )}
         </div>
         <div className="flex items-center justify-center mt-1.5 text-[10px] text-hud-dim/50 gap-3">
-          <span>📎 Attach or drop any file — text summarised by Gemini</span>
+          <span>📎 Attach any file – AI sees the full content</span>
           <span>•</span>
           <span>🎤 Click mic to speak</span>
         </div>
