@@ -493,7 +493,8 @@ export function ChatWindow({
           ) : (
             <button
               onClick={submit}
-              disabled={!input.trim()}
+              disabled={!input.trim() && attachments.length === 0}
+
               className="p-3 rounded-lg bg-arc text-arc-foreground shadow-arc hover:opacity-90 disabled:opacity-40 transition"
               aria-label="Send"
             >
