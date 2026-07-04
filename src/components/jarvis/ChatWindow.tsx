@@ -2,23 +2,7 @@ import { useEffect, useMemo, useRef, useState, memo } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, type UIMessage } from "ai";
 import { supabase } from "@/integrations/supabase/client";
-import {
-  Send,
-  Square,
-  Bell,
-  Vault,
-  ListChecks,
-  CheckCircle2,
-  Wrench,
-  MapPin,
-  Mic,
-  MicOff,
-  Upload,
-  Paperclip,
-  X,
-  FileText,
-  FileIcon,
-} from "lucide-react";
+import { Send, Square, Bell, Vault, ListChecks, CheckCircle2, Wrench, MapPin, Mic, MicOff } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
@@ -55,20 +39,13 @@ export function ChatWindow({
 }) {
   const qc = useQueryClient();
   const [input, setInput] = useState("");
-  const [attachments, setAttachments] = useState<
-    Array<{ id: string; name: string; kind: "text" | "upload"; content: string; size: number; mime: string }>
-  >([]);
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
-  const [isDragging, setIsDragging] = useState(false);
-
   const taRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
-  const dropRef = useRef<HTMLDivElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   function pickMimeType(): string | null {
     const candidates = ["audio/webm", "audio/mp4", "audio/ogg"];
@@ -171,197 +148,7 @@ export function ChatWindow({
     };
   }, []);
 
-  const TEXT_EXTS = new Set([
-    "txt",
-    "lua",
-    "py",
-    "js",
-    "jsx",
-    "ts",
-    "tsx",
-    "html",
-    "htm",
-    "css",
-    "scss",
-    "json",
-    "xml",
-    "yaml",
-    "yml",
-    "md",
-    "mdx",
-    "csv",
-    "tsv",
-    "log",
-    "ini",
-    "toml",
-    "env",
-    "sh",
-    "bash",
-    "zsh",
-    "sql",
-    "rb",
-    "go",
-    "rs",
-    "java",
-    "c",
-    "h",
-    "cpp",
-    "hpp",
-    "cs",
-    "php",
-    "swift",
-    "kt",
-    "dart",
-    "vue",
-    "svelte",
-    "gitignore",
-    "dockerfile",
-    "conf",
-  ]);
-
-  // ---- Process files: inline text files as collapsible blocks, binaries upload ----
-  const processFiles = async (files: FileList) => {
-    let added = 0;
-    for (const file of files) {
-      const ext = file.name.split(".").pop()?.toLowerCase() || "";
-      const isText = TEXT_EXTS.has(ext) || file.type.startsWith("text/");
-      const id = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-
-      if (isText) {
-        if (file.size > 1024 * 1024 * 5) {
-          toast.warning(`Skipped "${file.name}" – too large (max 5MB text)`);
-          continue;
-        }
-        try {
-          const rawContent = await file.text();
-          // Build a collapsible block: user sees only the filename and size, AI sees everything
-          const content = `
-<details>
-<summary>📄 ${file.name} (${Math.round(file.size / 1024)}KB) – click to expand</summary>
-
-\`\`\`${ext || "text"}
-${rawContent}
-\`\`\`
-
-</details>
-`;
-          setAttachments((prev) => [
-            ...prev,
-            { id, name: file.name, kind: "text", content, size: file.size, mime: file.type || "text/plain" },
-          ]);
-          added++;
-        } catch {
-          toast.error(`Failed to read "${file.name}"`);
-        }
-      } else {
-        // Binary files – upload to storage
-        if (file.size > 1024 * 1024 * 25) {
-          toast.warning(`Skipped "${file.name}" – too large (max 25MB)`);
-          continue;
-        }
-        try {
-          const {
-            data: { user },
-          } = await supabase.auth.getUser();
-          if (!user) {
-            toast.error("Not signed in.");
-            continue;
-          }
-          const safeName = file.name.replace(/[^\w.\-]+/g, "_");
-          const path = `${user.id}/${Date.now()}_${safeName}`;
-          const { error } = await supabase.storage.from("user-files").upload(path, file, {
-            contentType: file.type || "application/octet-stream",
-            upsert: false,
-          });
-          if (error) throw error;
-          const storedName = path.split("/").slice(1).join("/");
-          const content = `\n\n[Uploaded file: ${storedName} (${file.type || "binary"}, ${Math.round(file.size / 1024)}KB) — use your file tools to inspect it]\n`;
-          setAttachments((prev) => [
-            ...prev,
-            {
-              id,
-              name: file.name,
-              kind: "upload",
-              content,
-              size: file.size,
-              mime: file.type || "application/octet-stream",
-            },
-          ]);
-          added++;
-        } catch (err: any) {
-          console.error("[upload]", err);
-          toast.error(`Upload failed for "${file.name}": ${err?.message ?? err}`);
-        }
-      }
-    }
-    if (added) {
-      toast.success(`Attached ${added} file(s)`);
-      taRef.current?.focus();
-    }
-  };
-
-  const removeAttachment = (id: string) => setAttachments((prev) => prev.filter((a) => a.id !== id));
-
-  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const files = event.target.files;
-    if (!files || files.length === 0) return;
-    void processFiles(files);
-    event.target.value = "";
-  };
-
-  // ---- Drag and Drop ----
-  useEffect(() => {
-    const element = dropRef.current;
-    if (!element) return;
-
-    const handleDragEnter = (e: DragEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      setIsDragging(true);
-    };
-
-    const handleDragOver = (e: DragEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      if (e.dataTransfer) {
-        e.dataTransfer.dropEffect = "copy";
-      }
-    };
-
-    const handleDragLeave = (e: DragEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      const rect = element.getBoundingClientRect();
-      const x = e.clientX;
-      const y = e.clientY;
-      if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) {
-        setIsDragging(false);
-      }
-    };
-
-    const handleDrop = async (e: DragEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      setIsDragging(false);
-      const files = e.dataTransfer?.files;
-      if (!files || files.length === 0) return;
-      processFiles(files);
-    };
-
-    element.addEventListener("dragenter", handleDragEnter);
-    element.addEventListener("dragover", handleDragOver);
-    element.addEventListener("dragleave", handleDragLeave);
-    element.addEventListener("drop", handleDrop);
-
-    return () => {
-      element.removeEventListener("dragenter", handleDragEnter);
-      element.removeEventListener("dragover", handleDragOver);
-      element.removeEventListener("dragleave", handleDragLeave);
-      element.removeEventListener("drop", handleDrop);
-    };
-  }, []);
-
-  // ---- Chat Transport ----
+  // ---- Transport ----
   const transport = useMemo(
     () =>
       new DefaultChatTransport({
@@ -417,36 +204,18 @@ ${rawContent}
 
   async function submit() {
     const text = input.trim();
-    const hasAttach = attachments.length > 0;
-    if ((!text && !hasAttach) || busy) return;
-    const attachedBlob = attachments.map((a) => a.content).join("");
-    const finalText = (text + attachedBlob).trim();
+    if (!text || busy) return;
     setInput("");
-    setAttachments([]);
-    await sendMessage({ text: finalText });
+    await sendMessage({ text });
   }
 
   return (
-    <div ref={dropRef} className="flex flex-col h-full relative">
-      {/* Drag overlay */}
-      {isDragging && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm border-4 border-dashed border-arc rounded-lg">
-          <div className="text-center">
-            <Upload size={48} className="mx-auto text-arc mb-4" />
-            <div className="font-display text-xl text-arc">Drop your files here</div>
-            <div className="text-sm text-hud-dim mt-2">
-              Text files are inlined (collapsible) – binaries upload to your storage
-            </div>
-          </div>
-        </div>
-      )}
-
+    <div className="flex flex-col h-full">
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 py-6 space-y-5">
         {messages.length === 0 && (
           <div className="text-center text-hud-dim text-sm mt-12">
             <div className="font-mono text-[10px] tracking-[0.3em] text-arc mb-2">JARVIS ONLINE</div>
             <div>At your service, Sir. Ask for a reminder, save a credential, or simply talk.</div>
-            <div className="mt-4 text-xs text-hud-dim/60">📎 Upload .txt/.lua files – AI sees the full content</div>
           </div>
         )}
         {messages.map((m: UIMessage) => (
@@ -464,31 +233,6 @@ ${rawContent}
       </div>
 
       <div className="border-t border-arc/15 bg-background/40 backdrop-blur px-4 py-3">
-        {attachments.length > 0 && (
-          <div className="max-w-4xl mx-auto mb-2 flex flex-wrap gap-2">
-            {attachments.map((a) => {
-              const Icon = a.kind === "text" ? FileText : FileIcon;
-              return (
-                <div
-                  key={a.id}
-                  className="flex items-center gap-2 pl-2 pr-1 py-1 rounded-md border border-arc/30 bg-arc/10 text-xs"
-                  title={`${a.name} (${Math.round(a.size / 1024)}KB)`}
-                >
-                  <Icon size={12} className="text-arc" />
-                  <span className="font-mono truncate max-w-[220px]">{a.name}</span>
-                  <span className="text-hud-dim/70 text-[10px]">{a.kind === "text" ? "collapsible" : "stored"}</span>
-                  <button
-                    onClick={() => removeAttachment(a.id)}
-                    className="p-0.5 rounded hover:bg-critical/20 text-hud-dim hover:text-critical transition"
-                    aria-label={`Remove ${a.name}`}
-                  >
-                    <X size={12} />
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        )}
         <div className="flex items-end gap-2 max-w-4xl mx-auto">
           <button
             onClick={toggleMic}
@@ -506,16 +250,6 @@ ${rawContent}
             {isRecording ? <MicOff size={16} /> : <Mic size={16} />}
           </button>
 
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            className="p-3 rounded-lg border border-arc/30 hover:bg-arc/10 text-hud-dim transition"
-            aria-label="Upload file"
-            title="Attach any file"
-          >
-            <Paperclip size={16} />
-          </button>
-          <input ref={fileInputRef} type="file" multiple className="hidden" onChange={handleFileUpload} />
-
           <textarea
             ref={taRef}
             rows={1}
@@ -532,7 +266,7 @@ ${rawContent}
                 ? "Listening… tap mic to stop"
                 : isTranscribing
                   ? "Transcribing…"
-                  : "Speak or type, Sir. Drop or attach any file."
+                  : 'Speak or type, Sir. e.g. "Remind me to drink water every weekday at 10am"'
             }
             className="flex-1 resize-none bg-background/60 border border-arc/25 rounded-lg px-4 py-3 font-mono text-sm focus:border-arc focus:outline-none max-h-40"
           />
@@ -548,7 +282,7 @@ ${rawContent}
           ) : (
             <button
               onClick={submit}
-              disabled={!input.trim() && attachments.length === 0}
+              disabled={!input.trim()}
               className="p-3 rounded-lg bg-arc text-arc-foreground shadow-arc hover:opacity-90 disabled:opacity-40 transition"
               aria-label="Send"
             >
@@ -556,17 +290,12 @@ ${rawContent}
             </button>
           )}
         </div>
-        <div className="flex items-center justify-center mt-1.5 text-[10px] text-hud-dim/50 gap-3">
-          <span>📎 Attach any file – AI sees the full content</span>
-          <span>•</span>
-          <span>🎤 Click mic to speak</span>
-        </div>
       </div>
     </div>
   );
 }
 
-// Memoized MessageBubble (unchanged)
+// Memoized MessageBubble
 const MessageBubble = memo(function MessageBubble({ msg }: { msg: UIMessage }) {
   const isUser = msg.role === "user";
   return (
@@ -582,7 +311,7 @@ const MessageBubble = memo(function MessageBubble({ msg }: { msg: UIMessage }) {
             return isUser ? (
               <div
                 key={i}
-                className="bg-arc text-arc-foreground rounded-2xl rounded-tr-sm px-4 py-2.5 text-sm whitespace-pre-wrap break-words"
+                className="bg-arc text-arc-foreground rounded-2xl rounded-tr-sm px-4 py-2.5 text-sm whitespace-pre-wrap"
               >
                 {part.text}
               </div>
