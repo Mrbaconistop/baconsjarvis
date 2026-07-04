@@ -2,7 +2,7 @@ import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 
 // ============================================================
-// MODE-SPECIFIC SYSTEM PROMPTS
+// MODE-SPECIFIC SYSTEM PROMPTS (unchanged)
 // ============================================================
 
 const MODE_PROMPTS = {
@@ -60,7 +60,7 @@ Voice rules:
 };
 
 // ============================================================
-// CODING SUBMODES
+// CODING SUBMODES (unchanged)
 // ============================================================
 
 export const CODING_SUBMODES = {
@@ -81,13 +81,12 @@ export const CODING_SUBMODES = {
 export type CodingSubmode = keyof typeof CODING_SUBMODES;
 
 // ============================================================
-// SYSTEM PROMPT BUILDER
+// SYSTEM PROMPT BUILDER (unchanged)
 // ============================================================
 
 export function getSystemPrompt(mode: string, addressAs: string, factsBlock: string, submode?: string): string {
   const basePrompt = MODE_PROMPTS[mode as keyof typeof MODE_PROMPTS] || MODE_PROMPTS.basic;
 
-  // Add submode-specific instructions only for coding mode
   let submodeInstructions = "";
   if (mode === "coding" && submode) {
     switch (submode) {
@@ -205,14 +204,20 @@ export function createGeminiProvider(apiKey: string) {
   });
 }
 
-export function resolveChatModel(opts?: {
-  provider?: "groq" | "deepseek" | "lovable" | "system" | "lmstudio" | "gemini";
-  apiKey?: string;
-}) {
-  const provider = opts?.provider ?? process.env.CHAT_PROVIDER?.toLowerCase() ?? "lovable";
+// ============================================================
+// MAIN MODEL RESOLVER – Gemini is now the default
+// ============================================================
+
+export function resolveChatModel(opts?: { provider?: "groq" | "deepseek" | "lmstudio" | "gemini"; apiKey?: string }) {
+  // Default to Gemini if no provider is specified
+  const provider = opts?.provider ?? process.env.CHAT_PROVIDER?.toLowerCase() ?? "gemini";
   const apiKey = opts?.apiKey;
 
-  if (provider === "groq") {
+  // If provider is "system" or any other unrecognized, default to Gemini
+  const effectiveProvider =
+    provider === "system" || !["groq", "deepseek", "lmstudio", "gemini"].includes(provider) ? "gemini" : provider;
+
+  if (effectiveProvider === "groq") {
     const key = apiKey ?? process.env.GROQ_API_KEY;
     if (!key) throw new Error("Groq API key is not set");
     const groq = createGroqProvider(key);
@@ -220,7 +225,7 @@ export function resolveChatModel(opts?: {
     return { model: groq(modelId), provider: "groq" as const, modelId };
   }
 
-  if (provider === "deepseek") {
+  if (effectiveProvider === "deepseek") {
     const key = apiKey ?? process.env.DEEPSEEK_API_KEY;
     if (!key) throw new Error("DeepSeek API key is not set");
     const deepseek = createDeepSeekProvider(key);
@@ -228,27 +233,23 @@ export function resolveChatModel(opts?: {
     return { model: deepseek(modelId), provider: "deepseek" as const, modelId };
   }
 
-  if (provider === "lmstudio") {
+  if (effectiveProvider === "lmstudio") {
     const lmstudio = createLMStudioProvider(apiKey);
     const modelId = process.env.LM_STUDIO_MODEL ?? "local-model";
     return { model: lmstudio(modelId), provider: "lmstudio" as const, modelId };
   }
 
-  if (provider === "gemini") {
-    const key = process.env.LOVABLE_API_KEY;
-    if (!key) throw new Error("Missing LOVABLE_API_KEY");
-    const gateway = createLovableAiGatewayProvider(key);
-    const modelId = process.env.GEMINI_MODEL ?? "google/gemini-3-flash-preview";
-    return { model: gateway(modelId), provider: "gemini" as const, modelId };
-  }
-
-  // Lovable fallback
-  const key = process.env.LOVABLE_API_KEY;
-  if (!key) throw new Error("Missing LOVABLE_API_KEY");
-  const gateway = createLovableAiGatewayProvider(key);
-  const modelId = "google/gemini-3-flash-preview";
-  return { model: gateway(modelId), provider: "lovable" as const, modelId };
+  // Default: Gemini
+  const key = apiKey ?? process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+  if (!key) throw new Error("Gemini API key is not set (GOOGLE_GENERATIVE_AI_API_KEY)");
+  const gemini = createGeminiProvider(key);
+  const modelId = process.env.GEMINI_MODEL ?? "gemini-1.5-flash";
+  return { model: gemini(modelId), provider: "gemini" as const, modelId };
 }
+
+// ============================================================
+// GET MODEL FOR USER (with user settings)
+// ============================================================
 
 export async function getModelForUser(userId: string, supabase: any) {
   const { data } = await supabase.from("user_facts").select("key, value").eq("user_id", userId).eq("category", "llm");
@@ -258,71 +259,20 @@ export async function getModelForUser(userId: string, supabase: any) {
     config[f.key] = f.value;
   });
 
-  const provider = (config.provider ?? process.env.CHAT_PROVIDER ?? "system") as
-    | "groq"
-    | "deepseek"
-    | "lovable"
-    | "system"
-    | "lmstudio"
-    | "gemini";
+  // Allowed providers: groq, deepseek, lmstudio, gemini (no lovable)
+  const provider = config.provider ?? process.env.CHAT_PROVIDER ?? "gemini";
+  // If provider is "system" or unknown, default to gemini
+  const effectiveProvider = ["groq", "deepseek", "lmstudio", "gemini"].includes(provider)
+    ? (provider as "groq" | "deepseek" | "lmstudio" | "gemini")
+    : "gemini";
   const apiKey = config.api_key;
   const mode = config.mode || "basic";
   const submode = config.coding_submode || "full";
-  const effectiveProvider = provider === "system" ? undefined : provider;
   return { ...resolveChatModel({ provider: effectiveProvider, apiKey }), mode, submode };
 }
 
 // ============================================================
-// LOVABLE AI GATEWAY
+// LEGACY: JARVIS_SYSTEM_PROMPT – kept for backward compatibility
 // ============================================================
 
-const LOVABLE_AIG_RUN_ID_HEADER = "X-Lovable-AIG-Run-ID";
-
-export function createLovableAiGatewayProvider(lovableApiKey: string, initialRunId?: string) {
-  let runId = initialRunId?.trim() || undefined;
-  let resolveRunId: (value: string | undefined) => void = () => {};
-  let runIdResolved = false;
-  const runIdReady = new Promise<string | undefined>((resolve) => {
-    resolveRunId = resolve;
-  });
-  const publishRunId = (value?: string) => {
-    const next = value?.trim() || undefined;
-    if (!runId && next) runId = next;
-    if (!runIdResolved) {
-      runIdResolved = true;
-      resolveRunId(runId);
-    }
-  };
-  if (runId) publishRunId(runId);
-
-  const provider = createOpenAICompatible({
-    name: "lovable",
-    baseURL: "https://ai.gateway.lovable.dev/v1",
-    headers: {
-      "Lovable-API-Key": lovableApiKey,
-      "X-Lovable-AIG-SDK": "vercel-ai-sdk",
-    },
-    fetch: async (input, init) => {
-      const headers = new Headers(init?.headers);
-      if (runId && !headers.has(LOVABLE_AIG_RUN_ID_HEADER)) {
-        headers.set(LOVABLE_AIG_RUN_ID_HEADER, runId);
-      }
-      try {
-        const response = await fetch(input, { ...init, headers });
-        publishRunId(response.headers.get(LOVABLE_AIG_RUN_ID_HEADER) ?? undefined);
-        return response;
-      } catch (error) {
-        publishRunId(undefined);
-        throw error;
-      }
-    },
-  });
-
-  return Object.assign(provider, {
-    getRunId: () => runId,
-    waitForRunId: () => (runId ? Promise.resolve(runId) : runIdReady),
-  });
-}
-
-// Legacy – kept for backward compatibility
 export const JARVIS_SYSTEM_PROMPT = MODE_PROMPTS.basic;
