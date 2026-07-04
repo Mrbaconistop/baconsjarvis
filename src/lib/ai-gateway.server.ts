@@ -205,17 +205,17 @@ export function createGeminiProvider(apiKey: string) {
 }
 
 // ============================================================
-// MAIN MODEL RESOLVER – Gemini is now the default
+// MAIN MODEL RESOLVER – Groq is now the default
 // ============================================================
 
 export function resolveChatModel(opts?: { provider?: "groq" | "deepseek" | "lmstudio" | "gemini"; apiKey?: string }) {
-  // Default to Gemini if no provider is specified
-  const provider = opts?.provider ?? process.env.CHAT_PROVIDER?.toLowerCase() ?? "gemini";
+  // Default to Groq if no provider is specified
+  const provider = opts?.provider ?? process.env.CHAT_PROVIDER?.toLowerCase() ?? "groq";
   const apiKey = opts?.apiKey;
 
-  // If provider is "system" or any other unrecognized, default to Gemini
+  // If provider is "system" or any other unrecognized, default to Groq
   const effectiveProvider =
-    provider === "system" || !["groq", "deepseek", "lmstudio", "gemini"].includes(provider) ? "gemini" : provider;
+    provider === "system" || !["groq", "deepseek", "lmstudio", "gemini"].includes(provider) ? "groq" : provider;
 
   if (effectiveProvider === "groq") {
     const key = apiKey ?? process.env.GROQ_API_KEY;
@@ -239,7 +239,7 @@ export function resolveChatModel(opts?: { provider?: "groq" | "deepseek" | "lmst
     return { model: lmstudio(modelId), provider: "lmstudio" as const, modelId };
   }
 
-  // Default: Gemini
+  // Gemini fallback (but we default to Groq, so this is rarely reached)
   const key = apiKey ?? process.env.GOOGLE_GENERATIVE_AI_API_KEY;
   if (!key) throw new Error("Gemini API key is not set (GOOGLE_GENERATIVE_AI_API_KEY)");
   const gemini = createGeminiProvider(key);
@@ -259,12 +259,10 @@ export async function getModelForUser(userId: string, supabase: any) {
     config[f.key] = f.value;
   });
 
-  // Allowed providers: groq, deepseek, lmstudio, gemini (no lovable)
-  const provider = config.provider ?? process.env.CHAT_PROVIDER ?? "gemini";
-  // If provider is "system" or unknown, default to gemini
+  const provider = config.provider ?? process.env.CHAT_PROVIDER ?? "groq";
   const effectiveProvider = ["groq", "deepseek", "lmstudio", "gemini"].includes(provider)
     ? (provider as "groq" | "deepseek" | "lmstudio" | "gemini")
-    : "gemini";
+    : "groq";
   const apiKey = config.api_key;
   const mode = config.mode || "basic";
   const submode = config.coding_submode || "full";

@@ -639,7 +639,7 @@ Provide a clear, helpful response. If suggesting code changes, show the full upd
   });
 
 // ============================================================
-// GEMINI FILE SUMMARIZER (used by ChatWindow)
+// FILE SUMMARIZER (uses Groq for summarization – fallback to raw content)
 // ============================================================
 export const summarizeFileWithGemini = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
@@ -654,9 +654,17 @@ export const summarizeFileWithGemini = createServerFn({ method: "POST" })
   )
   .handler(async ({ data, context }) => {
     const { supabase, userId } = context as any;
-    // Force Gemini – ignore user settings
+
+    // Use Groq for summarization – it’s reliable and works with the current SDK.
     const { resolveChatModel } = await import("./ai-gateway.server");
-    const { model } = resolveChatModel({ provider: "gemini" });
+    let model;
+    try {
+      model = resolveChatModel({ provider: "groq" });
+    } catch (err) {
+      // If Groq fails (e.g., missing API key), fallback to raw content
+      console.warn("Groq not available – returning raw content", err);
+      return { summary: `(Could not summarise – using raw content)\n\n${data.content}` };
+    }
 
     const systemPrompt = `
 You are JARVIS, an expert assistant. The user has uploaded a file named "${data.fileName}".
@@ -667,11 +675,19 @@ If the file is code, briefly describe what it does. If it's plain text, summaris
 Do not repeat the whole file – just give a short summary.
 `;
 
-    const { text } = await generateText({
-      model,
-      system: systemPrompt,
-      prompt: data.content,
-      maxTokens: 400,
-    });
-    return { summary: text.trim() };
+    const { generateText } = await import("ai");
+    try {
+      const { text } = await generateText({
+        model: model.model,
+        system: systemPrompt,
+        prompt: data.content,
+        maxTokens: 400,
+      });
+      return { summary: text.trim() };
+    } catch (err) {
+      console.error("Summarization failed:", err);
+      // Fallback: return raw content (truncated to 5000 chars to avoid huge messages)
+      const truncated = data.content.length > 5000 ? data.content.slice(0, 5000) + "\n... (truncated)" : data.content;
+      return { summary: `(Summarisation failed – here's the raw content)\n\n${truncated}` };
+    }
   });
