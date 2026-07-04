@@ -459,10 +459,11 @@ export function ChatWindow({
           )}
         </div>
         <div className="flex items-center justify-center mt-1.5 text-[10px] text-hud-dim/50 gap-3">
-          <span>📎 Click paperclip to upload .txt or .lua</span>
+          <span>📎 Attach or drop any file</span>
           <span>•</span>
           <span>🎤 Click mic to speak</span>
         </div>
+
       </div>
     </div>
   );
