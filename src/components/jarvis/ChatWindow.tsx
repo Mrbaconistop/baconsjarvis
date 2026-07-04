@@ -178,23 +178,23 @@ export function ChatWindow({
   ]);
 
   const processFiles = async (files: FileList) => {
-    let textCount = 0;
-    let uploadCount = 0;
+    let added = 0;
     for (const file of files) {
       const ext = file.name.split(".").pop()?.toLowerCase() || "";
       const isText = TEXT_EXTS.has(ext) || file.type.startsWith("text/");
+      const id = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
       if (isText) {
         if (file.size > 1024 * 1024 * 5) {
-          toast.warning(`Skipped "${file.name}" – file too large (max 5MB text)`);
+          toast.warning(`Skipped "${file.name}" – too large (max 5MB text)`);
           continue;
         }
         try {
           const text = await file.text();
           const lang = ext === "lua" ? "lua" : ext === "txt" ? "text" : ext || "text";
-          const snippet = `\n\n--- ${file.name} (${lang}) ---\n${text}\n--- End ${file.name} ---\n`;
-          setInput((prev) => prev + snippet);
-          textCount++;
+          const content = `\n\n--- ${file.name} (${lang}) ---\n${text}\n--- End ${file.name} ---\n`;
+          setAttachments((prev) => [...prev, { id, name: file.name, kind: "text", content, size: file.size, mime: file.type || "text/plain" }]);
+          added++;
         } catch {
           toast.error(`Failed to read "${file.name}"`);
         }
@@ -214,19 +214,23 @@ export function ChatWindow({
           });
           if (error) throw error;
           const storedName = path.split("/").slice(1).join("/");
-          setInput((prev) => prev + `\n\n[Uploaded file: ${storedName} (${file.type || "binary"}, ${Math.round(file.size / 1024)}KB) — use your file tools to inspect it]\n`);
-          uploadCount++;
+          const content = `\n\n[Uploaded file: ${storedName} (${file.type || "binary"}, ${Math.round(file.size / 1024)}KB) — use your file tools to inspect it]\n`;
+          setAttachments((prev) => [...prev, { id, name: file.name, kind: "upload", content, size: file.size, mime: file.type || "application/octet-stream" }]);
+          added++;
         } catch (err: any) {
           console.error("[upload]", err);
           toast.error(`Upload failed for "${file.name}": ${err?.message ?? err}`);
         }
       }
     }
-    if (textCount || uploadCount) {
-      toast.success(`Attached ${textCount + uploadCount} file(s)`);
+    if (added) {
+      toast.success(`Attached ${added} file(s)`);
       taRef.current?.focus();
     }
   };
+
+  const removeAttachment = (id: string) => setAttachments((prev) => prev.filter((a) => a.id !== id));
+
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
