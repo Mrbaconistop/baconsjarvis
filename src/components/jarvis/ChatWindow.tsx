@@ -18,8 +18,8 @@ import {
   X,
   FileText,
   FileIcon,
+  Sparkles,
 } from "lucide-react";
-
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
@@ -27,6 +27,8 @@ import rehypeKatex from "rehype-katex";
 import { useQueryClient } from "@tanstack/react-query";
 import { applyClientAction } from "@/lib/mapBus";
 import { toast } from "sonner";
+import { useServerFn } from "@tanstack/react-start";
+import { summarizeFileWithGemini } from "@/lib/jarvis.functions";
 
 const TOOL_META: Record<string, { icon: any; label: string }> = {
   "tool-create_reminder": { icon: Bell, label: "Setting reminder" },
@@ -56,10 +58,14 @@ export function ChatWindow({
 }) {
   const qc = useQueryClient();
   const [input, setInput] = useState("");
-  const [attachments, setAttachments] = useState<Array<{ id: string; name: string; kind: "text" | "upload"; content: string; size: number; mime: string }>>([]);
+  const [attachments, setAttachments] = useState<
+    Array<{ id: string; name: string; kind: "text" | "upload"; content: string; size: number; mime: string }>
+  >([]);
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const [summarizing, setSummarizing] = useState<Record<string, boolean>>({});
+  const summarizeFn = useServerFn(summarizeFileWithGemini);
 
   const taRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -171,12 +177,54 @@ export function ChatWindow({
   }, []);
 
   const TEXT_EXTS = new Set([
-    "txt","lua","py","js","jsx","ts","tsx","html","htm","css","scss","json","xml",
-    "yaml","yml","md","mdx","csv","tsv","log","ini","toml","env","sh","bash","zsh",
-    "sql","rb","go","rs","java","c","h","cpp","hpp","cs","php","swift","kt","dart",
-    "vue","svelte","gitignore","dockerfile","conf",
+    "txt",
+    "lua",
+    "py",
+    "js",
+    "jsx",
+    "ts",
+    "tsx",
+    "html",
+    "htm",
+    "css",
+    "scss",
+    "json",
+    "xml",
+    "yaml",
+    "yml",
+    "md",
+    "mdx",
+    "csv",
+    "tsv",
+    "log",
+    "ini",
+    "toml",
+    "env",
+    "sh",
+    "bash",
+    "zsh",
+    "sql",
+    "rb",
+    "go",
+    "rs",
+    "java",
+    "c",
+    "h",
+    "cpp",
+    "hpp",
+    "cs",
+    "php",
+    "swift",
+    "kt",
+    "dart",
+    "vue",
+    "svelte",
+    "gitignore",
+    "dockerfile",
+    "conf",
   ]);
 
+  // ---- File processing with summarization ----
   const processFiles = async (files: FileList) => {
     let added = 0;
     for (const file of files) {
@@ -190,22 +238,51 @@ export function ChatWindow({
           continue;
         }
         try {
-          const text = await file.text();
-          const lang = ext === "lua" ? "lua" : ext === "txt" ? "text" : ext || "text";
-          const content = `\n\n--- ${file.name} (${lang}) ---\n${text}\n--- End ${file.name} ---\n`;
-          setAttachments((prev) => [...prev, { id, name: file.name, kind: "text", content, size: file.size, mime: file.type || "text/plain" }]);
+          const rawContent = await file.text();
+
+          // 🔮 Generate summary using Gemini (via server function)
+          setSummarizing((prev) => ({ ...prev, [id]: true }));
+          let summary = "";
+          try {
+            const result = await summarizeFn({
+              data: {
+                fileName: file.name,
+                content: rawContent,
+                maxLength: 200,
+              },
+            });
+            summary = result.summary;
+          } catch (err) {
+            console.error("Summarization failed:", err);
+            summary = `(Failed to summarise: ${err instanceof Error ? err.message : String(err)})`;
+          } finally {
+            setSummarizing((prev) => ({ ...prev, [id]: false }));
+          }
+
+          // Instead of raw content, insert the summary
+          const content = `\n\n📄 **File: ${file.name}** (${file.size / 1024 < 1 ? "<1" : Math.round(file.size / 1024)}KB)\n${summary}\n`;
+          setAttachments((prev) => [
+            ...prev,
+            { id, name: file.name, kind: "text", content, size: file.size, mime: file.type || "text/plain" },
+          ]);
           added++;
         } catch {
           toast.error(`Failed to read "${file.name}"`);
         }
       } else {
+        // Binary files – upload to storage
         if (file.size > 1024 * 1024 * 25) {
           toast.warning(`Skipped "${file.name}" – too large (max 25MB)`);
           continue;
         }
         try {
-          const { data: { user } } = await supabase.auth.getUser();
-          if (!user) { toast.error("Not signed in."); continue; }
+          const {
+            data: { user },
+          } = await supabase.auth.getUser();
+          if (!user) {
+            toast.error("Not signed in.");
+            continue;
+          }
           const safeName = file.name.replace(/[^\w.\-]+/g, "_");
           const path = `${user.id}/${Date.now()}_${safeName}`;
           const { error } = await supabase.storage.from("user-files").upload(path, file, {
@@ -215,7 +292,17 @@ export function ChatWindow({
           if (error) throw error;
           const storedName = path.split("/").slice(1).join("/");
           const content = `\n\n[Uploaded file: ${storedName} (${file.type || "binary"}, ${Math.round(file.size / 1024)}KB) — use your file tools to inspect it]\n`;
-          setAttachments((prev) => [...prev, { id, name: file.name, kind: "upload", content, size: file.size, mime: file.type || "application/octet-stream" }]);
+          setAttachments((prev) => [
+            ...prev,
+            {
+              id,
+              name: file.name,
+              kind: "upload",
+              content,
+              size: file.size,
+              mime: file.type || "application/octet-stream",
+            },
+          ]);
           added++;
         } catch (err: any) {
           console.error("[upload]", err);
@@ -231,7 +318,6 @@ export function ChatWindow({
 
   const removeAttachment = (id: string) => setAttachments((prev) => prev.filter((a) => a.id !== id));
 
-
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
     if (!files || files.length === 0) return;
@@ -239,8 +325,7 @@ export function ChatWindow({
     event.target.value = "";
   };
 
-
-  // ---- Drag and Drop File Upload (kept as additional feature) ----
+  // ---- Drag and Drop ----
   useEffect(() => {
     const element = dropRef.current;
     if (!element) return;
@@ -292,7 +377,7 @@ export function ChatWindow({
     };
   }, []);
 
-  // ---- Transport ----
+  // ---- Chat Transport ----
   const transport = useMemo(
     () =>
       new DefaultChatTransport({
@@ -357,7 +442,6 @@ export function ChatWindow({
     await sendMessage({ text: finalText });
   }
 
-
   return (
     <div ref={dropRef} className="flex flex-col h-full relative">
       {/* Drag overlay */}
@@ -367,9 +451,8 @@ export function ChatWindow({
             <Upload size={48} className="mx-auto text-arc mb-4" />
             <div className="font-display text-xl text-arc">Drop your files here</div>
             <div className="text-sm text-hud-dim mt-2">
-              Any file type — code is inlined, images/PDFs/binaries upload to your storage
+              Any file type — code is summarised with Gemini, binaries upload to storage
             </div>
-
           </div>
         </div>
       )}
@@ -379,7 +462,9 @@ export function ChatWindow({
           <div className="text-center text-hud-dim text-sm mt-12">
             <div className="font-mono text-[10px] tracking-[0.3em] text-arc mb-2">JARVIS ONLINE</div>
             <div>At your service, Sir. Ask for a reminder, save a credential, or simply talk.</div>
-            <div className="mt-4 text-xs text-hud-dim/60">📎 Paperclip or drag-drop any file — code inlines, everything else uploads to storage</div>
+            <div className="mt-4 text-xs text-hud-dim/60">
+              📎 Paperclip or drag-drop any file — text is summarised, binaries stored
+            </div>
           </div>
         )}
         {messages.map((m: UIMessage) => (
@@ -401,16 +486,21 @@ export function ChatWindow({
           <div className="max-w-4xl mx-auto mb-2 flex flex-wrap gap-2">
             {attachments.map((a) => {
               const Icon = a.kind === "text" ? FileText : FileIcon;
+              const isSummarizing = summarizing[a.id];
               return (
                 <div
                   key={a.id}
                   className="flex items-center gap-2 pl-2 pr-1 py-1 rounded-md border border-arc/30 bg-arc/10 text-xs"
                   title={`${a.name} (${Math.round(a.size / 1024)}KB)`}
                 >
-                  <Icon size={12} className="text-arc" />
+                  {isSummarizing ? (
+                    <Sparkles size={12} className="text-arc animate-pulse" />
+                  ) : (
+                    <Icon size={12} className="text-arc" />
+                  )}
                   <span className="font-mono truncate max-w-[220px]">{a.name}</span>
                   <span className="text-hud-dim/70 text-[10px]">
-                    {a.kind === "text" ? "inline" : "stored"}
+                    {isSummarizing ? "summarizing…" : a.kind === "text" ? "summary" : "stored"}
                   </span>
                   <button
                     onClick={() => removeAttachment(a.id)}
@@ -425,7 +515,6 @@ export function ChatWindow({
           </div>
         )}
         <div className="flex items-end gap-2 max-w-4xl mx-auto">
-
           <button
             onClick={toggleMic}
             disabled={isTranscribing}
@@ -442,24 +531,15 @@ export function ChatWindow({
             {isRecording ? <MicOff size={16} /> : <Mic size={16} />}
           </button>
 
-          {/* File upload button */}
           <button
             onClick={() => fileInputRef.current?.click()}
             className="p-3 rounded-lg border border-arc/30 hover:bg-arc/10 text-hud-dim transition"
             aria-label="Upload file"
             title="Attach any file"
-
           >
             <Paperclip size={16} />
           </button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            multiple
-            className="hidden"
-            onChange={handleFileUpload}
-          />
-
+          <input ref={fileInputRef} type="file" multiple className="hidden" onChange={handleFileUpload} />
 
           <textarea
             ref={taRef}
@@ -494,7 +574,6 @@ export function ChatWindow({
             <button
               onClick={submit}
               disabled={!input.trim() && attachments.length === 0}
-
               className="p-3 rounded-lg bg-arc text-arc-foreground shadow-arc hover:opacity-90 disabled:opacity-40 transition"
               aria-label="Send"
             >
@@ -503,11 +582,10 @@ export function ChatWindow({
           )}
         </div>
         <div className="flex items-center justify-center mt-1.5 text-[10px] text-hud-dim/50 gap-3">
-          <span>📎 Attach or drop any file</span>
+          <span>📎 Attach or drop any file — text summarised by Gemini</span>
           <span>•</span>
           <span>🎤 Click mic to speak</span>
         </div>
-
       </div>
     </div>
   );
