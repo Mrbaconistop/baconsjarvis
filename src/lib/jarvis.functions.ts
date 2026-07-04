@@ -602,7 +602,7 @@ export const updateLastPrice = createServerFn({ method: "POST" })
   });
 
 // ============================================================
-// AI CODE ASSISTANT (forced Gemini – ignores user settings)
+// AI CODE ASSISTANT (used by the editor)
 // ============================================================
 export const askCodeAssistant = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
@@ -617,11 +617,7 @@ export const askCodeAssistant = createServerFn({ method: "POST" })
   )
   .handler(async ({ data, context }) => {
     const { supabase, userId } = context as any;
-
-    // Force Gemini: resolve a Gemini model directly
-    const { resolveChatModel } = await import("./ai-gateway.server");
-    const { model } = resolveChatModel({ provider: "gemini" });
-
+    const { model } = await getModelForUser(userId, supabase);
     const systemPrompt = `
 You are JARVIS, an expert programmer. The user has asked you to help with code in a code editor.
 
@@ -634,11 +630,48 @@ User's request: ${data.prompt}
 
 Provide a clear, helpful response. If suggesting code changes, show the full updated code or explain the changes clearly.
 `;
-    const { generateText } = await import("ai");
     const { text } = await generateText({
       model,
       system: systemPrompt,
       prompt: data.prompt,
     });
     return { response: text };
+  });
+
+// ============================================================
+// GEMINI FILE SUMMARIZER (used by ChatWindow)
+// ============================================================
+export const summarizeFileWithGemini = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) =>
+    z
+      .object({
+        fileName: z.string(),
+        content: z.string(),
+        maxLength: z.number().optional().default(200),
+      })
+      .parse(input),
+  )
+  .handler(async ({ data, context }) => {
+    const { supabase, userId } = context as any;
+    // Force Gemini – ignore user settings
+    const { resolveChatModel } = await import("./ai-gateway.server");
+    const { model } = resolveChatModel({ provider: "gemini" });
+
+    const systemPrompt = `
+You are JARVIS, an expert assistant. The user has uploaded a file named "${data.fileName}".
+
+Your task: Provide a concise summary of the file content in **under ${data.maxLength} words**. Focus on the key points, purpose, or main logic of the code/text. Keep it clear and directly useful.
+
+If the file is code, briefly describe what it does. If it's plain text, summarise the main message.
+Do not repeat the whole file – just give a short summary.
+`;
+
+    const { text } = await generateText({
+      model,
+      system: systemPrompt,
+      prompt: data.content,
+      maxTokens: 400,
+    });
+    return { summary: text.trim() };
   });
