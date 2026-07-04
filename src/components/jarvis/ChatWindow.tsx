@@ -434,7 +434,7 @@ export function ChatWindow({
                 ? "Listening… tap mic to stop"
                 : isTranscribing
                   ? "Transcribing…"
-                  : "Speak or type, Sir. Use 📎 to upload .txt/.lua files"
+                  : "Speak or type, Sir. Drop or attach any file."
             }
             className="flex-1 resize-none bg-background/60 border border-arc/25 rounded-lg px-4 py-3 font-mono text-sm focus:border-arc focus:outline-none max-h-40"
           />
