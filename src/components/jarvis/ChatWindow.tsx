@@ -352,8 +352,9 @@ export function ChatWindow({
             <Upload size={48} className="mx-auto text-arc mb-4" />
             <div className="font-display text-xl text-arc">Drop your files here</div>
             <div className="text-sm text-hud-dim mt-2">
-              Accepts: .txt, .lua, .py, .js, .html, .css, .json, .md, .xml, .yml, .csv, .log
+              Any file type — code is inlined, images/PDFs/binaries upload to your storage
             </div>
+
           </div>
         </div>
       )}
