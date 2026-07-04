@@ -164,63 +164,71 @@ export function ChatWindow({
     };
   }, []);
 
-  // ---- File upload handler ----
-  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const files = event.target.files;
-    if (!files || files.length === 0) return;
-    processFiles(files);
-    event.target.value = ""; // reset input
-  };
+  const TEXT_EXTS = new Set([
+    "txt","lua","py","js","jsx","ts","tsx","html","htm","css","scss","json","xml",
+    "yaml","yml","md","mdx","csv","tsv","log","ini","toml","env","sh","bash","zsh",
+    "sql","rb","go","rs","java","c","h","cpp","hpp","cs","php","swift","kt","dart",
+    "vue","svelte","gitignore","dockerfile","conf",
+  ]);
 
-  const processFiles = (files: FileList) => {
-    let fileContent = "";
-    let fileNames: string[] = [];
-    const allowedExtensions = [
-      "txt",
-      "lua",
-      "py",
-      "js",
-      "ts",
-      "html",
-      "css",
-      "json",
-      "xml",
-      "yaml",
-      "yml",
-      "md",
-      "csv",
-      "log",
-    ];
-
+  const processFiles = async (files: FileList) => {
+    let textCount = 0;
+    let uploadCount = 0;
     for (const file of files) {
       const ext = file.name.split(".").pop()?.toLowerCase() || "";
-      if (!allowedExtensions.includes(ext)) {
-        toast.warning(`Skipped "${file.name}" – unsupported file type (.${ext})`);
-        continue;
-      }
-      if (file.size > 1024 * 1024 * 5) {
-        toast.warning(`Skipped "${file.name}" – file too large (max 5MB)`);
-        continue;
-      }
-      try {
-        const reader = new FileReader();
-        reader.onload = (e) => {
-          const text = e.target?.result as string;
-          const lang = ext === "lua" ? "lua" : ext === "txt" ? "text" : ext;
+      const isText = TEXT_EXTS.has(ext) || file.type.startsWith("text/");
+
+      if (isText) {
+        if (file.size > 1024 * 1024 * 5) {
+          toast.warning(`Skipped "${file.name}" – file too large (max 5MB text)`);
+          continue;
+        }
+        try {
+          const text = await file.text();
+          const lang = ext === "lua" ? "lua" : ext === "txt" ? "text" : ext || "text";
           const snippet = `\n\n--- ${file.name} (${lang}) ---\n${text}\n--- End ${file.name} ---\n`;
           setInput((prev) => prev + snippet);
-          fileNames.push(file.name);
-        };
-        reader.readAsText(file);
-      } catch (err) {
-        toast.error(`Failed to read "${file.name}"`);
+          textCount++;
+        } catch {
+          toast.error(`Failed to read "${file.name}"`);
+        }
+      } else {
+        if (file.size > 1024 * 1024 * 25) {
+          toast.warning(`Skipped "${file.name}" – too large (max 25MB)`);
+          continue;
+        }
+        try {
+          const { data: { user } } = await supabase.auth.getUser();
+          if (!user) { toast.error("Not signed in."); continue; }
+          const safeName = file.name.replace(/[^\w.\-]+/g, "_");
+          const path = `${user.id}/${Date.now()}_${safeName}`;
+          const { error } = await supabase.storage.from("user-files").upload(path, file, {
+            contentType: file.type || "application/octet-stream",
+            upsert: false,
+          });
+          if (error) throw error;
+          const storedName = path.split("/").slice(1).join("/");
+          setInput((prev) => prev + `\n\n[Uploaded file: ${storedName} (${file.type || "binary"}, ${Math.round(file.size / 1024)}KB) — use your file tools to inspect it]\n`);
+          uploadCount++;
+        } catch (err: any) {
+          console.error("[upload]", err);
+          toast.error(`Upload failed for "${file.name}": ${err?.message ?? err}`);
+        }
       }
     }
-    if (fileNames.length > 0) {
-      toast.success(`Loaded ${fileNames.length} file(s)`);
+    if (textCount || uploadCount) {
+      toast.success(`Attached ${textCount + uploadCount} file(s)`);
       taRef.current?.focus();
     }
   };
+
+  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files;
+    if (!files || files.length === 0) return;
+    void processFiles(files);
+    event.target.value = "";
+  };
+
 
   // ---- Drag and Drop File Upload (kept as additional feature) ----
   useEffect(() => {
@@ -344,8 +352,9 @@ export function ChatWindow({
             <Upload size={48} className="mx-auto text-arc mb-4" />
             <div className="font-display text-xl text-arc">Drop your files here</div>
             <div className="text-sm text-hud-dim mt-2">
-              Accepts: .txt, .lua, .py, .js, .html, .css, .json, .md, .xml, .yml, .csv, .log
+              Any file type — code is inlined, images/PDFs/binaries upload to your storage
             </div>
+
           </div>
         </div>
       )}
@@ -355,7 +364,7 @@ export function ChatWindow({
           <div className="text-center text-hud-dim text-sm mt-12">
             <div className="font-mono text-[10px] tracking-[0.3em] text-arc mb-2">JARVIS ONLINE</div>
             <div>At your service, Sir. Ask for a reminder, save a credential, or simply talk.</div>
-            <div className="mt-4 text-xs text-hud-dim/60">📎 Click the paperclip to upload .txt or .lua files</div>
+            <div className="mt-4 text-xs text-hud-dim/60">📎 Paperclip or drag-drop any file — code inlines, everything else uploads to storage</div>
           </div>
         )}
         {messages.map((m: UIMessage) => (
@@ -395,18 +404,19 @@ export function ChatWindow({
             onClick={() => fileInputRef.current?.click()}
             className="p-3 rounded-lg border border-arc/30 hover:bg-arc/10 text-hud-dim transition"
             aria-label="Upload file"
-            title="Upload .txt or .lua file"
+            title="Attach any file"
+
           >
             <Paperclip size={16} />
           </button>
           <input
             ref={fileInputRef}
             type="file"
-            accept=".txt,.lua,.py,.js,.ts,.html,.css,.json,.xml,.yml,.yaml,.md,.csv,.log"
             multiple
             className="hidden"
             onChange={handleFileUpload}
           />
+
 
           <textarea
             ref={taRef}
@@ -424,7 +434,7 @@ export function ChatWindow({
                 ? "Listening… tap mic to stop"
                 : isTranscribing
                   ? "Transcribing…"
-                  : "Speak or type, Sir. Use 📎 to upload .txt/.lua files"
+                  : "Speak or type, Sir. Drop or attach any file."
             }
             className="flex-1 resize-none bg-background/60 border border-arc/25 rounded-lg px-4 py-3 font-mono text-sm focus:border-arc focus:outline-none max-h-40"
           />
@@ -449,10 +459,11 @@ export function ChatWindow({
           )}
         </div>
         <div className="flex items-center justify-center mt-1.5 text-[10px] text-hud-dim/50 gap-3">
-          <span>📎 Click paperclip to upload .txt or .lua</span>
+          <span>📎 Attach or drop any file</span>
           <span>•</span>
           <span>🎤 Click mic to speak</span>
         </div>
+
       </div>
     </div>
   );

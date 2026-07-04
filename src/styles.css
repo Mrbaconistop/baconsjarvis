@@ -236,3 +236,15 @@
   @keyframes spin-slow { to { transform: rotate(360deg); } }
   .animate-spin-slow { animation: spin-slow 18s linear infinite; }
 }
+
+/* Hide scrollbars globally while keeping scroll functional */
+* {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+*::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+
