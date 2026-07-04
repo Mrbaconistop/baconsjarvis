@@ -348,10 +348,15 @@ export function ChatWindow({
 
   async function submit() {
     const text = input.trim();
-    if (!text || busy) return;
+    const hasAttach = attachments.length > 0;
+    if ((!text && !hasAttach) || busy) return;
+    const attachedBlob = attachments.map((a) => a.content).join("");
+    const finalText = (text + attachedBlob).trim();
     setInput("");
-    await sendMessage({ text });
+    setAttachments([]);
+    await sendMessage({ text: finalText });
   }
+
 
   return (
     <div ref={dropRef} className="flex flex-col h-full relative">
