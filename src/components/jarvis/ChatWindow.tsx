@@ -14,7 +14,7 @@ import {
   Mic,
   MicOff,
   Upload,
-  FileCode,
+  Paperclip,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -61,6 +61,7 @@ export function ChatWindow({
   const chunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
   const dropRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   function pickMimeType(): string | null {
     const candidates = ["audio/webm", "audio/mp4", "audio/ogg"];
@@ -163,7 +164,65 @@ export function ChatWindow({
     };
   }, []);
 
-  // ---- Drag and Drop File Upload ----
+  // ---- File upload handler ----
+  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files;
+    if (!files || files.length === 0) return;
+    processFiles(files);
+    event.target.value = ""; // reset input
+  };
+
+  const processFiles = (files: FileList) => {
+    let fileContent = "";
+    let fileNames: string[] = [];
+    const allowedExtensions = [
+      "txt",
+      "lua",
+      "py",
+      "js",
+      "ts",
+      "html",
+      "css",
+      "json",
+      "xml",
+      "yaml",
+      "yml",
+      "md",
+      "csv",
+      "log",
+    ];
+
+    for (const file of files) {
+      const ext = file.name.split(".").pop()?.toLowerCase() || "";
+      if (!allowedExtensions.includes(ext)) {
+        toast.warning(`Skipped "${file.name}" – unsupported file type (.${ext})`);
+        continue;
+      }
+      if (file.size > 1024 * 1024 * 5) {
+        toast.warning(`Skipped "${file.name}" – file too large (max 5MB)`);
+        continue;
+      }
+      try {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const text = e.target?.result as string;
+          const lang = ext === "lua" ? "lua" : ext === "txt" ? "text" : ext;
+          const snippet = `\n\n--- ${file.name} (${lang}) ---\n${text}\n--- End ${file.name} ---\n`;
+          setInput((prev) => prev + snippet);
+          fileNames.push(file.name);
+        };
+        reader.readAsText(file);
+      } catch (err) {
+        toast.error(`Failed to read "${file.name}"`);
+      }
+    }
+    if (fileNames.length > 0) {
+      toast.success(`Loaded ${fileNames.length} file(s)`);
+      taRef.current?.focus();
+    }
+  };
+
+  // ---- Drag and Drop File Upload (kept as additional feature) ----
   useEffect(() => {
     const element = dropRef.current;
     if (!element) return;
@@ -185,7 +244,6 @@ export function ChatWindow({
     const handleDragLeave = (e: DragEvent) => {
       e.preventDefault();
       e.stopPropagation();
-      // Only set to false if we're actually leaving the element
       const rect = element.getBoundingClientRect();
       const x = e.clientX;
       const y = e.clientY;
@@ -198,62 +256,9 @@ export function ChatWindow({
       e.preventDefault();
       e.stopPropagation();
       setIsDragging(false);
-
       const files = e.dataTransfer?.files;
       if (!files || files.length === 0) return;
-
-      let fileContent = "";
-      let fileNames: string[] = [];
-
-      for (const file of files) {
-        const ext = file.name.split(".").pop()?.toLowerCase() || "";
-        const allowedExtensions = [
-          "txt",
-          "lua",
-          "py",
-          "js",
-          "ts",
-          "html",
-          "css",
-          "json",
-          "xml",
-          "yaml",
-          "yml",
-          "md",
-          "csv",
-          "log",
-        ];
-
-        if (!allowedExtensions.includes(ext)) {
-          toast.warning(`Skipped "${file.name}" – unsupported file type (.${ext})`);
-          continue;
-        }
-
-        if (file.size > 1024 * 1024 * 5) {
-          toast.warning(`Skipped "${file.name}" – file too large (max 5MB)`);
-          continue;
-        }
-
-        try {
-          const text = await file.text();
-          const lang = ext === "lua" ? "lua" : ext === "txt" ? "text" : ext;
-          const snippet = `\n\n--- ${file.name} (${lang}) ---\n${text}\n--- End ${file.name} ---\n`;
-          fileContent += snippet;
-          fileNames.push(file.name);
-        } catch (err) {
-          toast.error(`Failed to read "${file.name}"`);
-        }
-      }
-
-      if (fileContent) {
-        const langHint =
-          fileNames.length === 1
-            ? `I've uploaded a file: ${fileNames[0]}. Here's the content:\n`
-            : `I've uploaded ${fileNames.length} files:\n`;
-        setInput((prev) => prev + (prev ? "\n" : "") + langHint + fileContent);
-        taRef.current?.focus();
-        toast.success(`Loaded ${fileNames.length} file(s)`);
-      }
+      processFiles(files);
     };
 
     element.addEventListener("dragenter", handleDragEnter);
@@ -336,7 +341,7 @@ export function ChatWindow({
       {isDragging && (
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm border-4 border-dashed border-arc rounded-lg">
           <div className="text-center">
-            <FileCode size={48} className="mx-auto text-arc mb-4" />
+            <Upload size={48} className="mx-auto text-arc mb-4" />
             <div className="font-display text-xl text-arc">Drop your files here</div>
             <div className="text-sm text-hud-dim mt-2">
               Accepts: .txt, .lua, .py, .js, .html, .css, .json, .md, .xml, .yml, .csv, .log
@@ -350,7 +355,7 @@ export function ChatWindow({
           <div className="text-center text-hud-dim text-sm mt-12">
             <div className="font-mono text-[10px] tracking-[0.3em] text-arc mb-2">JARVIS ONLINE</div>
             <div>At your service, Sir. Ask for a reminder, save a credential, or simply talk.</div>
-            <div className="mt-4 text-xs text-hud-dim/60">💡 Drag & drop .txt or .lua files into the chat box</div>
+            <div className="mt-4 text-xs text-hud-dim/60">📎 Click the paperclip to upload .txt or .lua files</div>
           </div>
         )}
         {messages.map((m: UIMessage) => (
@@ -385,6 +390,24 @@ export function ChatWindow({
             {isRecording ? <MicOff size={16} /> : <Mic size={16} />}
           </button>
 
+          {/* File upload button */}
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="p-3 rounded-lg border border-arc/30 hover:bg-arc/10 text-hud-dim transition"
+            aria-label="Upload file"
+            title="Upload .txt or .lua file"
+          >
+            <Paperclip size={16} />
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".txt,.lua,.py,.js,.ts,.html,.css,.json,.xml,.yml,.yaml,.md,.csv,.log"
+            multiple
+            className="hidden"
+            onChange={handleFileUpload}
+          />
+
           <textarea
             ref={taRef}
             rows={1}
@@ -401,7 +424,7 @@ export function ChatWindow({
                 ? "Listening… tap mic to stop"
                 : isTranscribing
                   ? "Transcribing…"
-                  : 'Speak or type, Sir. e.g. "Remind me to drink water every weekday at 10am"\nDrop .txt or .lua files here'
+                  : "Speak or type, Sir. Use 📎 to upload .txt/.lua files"
             }
             className="flex-1 resize-none bg-background/60 border border-arc/25 rounded-lg px-4 py-3 font-mono text-sm focus:border-arc focus:outline-none max-h-40"
           />
@@ -426,7 +449,7 @@ export function ChatWindow({
           )}
         </div>
         <div className="flex items-center justify-center mt-1.5 text-[10px] text-hud-dim/50 gap-3">
-          <span>📎 Drop .txt or .lua files here</span>
+          <span>📎 Click paperclip to upload .txt or .lua</span>
           <span>•</span>
           <span>🎤 Click mic to speak</span>
         </div>
