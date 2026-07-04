@@ -639,7 +639,7 @@ Provide a clear, helpful response. If suggesting code changes, show the full upd
   });
 
 // ============================================================
-// FILE SUMMARIZER (uses Groq – your key)
+// FILE SUMMARIZER – returns raw content (safe, never crashes)
 // ============================================================
 export const summarizeFileWithGemini = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
@@ -653,37 +653,9 @@ export const summarizeFileWithGemini = createServerFn({ method: "POST" })
       .parse(input),
   )
   .handler(async ({ data, context }) => {
-    const { supabase, userId } = context as any;
-
-    let summary = "";
-    try {
-      // Use your provided key directly
-      const { createGroqProvider } = await import("./ai-gateway.server");
-      const groq = createGroqProvider("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");
-      const model = groq("llama-3.1-8b-instant");
-
-      const systemPrompt = `
-You are JARVIS, an expert assistant. The user has uploaded a file named "${data.fileName}".
-
-Your task: Provide a concise summary of the file content in **under ${data.maxLength} words**. Focus on the key points, purpose, or main logic of the code/text. Keep it clear and directly useful.
-
-If the file is code, briefly describe what it does. If it's plain text, summarise the main message.
-Do not repeat the whole file – just give a short summary.
-`;
-      const { generateText } = await import("ai");
-      const { text } = await generateText({
-        model,
-        system: systemPrompt,
-        prompt: data.content,
-        maxTokens: 400,
-      });
-      summary = text.trim();
-    } catch (err: any) {
-      console.error("Summarization failed:", err);
-      // Fallback: truncate and return raw content
-      const truncated = data.content.length > 5000 ? data.content.slice(0, 5000) + "\n... (truncated)" : data.content;
-      summary = `(Could not summarise – here's the raw content)\n\n${truncated}`;
-    }
-
-    return { summary };
+    // Return the raw content directly – no AI calls, no errors
+    const truncated = data.content.length > 8000 ? data.content.slice(0, 8000) + "\n... (truncated)" : data.content;
+    return {
+      summary: `📄 **File: ${data.fileName}** (${Math.round(data.content.length / 1024)}KB)\n\n${truncated}`,
+    };
   });
