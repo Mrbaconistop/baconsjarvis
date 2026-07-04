@@ -1,3 +1,4 @@
+import { getModelForUser } from "@/lib/ai-gateway.server";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -1081,4 +1082,53 @@ function wrapHtml(body: string, config: TabConfig): string {
   }
 </body>
 </html>`;
+}
+// ---- AI Request (new) ----
+if (type === "ai-request" && code !== undefined && prompt !== undefined) {
+  try {
+    const { model } = await getModelForUser(userId, supabase);
+    const { generateText } = await import("ai");
+    const systemPrompt = `
+You are JARVIS, an expert programmer. The user has asked you to help with code in a code editor.
+
+Current code:
+\`\`\`${language || "plaintext"}
+${code}
+\`\`\`
+
+User's request: ${prompt}
+
+Provide a clear, helpful response. If suggesting code changes, show the full updated code or explain the changes clearly.
+`;
+
+    const { text } = await generateText({
+      model,
+      system: systemPrompt,
+      prompt: prompt,
+    });
+
+    const iframe = iframeRef.current;
+    if (iframe && iframe.contentWindow) {
+      iframe.contentWindow.postMessage(
+        {
+          type: "ai-response",
+          response: text,
+          requestId,
+        },
+        "*",
+      );
+    }
+  } catch (err: any) {
+    const iframe = iframeRef.current;
+    if (iframe && iframe.contentWindow) {
+      iframe.contentWindow.postMessage(
+        {
+          type: "ai-response",
+          response: `Sorry, Sir. I encountered an error: ${err.message}`,
+          requestId,
+        },
+        "*",
+      );
+    }
+  }
 }
