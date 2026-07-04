@@ -164,63 +164,71 @@ export function ChatWindow({
     };
   }, []);
 
-  // ---- File upload handler ----
-  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const files = event.target.files;
-    if (!files || files.length === 0) return;
-    processFiles(files);
-    event.target.value = ""; // reset input
-  };
+  const TEXT_EXTS = new Set([
+    "txt","lua","py","js","jsx","ts","tsx","html","htm","css","scss","json","xml",
+    "yaml","yml","md","mdx","csv","tsv","log","ini","toml","env","sh","bash","zsh",
+    "sql","rb","go","rs","java","c","h","cpp","hpp","cs","php","swift","kt","dart",
+    "vue","svelte","gitignore","dockerfile","conf",
+  ]);
 
-  const processFiles = (files: FileList) => {
-    let fileContent = "";
-    let fileNames: string[] = [];
-    const allowedExtensions = [
-      "txt",
-      "lua",
-      "py",
-      "js",
-      "ts",
-      "html",
-      "css",
-      "json",
-      "xml",
-      "yaml",
-      "yml",
-      "md",
-      "csv",
-      "log",
-    ];
-
+  const processFiles = async (files: FileList) => {
+    let textCount = 0;
+    let uploadCount = 0;
     for (const file of files) {
       const ext = file.name.split(".").pop()?.toLowerCase() || "";
-      if (!allowedExtensions.includes(ext)) {
-        toast.warning(`Skipped "${file.name}" – unsupported file type (.${ext})`);
-        continue;
-      }
-      if (file.size > 1024 * 1024 * 5) {
-        toast.warning(`Skipped "${file.name}" – file too large (max 5MB)`);
-        continue;
-      }
-      try {
-        const reader = new FileReader();
-        reader.onload = (e) => {
-          const text = e.target?.result as string;
-          const lang = ext === "lua" ? "lua" : ext === "txt" ? "text" : ext;
+      const isText = TEXT_EXTS.has(ext) || file.type.startsWith("text/");
+
+      if (isText) {
+        if (file.size > 1024 * 1024 * 5) {
+          toast.warning(`Skipped "${file.name}" – file too large (max 5MB text)`);
+          continue;
+        }
+        try {
+          const text = await file.text();
+          const lang = ext === "lua" ? "lua" : ext === "txt" ? "text" : ext || "text";
           const snippet = `\n\n--- ${file.name} (${lang}) ---\n${text}\n--- End ${file.name} ---\n`;
           setInput((prev) => prev + snippet);
-          fileNames.push(file.name);
-        };
-        reader.readAsText(file);
-      } catch (err) {
-        toast.error(`Failed to read "${file.name}"`);
+          textCount++;
+        } catch {
+          toast.error(`Failed to read "${file.name}"`);
+        }
+      } else {
+        if (file.size > 1024 * 1024 * 25) {
+          toast.warning(`Skipped "${file.name}" – too large (max 25MB)`);
+          continue;
+        }
+        try {
+          const { data: { user } } = await supabase.auth.getUser();
+          if (!user) { toast.error("Not signed in."); continue; }
+          const safeName = file.name.replace(/[^\w.\-]+/g, "_");
+          const path = `${user.id}/${Date.now()}_${safeName}`;
+          const { error } = await supabase.storage.from("user-files").upload(path, file, {
+            contentType: file.type || "application/octet-stream",
+            upsert: false,
+          });
+          if (error) throw error;
+          const storedName = path.split("/").slice(1).join("/");
+          setInput((prev) => prev + `\n\n[Uploaded file: ${storedName} (${file.type || "binary"}, ${Math.round(file.size / 1024)}KB) — use your file tools to inspect it]\n`);
+          uploadCount++;
+        } catch (err: any) {
+          console.error("[upload]", err);
+          toast.error(`Upload failed for "${file.name}": ${err?.message ?? err}`);
+        }
       }
     }
-    if (fileNames.length > 0) {
-      toast.success(`Loaded ${fileNames.length} file(s)`);
+    if (textCount || uploadCount) {
+      toast.success(`Attached ${textCount + uploadCount} file(s)`);
       taRef.current?.focus();
     }
   };
+
+  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files;
+    if (!files || files.length === 0) return;
+    void processFiles(files);
+    event.target.value = "";
+  };
+
 
   // ---- Drag and Drop File Upload (kept as additional feature) ----
   useEffect(() => {
