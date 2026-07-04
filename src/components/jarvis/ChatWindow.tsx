@@ -364,7 +364,7 @@ export function ChatWindow({
           <div className="text-center text-hud-dim text-sm mt-12">
             <div className="font-mono text-[10px] tracking-[0.3em] text-arc mb-2">JARVIS ONLINE</div>
             <div>At your service, Sir. Ask for a reminder, save a credential, or simply talk.</div>
-            <div className="mt-4 text-xs text-hud-dim/60">📎 Click the paperclip to upload .txt or .lua files</div>
+            <div className="mt-4 text-xs text-hud-dim/60">📎 Paperclip or drag-drop any file — code inlines, everything else uploads to storage</div>
           </div>
         )}
         {messages.map((m: UIMessage) => (
