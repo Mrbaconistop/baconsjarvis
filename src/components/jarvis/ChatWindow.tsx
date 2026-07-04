@@ -15,7 +15,11 @@ import {
   MicOff,
   Upload,
   Paperclip,
+  X,
+  FileText,
+  FileIcon,
 } from "lucide-react";
+
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
@@ -52,9 +56,11 @@ export function ChatWindow({
 }) {
   const qc = useQueryClient();
   const [input, setInput] = useState("");
+  const [attachments, setAttachments] = useState<Array<{ id: string; name: string; kind: "text" | "upload"; content: string; size: number; mime: string }>>([]);
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+
   const taRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -172,23 +178,23 @@ export function ChatWindow({
   ]);
 
   const processFiles = async (files: FileList) => {
-    let textCount = 0;
-    let uploadCount = 0;
+    let added = 0;
     for (const file of files) {
       const ext = file.name.split(".").pop()?.toLowerCase() || "";
       const isText = TEXT_EXTS.has(ext) || file.type.startsWith("text/");
+      const id = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
       if (isText) {
         if (file.size > 1024 * 1024 * 5) {
-          toast.warning(`Skipped "${file.name}" – file too large (max 5MB text)`);
+          toast.warning(`Skipped "${file.name}" – too large (max 5MB text)`);
           continue;
         }
         try {
           const text = await file.text();
           const lang = ext === "lua" ? "lua" : ext === "txt" ? "text" : ext || "text";
-          const snippet = `\n\n--- ${file.name} (${lang}) ---\n${text}\n--- End ${file.name} ---\n`;
-          setInput((prev) => prev + snippet);
-          textCount++;
+          const content = `\n\n--- ${file.name} (${lang}) ---\n${text}\n--- End ${file.name} ---\n`;
+          setAttachments((prev) => [...prev, { id, name: file.name, kind: "text", content, size: file.size, mime: file.type || "text/plain" }]);
+          added++;
         } catch {
           toast.error(`Failed to read "${file.name}"`);
         }
@@ -208,19 +214,23 @@ export function ChatWindow({
           });
           if (error) throw error;
           const storedName = path.split("/").slice(1).join("/");
-          setInput((prev) => prev + `\n\n[Uploaded file: ${storedName} (${file.type || "binary"}, ${Math.round(file.size / 1024)}KB) — use your file tools to inspect it]\n`);
-          uploadCount++;
+          const content = `\n\n[Uploaded file: ${storedName} (${file.type || "binary"}, ${Math.round(file.size / 1024)}KB) — use your file tools to inspect it]\n`;
+          setAttachments((prev) => [...prev, { id, name: file.name, kind: "upload", content, size: file.size, mime: file.type || "application/octet-stream" }]);
+          added++;
         } catch (err: any) {
           console.error("[upload]", err);
           toast.error(`Upload failed for "${file.name}": ${err?.message ?? err}`);
         }
       }
     }
-    if (textCount || uploadCount) {
-      toast.success(`Attached ${textCount + uploadCount} file(s)`);
+    if (added) {
+      toast.success(`Attached ${added} file(s)`);
       taRef.current?.focus();
     }
   };
+
+  const removeAttachment = (id: string) => setAttachments((prev) => prev.filter((a) => a.id !== id));
+
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
@@ -338,10 +348,15 @@ export function ChatWindow({
 
   async function submit() {
     const text = input.trim();
-    if (!text || busy) return;
+    const hasAttach = attachments.length > 0;
+    if ((!text && !hasAttach) || busy) return;
+    const attachedBlob = attachments.map((a) => a.content).join("");
+    const finalText = (text + attachedBlob).trim();
     setInput("");
-    await sendMessage({ text });
+    setAttachments([]);
+    await sendMessage({ text: finalText });
   }
+
 
   return (
     <div ref={dropRef} className="flex flex-col h-full relative">
@@ -382,7 +397,35 @@ export function ChatWindow({
       </div>
 
       <div className="border-t border-arc/15 bg-background/40 backdrop-blur px-4 py-3">
+        {attachments.length > 0 && (
+          <div className="max-w-4xl mx-auto mb-2 flex flex-wrap gap-2">
+            {attachments.map((a) => {
+              const Icon = a.kind === "text" ? FileText : FileIcon;
+              return (
+                <div
+                  key={a.id}
+                  className="flex items-center gap-2 pl-2 pr-1 py-1 rounded-md border border-arc/30 bg-arc/10 text-xs"
+                  title={`${a.name} (${Math.round(a.size / 1024)}KB)`}
+                >
+                  <Icon size={12} className="text-arc" />
+                  <span className="font-mono truncate max-w-[220px]">{a.name}</span>
+                  <span className="text-hud-dim/70 text-[10px]">
+                    {a.kind === "text" ? "inline" : "stored"}
+                  </span>
+                  <button
+                    onClick={() => removeAttachment(a.id)}
+                    className="p-0.5 rounded hover:bg-critical/20 text-hud-dim hover:text-critical transition"
+                    aria-label={`Remove ${a.name}`}
+                  >
+                    <X size={12} />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
         <div className="flex items-end gap-2 max-w-4xl mx-auto">
+
           <button
             onClick={toggleMic}
             disabled={isTranscribing}
@@ -450,7 +493,8 @@ export function ChatWindow({
           ) : (
             <button
               onClick={submit}
-              disabled={!input.trim()}
+              disabled={!input.trim() && attachments.length === 0}
+
               className="p-3 rounded-lg bg-arc text-arc-foreground shadow-arc hover:opacity-90 disabled:opacity-40 transition"
               aria-label="Send"
             >
