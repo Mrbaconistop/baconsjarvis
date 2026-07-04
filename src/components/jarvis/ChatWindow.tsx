@@ -410,11 +410,11 @@ export function ChatWindow({
           <input
             ref={fileInputRef}
             type="file"
-            accept=".txt,.lua,.py,.js,.ts,.html,.css,.json,.xml,.yml,.yaml,.md,.csv,.log"
             multiple
             className="hidden"
             onChange={handleFileUpload}
           />
+
 
           <textarea
             ref={taRef}
