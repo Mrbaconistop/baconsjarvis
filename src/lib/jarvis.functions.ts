@@ -602,7 +602,7 @@ export const updateLastPrice = createServerFn({ method: "POST" })
   });
 
 // ============================================================
-// AI CODE ASSISTANT (used by the editor)
+// AI CODE ASSISTANT (forced Gemini – ignores user settings)
 // ============================================================
 export const askCodeAssistant = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
@@ -617,7 +617,11 @@ export const askCodeAssistant = createServerFn({ method: "POST" })
   )
   .handler(async ({ data, context }) => {
     const { supabase, userId } = context as any;
-    const { model } = await getModelForUser(userId, supabase);
+
+    // Force Gemini: resolve a Gemini model directly
+    const { resolveChatModel } = await import("./ai-gateway.server");
+    const { model } = resolveChatModel({ provider: "gemini" });
+
     const systemPrompt = `
 You are JARVIS, an expert programmer. The user has asked you to help with code in a code editor.
 
@@ -630,32 +634,11 @@ User's request: ${data.prompt}
 
 Provide a clear, helpful response. If suggesting code changes, show the full updated code or explain the changes clearly.
 `;
+    const { generateText } = await import("ai");
     const { text } = await generateText({
       model,
       system: systemPrompt,
       prompt: data.prompt,
     });
     return { response: text };
-  });
-
-// ============================================================
-// FILE SUMMARIZER – returns raw content (safe, never crashes)
-// ============================================================
-export const summarizeFileWithGemini = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) =>
-    z
-      .object({
-        fileName: z.string(),
-        content: z.string(),
-        maxLength: z.number().optional().default(200),
-      })
-      .parse(input),
-  )
-  .handler(async ({ data, context }) => {
-    // Return the raw content directly – no AI calls, no errors
-    const truncated = data.content.length > 8000 ? data.content.slice(0, 8000) + "\n... (truncated)" : data.content;
-    return {
-      summary: `📄 **File: ${data.fileName}** (${Math.round(data.content.length / 1024)}KB)\n\n${truncated}`,
-    };
   });

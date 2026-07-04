@@ -15,9 +15,6 @@ import {
   MicOff,
   Upload,
   Paperclip,
-  X,
-  FileText,
-  FileIcon,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -55,13 +52,9 @@ export function ChatWindow({
 }) {
   const qc = useQueryClient();
   const [input, setInput] = useState("");
-  const [attachments, setAttachments] = useState<
-    Array<{ id: string; name: string; kind: "text" | "upload"; content: string; size: number; mime: string }>
-  >([]);
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
-
   const taRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -172,101 +165,41 @@ export function ChatWindow({
   }, []);
 
   const TEXT_EXTS = new Set([
-    "txt",
-    "lua",
-    "py",
-    "js",
-    "jsx",
-    "ts",
-    "tsx",
-    "html",
-    "htm",
-    "css",
-    "scss",
-    "json",
-    "xml",
-    "yaml",
-    "yml",
-    "md",
-    "mdx",
-    "csv",
-    "tsv",
-    "log",
-    "ini",
-    "toml",
-    "env",
-    "sh",
-    "bash",
-    "zsh",
-    "sql",
-    "rb",
-    "go",
-    "rs",
-    "java",
-    "c",
-    "h",
-    "cpp",
-    "hpp",
-    "cs",
-    "php",
-    "swift",
-    "kt",
-    "dart",
-    "vue",
-    "svelte",
-    "gitignore",
-    "dockerfile",
-    "conf",
+    "txt","lua","py","js","jsx","ts","tsx","html","htm","css","scss","json","xml",
+    "yaml","yml","md","mdx","csv","tsv","log","ini","toml","env","sh","bash","zsh",
+    "sql","rb","go","rs","java","c","h","cpp","hpp","cs","php","swift","kt","dart",
+    "vue","svelte","gitignore","dockerfile","conf",
   ]);
 
-  // ---- Process files: inline text files as collapsible blocks, binaries upload ----
   const processFiles = async (files: FileList) => {
-    let added = 0;
+    let textCount = 0;
+    let uploadCount = 0;
     for (const file of files) {
       const ext = file.name.split(".").pop()?.toLowerCase() || "";
       const isText = TEXT_EXTS.has(ext) || file.type.startsWith("text/");
-      const id = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
       if (isText) {
         if (file.size > 1024 * 1024 * 5) {
-          toast.warning(`Skipped "${file.name}" – too large (max 5MB text)`);
+          toast.warning(`Skipped "${file.name}" – file too large (max 5MB text)`);
           continue;
         }
         try {
-          const rawContent = await file.text();
-          // Build a collapsible block: user sees only the filename and size, AI sees everything
-          const content = `
-<details>
-<summary>📄 ${file.name} (${Math.round(file.size / 1024)}KB) – click to expand</summary>
-
-\`\`\`${ext || "text"}
-${rawContent}
-\`\`\`
-
-</details>
-`;
-          setAttachments((prev) => [
-            ...prev,
-            { id, name: file.name, kind: "text", content, size: file.size, mime: file.type || "text/plain" },
-          ]);
-          added++;
+          const text = await file.text();
+          const lang = ext === "lua" ? "lua" : ext === "txt" ? "text" : ext || "text";
+          const snippet = `\n\n--- ${file.name} (${lang}) ---\n${text}\n--- End ${file.name} ---\n`;
+          setInput((prev) => prev + snippet);
+          textCount++;
         } catch {
           toast.error(`Failed to read "${file.name}"`);
         }
       } else {
-        // Binary files – upload to storage
         if (file.size > 1024 * 1024 * 25) {
           toast.warning(`Skipped "${file.name}" – too large (max 25MB)`);
           continue;
         }
         try {
-          const {
-            data: { user },
-          } = await supabase.auth.getUser();
-          if (!user) {
-            toast.error("Not signed in.");
-            continue;
-          }
+          const { data: { user } } = await supabase.auth.getUser();
+          if (!user) { toast.error("Not signed in."); continue; }
           const safeName = file.name.replace(/[^\w.\-]+/g, "_");
           const path = `${user.id}/${Date.now()}_${safeName}`;
           const { error } = await supabase.storage.from("user-files").upload(path, file, {
@@ -275,32 +208,19 @@ ${rawContent}
           });
           if (error) throw error;
           const storedName = path.split("/").slice(1).join("/");
-          const content = `\n\n[Uploaded file: ${storedName} (${file.type || "binary"}, ${Math.round(file.size / 1024)}KB) — use your file tools to inspect it]\n`;
-          setAttachments((prev) => [
-            ...prev,
-            {
-              id,
-              name: file.name,
-              kind: "upload",
-              content,
-              size: file.size,
-              mime: file.type || "application/octet-stream",
-            },
-          ]);
-          added++;
+          setInput((prev) => prev + `\n\n[Uploaded file: ${storedName} (${file.type || "binary"}, ${Math.round(file.size / 1024)}KB) — use your file tools to inspect it]\n`);
+          uploadCount++;
         } catch (err: any) {
           console.error("[upload]", err);
           toast.error(`Upload failed for "${file.name}": ${err?.message ?? err}`);
         }
       }
     }
-    if (added) {
-      toast.success(`Attached ${added} file(s)`);
+    if (textCount || uploadCount) {
+      toast.success(`Attached ${textCount + uploadCount} file(s)`);
       taRef.current?.focus();
     }
   };
-
-  const removeAttachment = (id: string) => setAttachments((prev) => prev.filter((a) => a.id !== id));
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
@@ -309,7 +229,8 @@ ${rawContent}
     event.target.value = "";
   };
 
-  // ---- Drag and Drop ----
+
+  // ---- Drag and Drop File Upload (kept as additional feature) ----
   useEffect(() => {
     const element = dropRef.current;
     if (!element) return;
@@ -361,7 +282,7 @@ ${rawContent}
     };
   }, []);
 
-  // ---- Chat Transport ----
+  // ---- Transport ----
   const transport = useMemo(
     () =>
       new DefaultChatTransport({
@@ -417,13 +338,9 @@ ${rawContent}
 
   async function submit() {
     const text = input.trim();
-    const hasAttach = attachments.length > 0;
-    if ((!text && !hasAttach) || busy) return;
-    const attachedBlob = attachments.map((a) => a.content).join("");
-    const finalText = (text + attachedBlob).trim();
+    if (!text || busy) return;
     setInput("");
-    setAttachments([]);
-    await sendMessage({ text: finalText });
+    await sendMessage({ text });
   }
 
   return (
@@ -435,8 +352,9 @@ ${rawContent}
             <Upload size={48} className="mx-auto text-arc mb-4" />
             <div className="font-display text-xl text-arc">Drop your files here</div>
             <div className="text-sm text-hud-dim mt-2">
-              Text files are inlined (collapsible) – binaries upload to your storage
+              Any file type — code is inlined, images/PDFs/binaries upload to your storage
             </div>
+
           </div>
         </div>
       )}
@@ -446,7 +364,7 @@ ${rawContent}
           <div className="text-center text-hud-dim text-sm mt-12">
             <div className="font-mono text-[10px] tracking-[0.3em] text-arc mb-2">JARVIS ONLINE</div>
             <div>At your service, Sir. Ask for a reminder, save a credential, or simply talk.</div>
-            <div className="mt-4 text-xs text-hud-dim/60">📎 Upload .txt/.lua files – AI sees the full content</div>
+            <div className="mt-4 text-xs text-hud-dim/60">📎 Paperclip or drag-drop any file — code inlines, everything else uploads to storage</div>
           </div>
         )}
         {messages.map((m: UIMessage) => (
@@ -464,31 +382,6 @@ ${rawContent}
       </div>
 
       <div className="border-t border-arc/15 bg-background/40 backdrop-blur px-4 py-3">
-        {attachments.length > 0 && (
-          <div className="max-w-4xl mx-auto mb-2 flex flex-wrap gap-2">
-            {attachments.map((a) => {
-              const Icon = a.kind === "text" ? FileText : FileIcon;
-              return (
-                <div
-                  key={a.id}
-                  className="flex items-center gap-2 pl-2 pr-1 py-1 rounded-md border border-arc/30 bg-arc/10 text-xs"
-                  title={`${a.name} (${Math.round(a.size / 1024)}KB)`}
-                >
-                  <Icon size={12} className="text-arc" />
-                  <span className="font-mono truncate max-w-[220px]">{a.name}</span>
-                  <span className="text-hud-dim/70 text-[10px]">{a.kind === "text" ? "collapsible" : "stored"}</span>
-                  <button
-                    onClick={() => removeAttachment(a.id)}
-                    className="p-0.5 rounded hover:bg-critical/20 text-hud-dim hover:text-critical transition"
-                    aria-label={`Remove ${a.name}`}
-                  >
-                    <X size={12} />
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        )}
         <div className="flex items-end gap-2 max-w-4xl mx-auto">
           <button
             onClick={toggleMic}
@@ -506,15 +399,24 @@ ${rawContent}
             {isRecording ? <MicOff size={16} /> : <Mic size={16} />}
           </button>
 
+          {/* File upload button */}
           <button
             onClick={() => fileInputRef.current?.click()}
             className="p-3 rounded-lg border border-arc/30 hover:bg-arc/10 text-hud-dim transition"
             aria-label="Upload file"
             title="Attach any file"
+
           >
             <Paperclip size={16} />
           </button>
-          <input ref={fileInputRef} type="file" multiple className="hidden" onChange={handleFileUpload} />
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={handleFileUpload}
+          />
+
 
           <textarea
             ref={taRef}
@@ -548,7 +450,7 @@ ${rawContent}
           ) : (
             <button
               onClick={submit}
-              disabled={!input.trim() && attachments.length === 0}
+              disabled={!input.trim()}
               className="p-3 rounded-lg bg-arc text-arc-foreground shadow-arc hover:opacity-90 disabled:opacity-40 transition"
               aria-label="Send"
             >
@@ -557,10 +459,11 @@ ${rawContent}
           )}
         </div>
         <div className="flex items-center justify-center mt-1.5 text-[10px] text-hud-dim/50 gap-3">
-          <span>📎 Attach any file – AI sees the full content</span>
+          <span>📎 Attach or drop any file</span>
           <span>•</span>
           <span>🎤 Click mic to speak</span>
         </div>
+
       </div>
     </div>
   );
