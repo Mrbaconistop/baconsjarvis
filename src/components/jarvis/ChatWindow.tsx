@@ -404,7 +404,8 @@ export function ChatWindow({
             onClick={() => fileInputRef.current?.click()}
             className="p-3 rounded-lg border border-arc/30 hover:bg-arc/10 text-hud-dim transition"
             aria-label="Upload file"
-            title="Upload .txt or .lua file"
+            title="Attach any file"
+
           >
             <Paperclip size={16} />
           </button>
