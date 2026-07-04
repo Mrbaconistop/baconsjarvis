@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState, useRef, useCallback } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import { getCustomTab, updateCustomTab, deleteCustomTab, createCustomTab } from "@/lib/custom-tabs.functions";
 import { listThreads, createThread, deleteThread, getMessages } from "@/lib/chat.functions";
 import { PageHeader } from "@/components/jarvis/HudBits";
@@ -107,7 +107,7 @@ function CustomTabPage() {
     containerPadding: 16,
   });
 
-  // Fullscreen
+  // Fullscreen (parent‑side)
   const [isFullscreen, setIsFullscreen] = useState<boolean>(() => {
     if (typeof window === "undefined") return false;
     return localStorage.getItem(`tab-fullscreen-${tab?.id}`) === "true";
@@ -161,43 +161,6 @@ function CustomTabPage() {
     }
   }, [assistantOpen]);
 
-  // ---- postMessage listener for localStorage (used by the iframe) ----
-  useEffect(() => {
-    const handler = (event: MessageEvent) => {
-      const { type, key, value, requestId } = event.data || {};
-      if (type === "storage-get") {
-        const stored = localStorage.getItem(key);
-        const iframe = iframeRef.current;
-        if (iframe && iframe.contentWindow) {
-          iframe.contentWindow.postMessage(
-            {
-              type: "storage-get-response",
-              key,
-              value: stored,
-              requestId,
-            },
-            "*",
-          );
-        }
-      } else if (type === "storage-set") {
-        localStorage.setItem(key, value);
-        const iframe = iframeRef.current;
-        if (iframe && iframe.contentWindow) {
-          iframe.contentWindow.postMessage(
-            {
-              type: "storage-set-response",
-              key,
-              requestId,
-            },
-            "*",
-          );
-        }
-      }
-    };
-    window.addEventListener("message", handler);
-    return () => window.removeEventListener("message", handler);
-  }, []);
-
   // ---- Keyboard shortcuts ----
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -212,7 +175,7 @@ function CustomTabPage() {
             if (editing) save();
             else setEditing(true);
             break;
-          case "f": // Ctrl+Shift+F -> Fullscreen
+          case "f": // Ctrl+Shift+F -> Fullscreen (parent)
             if (e.shiftKey) {
               e.preventDefault();
               setIsFullscreen(!isFullscreen);
@@ -617,7 +580,7 @@ function CustomTabPage() {
                 <iframe
                   title="preview"
                   srcDoc={wrapHtml(draft, config)}
-                  sandbox="allow-scripts allow-same-origin"
+                  sandbox="allow-scripts allow-same-origin allow-fullscreen"
                   className="w-full h-full min-h-[300px]"
                 />
               </div>
@@ -627,7 +590,7 @@ function CustomTabPage() {
               ref={iframeRef}
               title={tab.label}
               srcDoc={srcDoc}
-              sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+              sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-fullscreen"
               className="w-full h-full min-h-[400px] rounded-2xl border border-arc/20 bg-white shadow-arc"
             />
           ) : (
@@ -700,7 +663,6 @@ function CustomTabPage() {
 // ------------------------------------------------------------
 // Subcomponents
 // ------------------------------------------------------------
-
 function TabAssistant({ tabSlug, tabLabel }: { tabSlug: string; tabLabel: string }) {
   const qc = useQueryClient();
   const list = useServerFn(listThreads);
