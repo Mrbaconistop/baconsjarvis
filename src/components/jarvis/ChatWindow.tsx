@@ -397,7 +397,35 @@ export function ChatWindow({
       </div>
 
       <div className="border-t border-arc/15 bg-background/40 backdrop-blur px-4 py-3">
+        {attachments.length > 0 && (
+          <div className="max-w-4xl mx-auto mb-2 flex flex-wrap gap-2">
+            {attachments.map((a) => {
+              const Icon = a.kind === "text" ? FileText : FileIcon;
+              return (
+                <div
+                  key={a.id}
+                  className="flex items-center gap-2 pl-2 pr-1 py-1 rounded-md border border-arc/30 bg-arc/10 text-xs"
+                  title={`${a.name} (${Math.round(a.size / 1024)}KB)`}
+                >
+                  <Icon size={12} className="text-arc" />
+                  <span className="font-mono truncate max-w-[220px]">{a.name}</span>
+                  <span className="text-hud-dim/70 text-[10px]">
+                    {a.kind === "text" ? "inline" : "stored"}
+                  </span>
+                  <button
+                    onClick={() => removeAttachment(a.id)}
+                    className="p-0.5 rounded hover:bg-critical/20 text-hud-dim hover:text-critical transition"
+                    aria-label={`Remove ${a.name}`}
+                  >
+                    <X size={12} />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
         <div className="flex items-end gap-2 max-w-4xl mx-auto">
+
           <button
             onClick={toggleMic}
             disabled={isTranscribing}
