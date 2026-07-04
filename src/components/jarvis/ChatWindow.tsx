@@ -15,7 +15,11 @@ import {
   MicOff,
   Upload,
   Paperclip,
+  X,
+  FileText,
+  FileIcon,
 } from "lucide-react";
+
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
