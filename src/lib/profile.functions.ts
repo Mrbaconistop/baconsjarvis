@@ -37,6 +37,7 @@ export const getLLMConfig = createServerFn({ method: "GET" })
       provider: config.provider || "system",
       apiKey: config.api_key || "",
       mode: config.mode || "basic",
+      coding_submode: config.coding_submode || "full",
     };
   });
 
@@ -48,6 +49,7 @@ export const updateLLMConfig = createServerFn({ method: "POST" })
         provider: z.enum(["groq", "deepseek", "lovable", "system", "lmstudio", "gemini"]),
         apiKey: z.string().optional(),
         mode: z.enum(["thinking", "coding", "basic"]).optional(),
+        coding_submode: z.enum(["full", "language_only", "direct"]).optional(),
       })
       .parse(input),
   )
@@ -67,6 +69,10 @@ export const updateLLMConfig = createServerFn({ method: "POST" })
 
     if (data.mode) {
       facts.push({ user_id: userId, category: "llm", key: "mode", value: data.mode });
+    }
+
+    if (data.mode === "coding" && data.coding_submode) {
+      facts.push({ user_id: userId, category: "llm", key: "coding_submode", value: data.coding_submode });
     }
 
     if (facts.length > 0) {
@@ -94,5 +100,29 @@ export const storeGoogleConnection = createServerFn({ method: "POST" })
       );
       if (error) console.error(`Failed to store ${platform}:`, error);
     }
+    return { ok: true };
+  });
+
+export const updateCodingSubmode = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) =>
+    z
+      .object({
+        submode: z.enum(["full", "language_only", "direct"]),
+      })
+      .parse(input),
+  )
+  .handler(async ({ data, context }) => {
+    const { supabase, userId } = context as any;
+
+    await supabase.from("user_facts").delete().eq("user_id", userId).eq("category", "llm").eq("key", "coding_submode");
+
+    const { error } = await supabase.from("user_facts").insert({
+      user_id: userId,
+      category: "llm",
+      key: "coding_submode",
+      value: data.submode,
+    });
+    if (error) throw error;
     return { ok: true };
   });

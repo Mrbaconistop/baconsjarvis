@@ -165,7 +165,7 @@ export const Route = createFileRoute("/api/chat")({
         }
 
         // Get model and mode
-        const { model: chatModel, mode } = await getModelForUser(userId, supabase);
+        const { model: chatModel, mode, submode } = await getModelForUser(userId, supabase);
 
         // Format current time
         const now = new Date();
