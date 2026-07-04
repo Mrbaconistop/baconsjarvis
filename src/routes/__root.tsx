@@ -14,6 +14,7 @@ import { useEffect, type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
+import { installDebugConsole } from "../lib/debug-console";
 import { supabase } from "@/integrations/supabase/client";
 import { Toaster } from "@/components/ui/sonner";
 
@@ -40,6 +41,9 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
   const router = useRouter();
   useEffect(() => {
     reportLovableError(error, { boundary: "tanstack_root_error_component" });
+    if (typeof window !== "undefined") {
+      (window as any).JARVIS_DEBUG?.(error, { boundary: "tanstack_root_error_component" });
+    }
   }, [error]);
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4 grid-bg">
@@ -139,6 +143,7 @@ function RootComponent() {
   const router = useRouter();
 
   useEffect(() => {
+    installDebugConsole();
     const { data: sub } = supabase.auth.onAuthStateChange((event) => {
       if (event !== "SIGNED_IN" && event !== "SIGNED_OUT" && event !== "USER_UPDATED") return;
       router.invalidate();
