@@ -602,7 +602,7 @@ export const updateLastPrice = createServerFn({ method: "POST" })
   });
 
 // ============================================================
-// AI CODE ASSISTANT (used by the editor)
+// AI CODE ASSISTANT (forced Gemini – ignores user settings)
 // ============================================================
 export const askCodeAssistant = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
@@ -617,7 +617,11 @@ export const askCodeAssistant = createServerFn({ method: "POST" })
   )
   .handler(async ({ data, context }) => {
     const { supabase, userId } = context as any;
-    const { model } = await getModelForUser(userId, supabase);
+
+    // Force Gemini: resolve a Gemini model directly
+    const { resolveChatModel } = await import("./ai-gateway.server");
+    const { model } = resolveChatModel({ provider: "gemini" });
+
     const systemPrompt = `
 You are JARVIS, an expert programmer. The user has asked you to help with code in a code editor.
 
@@ -630,6 +634,7 @@ User's request: ${data.prompt}
 
 Provide a clear, helpful response. If suggesting code changes, show the full updated code or explain the changes clearly.
 `;
+    const { generateText } = await import("ai");
     const { text } = await generateText({
       model,
       system: systemPrompt,
