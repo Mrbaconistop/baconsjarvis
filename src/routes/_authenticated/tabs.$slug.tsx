@@ -1,3 +1,5 @@
+import { generateText } from "ai";
+import { getModelForUser } from "@/lib/ai-gateway.server";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -6,7 +8,6 @@ import { getCustomTab, updateCustomTab, deleteCustomTab, createCustomTab } from 
 import { listThreads, createThread, deleteThread, getMessages } from "@/lib/chat.functions";
 import { PageHeader } from "@/components/jarvis/HudBits";
 import { ChatWindow } from "@/components/jarvis/ChatWindow";
-import { askCodeAssistant } from "@/lib/jarvis.functions";
 import {
   Pencil,
   Save,
@@ -73,7 +74,6 @@ function CustomTabPage() {
   const doUpdate = useServerFn(updateCustomTab);
   const doDelete = useServerFn(deleteCustomTab);
   const doCreate = useServerFn(createCustomTab);
-  const askAssistant = useServerFn(askCodeAssistant);
 
   // --- Data ---
   const {
@@ -196,12 +196,12 @@ function CustomTabPage() {
     return () => window.removeEventListener("keydown", onKey);
   }, [editing]);
 
-  // ---- postMessage listener for storage + AI (using server function) ----
+  // ---- postMessage listener for localStorage + AI requests ----
   useEffect(() => {
     const handler = async (event: MessageEvent) => {
       const { type, key, value, requestId, code, prompt, language } = event.data || {};
 
-      // Storage handlers
+      // Storage (for the editor's localStorage)
       if (type === "storage-get") {
         const stored = localStorage.getItem(key);
         const iframe = iframeRef.current;
@@ -234,18 +234,44 @@ function CustomTabPage() {
         return;
       }
 
-      // AI Request – now using the server function
+      // AI Request (from the editor)
       if (type === "ai-request" && code !== undefined && prompt !== undefined) {
         try {
-          const result = await askAssistant({
-            data: { code, prompt, language: language || "plaintext" },
+          // Get the current user
+          const {
+            data: { user },
+          } = await supabase.auth.getUser();
+          if (!user) {
+            throw new Error("Not authenticated");
+          }
+          const userId = user.id;
+
+          const { model } = await getModelForUser(userId, supabase);
+          const systemPrompt = `
+You are JARVIS, an expert programmer. The user has asked you to help with code in a code editor.
+
+Current code:
+\`\`\`${language || "plaintext"}
+${code}
+\`\`\`
+
+User's request: ${prompt}
+
+Provide a clear, helpful response. If suggesting code changes, show the full updated code or explain the changes clearly.
+`;
+
+          const { text } = await generateText({
+            model,
+            system: systemPrompt,
+            prompt: prompt,
           });
+
           const iframe = iframeRef.current;
           if (iframe && iframe.contentWindow) {
             iframe.contentWindow.postMessage(
               {
                 type: "ai-response",
-                response: result.response,
+                response: text,
                 requestId,
               },
               "*",
@@ -269,7 +295,7 @@ function CustomTabPage() {
 
     window.addEventListener("message", handler);
     return () => window.removeEventListener("message", handler);
-  }, [askAssistant]);
+  }, []);
 
   // ---- Helpers ----
   const srcDoc = useMemo(() => {
