@@ -91,14 +91,14 @@ export function resolveChatModel(opts?: { provider?: ProviderId; apiKey?: string
     if (!key) throw new Error("LOVABLE_API_KEY is not set");
     const lovable = createLovableProvider(key);
     const modelId = process.env.LOVABLE_MODEL ?? "google/gemini-3-flash-preview";
-    return { model: lovable(modelId), provider: "lovable" as const, modelId };
+    return { model: lovable(modelId) as any, provider: "lovable" as const, modelId };
   }
 
   if (effectiveProvider === "groq") {
     const key = apiKey ?? process.env.GROQ_API_KEY ?? FALLBACK_GROQ_KEY;
     const groq = createGroqProvider(key);
     const modelId = process.env.GROQ_MODEL ?? "llama-3.1-8b-instant";
-    return { model: groq(modelId), provider: "groq" as const, modelId };
+    return { model: groq(modelId) as any, provider: "groq" as const, modelId };
   }
 
   if (effectiveProvider === "deepseek") {
@@ -106,20 +106,20 @@ export function resolveChatModel(opts?: { provider?: ProviderId; apiKey?: string
     if (!key) throw new Error("DeepSeek API key is not set");
     const deepseek = createDeepSeekProvider(key);
     const modelId = process.env.DEEPSEEK_MODEL ?? "deepseek-chat";
-    return { model: deepseek(modelId), provider: "deepseek" as const, modelId };
+    return { model: deepseek(modelId) as any, provider: "deepseek" as const, modelId };
   }
 
   if (effectiveProvider === "lmstudio") {
     const lmstudio = createLMStudioProvider(apiKey);
     const modelId = process.env.LM_STUDIO_MODEL ?? "local-model";
-    return { model: lmstudio(modelId), provider: "lmstudio" as const, modelId };
+    return { model: lmstudio(modelId) as any, provider: "lmstudio" as const, modelId };
   }
 
   const key = apiKey ?? process.env.GOOGLE_GENERATIVE_AI_API_KEY;
   if (!key) throw new Error("Gemini API key is not set");
   const gemini = createGeminiProvider(key);
   const modelId = process.env.GEMINI_MODEL ?? "gemini-1.5-flash";
-  return { model: gemini(modelId), provider: "gemini" as const, modelId };
+  return { model: gemini(modelId) as any, provider: "gemini" as const, modelId };
 }
 
 export async function getModelForUser(userId: string, supabase: any) {
