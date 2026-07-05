@@ -13,6 +13,8 @@ import {
   MapPin,
   Mic,
   MicOff,
+  Upload,
+  Paperclip,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -37,16 +39,29 @@ const TOOL_META: Record<string, { icon: any; label: string }> = {
   "tool-get_directions": { icon: MapPin, label: "Getting directions" },
 };
 
-export function ChatWindow({ threadId, initial, tabSlug, compact }: { threadId: string; initial: UIMessage[]; tabSlug?: string | null; compact?: boolean }) {
+export function ChatWindow({
+  threadId,
+  initial,
+  tabSlug,
+  compact,
+}: {
+  threadId: string;
+  initial: UIMessage[];
+  tabSlug?: string | null;
+  compact?: boolean;
+}) {
   const qc = useQueryClient();
   const [input, setInput] = useState("");
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
   const taRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
+  const dropRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   function pickMimeType(): string | null {
     const candidates = ["audio/webm", "audio/mp4", "audio/ogg"];
@@ -149,9 +164,117 @@ export function ChatWindow({ threadId, initial, tabSlug, compact }: { threadId: 
     };
   }, []);
 
+  // ---- File upload handler ----
+  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files;
+    if (!files || files.length === 0) return;
+    processFiles(files);
+    event.target.value = ""; // reset input
+  };
 
+  const processFiles = (files: FileList) => {
+    let fileContent = "";
+    let fileNames: string[] = [];
+    const allowedExtensions = [
+      "txt",
+      "lua",
+      "py",
+      "js",
+      "ts",
+      "html",
+      "css",
+      "json",
+      "xml",
+      "yaml",
+      "yml",
+      "md",
+      "csv",
+      "log",
+    ];
 
-  // Transport
+    for (const file of files) {
+      const ext = file.name.split(".").pop()?.toLowerCase() || "";
+      if (!allowedExtensions.includes(ext)) {
+        toast.warning(`Skipped "${file.name}" – unsupported file type (.${ext})`);
+        continue;
+      }
+      if (file.size > 1024 * 1024 * 5) {
+        toast.warning(`Skipped "${file.name}" – file too large (max 5MB)`);
+        continue;
+      }
+      try {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const text = e.target?.result as string;
+          const lang = ext === "lua" ? "lua" : ext === "txt" ? "text" : ext;
+          const snippet = `\n\n--- ${file.name} (${lang}) ---\n${text}\n--- End ${file.name} ---\n`;
+          setInput((prev) => prev + snippet);
+          fileNames.push(file.name);
+        };
+        reader.readAsText(file);
+      } catch (err) {
+        toast.error(`Failed to read "${file.name}"`);
+      }
+    }
+    if (fileNames.length > 0) {
+      toast.success(`Loaded ${fileNames.length} file(s)`);
+      taRef.current?.focus();
+    }
+  };
+
+  // ---- Drag and Drop File Upload (kept as additional feature) ----
+  useEffect(() => {
+    const element = dropRef.current;
+    if (!element) return;
+
+    const handleDragEnter = (e: DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setIsDragging(true);
+    };
+
+    const handleDragOver = (e: DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.dataTransfer) {
+        e.dataTransfer.dropEffect = "copy";
+      }
+    };
+
+    const handleDragLeave = (e: DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const rect = element.getBoundingClientRect();
+      const x = e.clientX;
+      const y = e.clientY;
+      if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) {
+        setIsDragging(false);
+      }
+    };
+
+    const handleDrop = async (e: DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setIsDragging(false);
+      const files = e.dataTransfer?.files;
+      if (!files || files.length === 0) return;
+      processFiles(files);
+    };
+
+    element.addEventListener("dragenter", handleDragEnter);
+    element.addEventListener("dragover", handleDragOver);
+    element.addEventListener("dragleave", handleDragLeave);
+    element.addEventListener("drop", handleDrop);
+
+    return () => {
+      element.removeEventListener("dragenter", handleDragEnter);
+      element.removeEventListener("dragover", handleDragOver);
+      element.removeEventListener("dragleave", handleDragLeave);
+      element.removeEventListener("drop", handleDrop);
+    };
+  }, []);
+
+  // ---- Transport ----
   const transport = useMemo(
     () =>
       new DefaultChatTransport({
@@ -167,7 +290,6 @@ export function ChatWindow({ threadId, initial, tabSlug, compact }: { threadId: 
       }),
     [threadId, tabSlug],
   );
-
 
   const { messages, sendMessage, status, stop, error } = useChat({
     id: threadId,
@@ -214,12 +336,26 @@ export function ChatWindow({ threadId, initial, tabSlug, compact }: { threadId: 
   }
 
   return (
-    <div className="flex flex-col h-full">
+    <div ref={dropRef} className="flex flex-col h-full relative">
+      {/* Drag overlay */}
+      {isDragging && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm border-4 border-dashed border-arc rounded-lg">
+          <div className="text-center">
+            <Upload size={48} className="mx-auto text-arc mb-4" />
+            <div className="font-display text-xl text-arc">Drop your files here</div>
+            <div className="text-sm text-hud-dim mt-2">
+              Accepts: .txt, .lua, .py, .js, .html, .css, .json, .md, .xml, .yml, .csv, .log
+            </div>
+          </div>
+        </div>
+      )}
+
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 py-6 space-y-5">
         {messages.length === 0 && (
           <div className="text-center text-hud-dim text-sm mt-12">
             <div className="font-mono text-[10px] tracking-[0.3em] text-arc mb-2">JARVIS ONLINE</div>
             <div>At your service, Sir. Ask for a reminder, save a credential, or simply talk.</div>
+            <div className="mt-4 text-xs text-hud-dim/60">📎 Click the paperclip to upload .txt or .lua files</div>
           </div>
         )}
         {messages.map((m: UIMessage) => (
@@ -254,6 +390,24 @@ export function ChatWindow({ threadId, initial, tabSlug, compact }: { threadId: 
             {isRecording ? <MicOff size={16} /> : <Mic size={16} />}
           </button>
 
+          {/* File upload button */}
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="p-3 rounded-lg border border-arc/30 hover:bg-arc/10 text-hud-dim transition"
+            aria-label="Upload file"
+            title="Upload .txt or .lua file"
+          >
+            <Paperclip size={16} />
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".txt,.lua,.py,.js,.ts,.html,.css,.json,.xml,.yml,.yaml,.md,.csv,.log"
+            multiple
+            className="hidden"
+            onChange={handleFileUpload}
+          />
+
           <textarea
             ref={taRef}
             rows={1}
@@ -270,7 +424,7 @@ export function ChatWindow({ threadId, initial, tabSlug, compact }: { threadId: 
                 ? "Listening… tap mic to stop"
                 : isTranscribing
                   ? "Transcribing…"
-                  : 'Speak or type, Sir. e.g. "Remind me to drink water every weekday at 10am"'
+                  : "Speak or type, Sir. Use 📎 to upload .txt/.lua files"
             }
             className="flex-1 resize-none bg-background/60 border border-arc/25 rounded-lg px-4 py-3 font-mono text-sm focus:border-arc focus:outline-none max-h-40"
           />
@@ -294,8 +448,12 @@ export function ChatWindow({ threadId, initial, tabSlug, compact }: { threadId: 
             </button>
           )}
         </div>
+        <div className="flex items-center justify-center mt-1.5 text-[10px] text-hud-dim/50 gap-3">
+          <span>📎 Click paperclip to upload .txt or .lua</span>
+          <span>•</span>
+          <span>🎤 Click mic to speak</span>
+        </div>
       </div>
-
     </div>
   );
 }
@@ -316,7 +474,7 @@ const MessageBubble = memo(function MessageBubble({ msg }: { msg: UIMessage }) {
             return isUser ? (
               <div
                 key={i}
-                className="bg-arc text-arc-foreground rounded-2xl rounded-tr-sm px-4 py-2.5 text-sm whitespace-pre-wrap"
+                className="bg-arc text-arc-foreground rounded-2xl rounded-tr-sm px-4 py-2.5 text-sm whitespace-pre-wrap break-words"
               >
                 {part.text}
               </div>
@@ -325,7 +483,9 @@ const MessageBubble = memo(function MessageBubble({ msg }: { msg: UIMessage }) {
                 key={i}
                 className="prose prose-invert prose-sm max-w-none text-foreground prose-p:my-2 prose-headings:text-arc prose-strong:text-foreground prose-code:text-arc prose-code:bg-arc/10 prose-code:px-1 prose-code:rounded"
               >
-                <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>{part.text}</ReactMarkdown>
+                <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>
+                  {part.text}
+                </ReactMarkdown>
               </div>
             );
           }
