@@ -2755,7 +2755,7 @@ export const Route = createFileRoute("/api/chat")({
         };
 
         // ---- System Prompt ----
-        const baseSystemPrompt = getSystemPrompt(mode, addressAs, factsBlock, submode);
+        const baseSystemPrompt = getSystemPrompt(mode, addressAs, factsBlock);
         const systemPrompt = `${baseSystemPrompt}
 
 Your user's timezone is "${userTimezone}". All times you display should be in this timezone.

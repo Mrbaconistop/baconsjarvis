@@ -6,7 +6,6 @@ import { getCustomTab, updateCustomTab, deleteCustomTab, createCustomTab } from 
 import { listThreads, createThread, deleteThread, getMessages } from "@/lib/chat.functions";
 import { PageHeader } from "@/components/jarvis/HudBits";
 import { ChatWindow } from "@/components/jarvis/ChatWindow";
-import { askCodeAssistant } from "@/lib/jarvis.functions";
 import {
   Pencil,
   Save,
@@ -73,7 +72,6 @@ function CustomTabPage() {
   const doUpdate = useServerFn(updateCustomTab);
   const doDelete = useServerFn(deleteCustomTab);
   const doCreate = useServerFn(createCustomTab);
-  const askAssistant = useServerFn(askCodeAssistant);
 
   // --- Data ---
   const {
@@ -195,81 +193,6 @@ function CustomTabPage() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [editing]);
-
-  // ---- postMessage listener for storage + AI (using server function) ----
-  useEffect(() => {
-    const handler = async (event: MessageEvent) => {
-      const { type, key, value, requestId, code, prompt, language } = event.data || {};
-
-      // Storage handlers
-      if (type === "storage-get") {
-        const stored = localStorage.getItem(key);
-        const iframe = iframeRef.current;
-        if (iframe && iframe.contentWindow) {
-          iframe.contentWindow.postMessage(
-            {
-              type: "storage-get-response",
-              key,
-              value: stored,
-              requestId,
-            },
-            "*",
-          );
-        }
-        return;
-      }
-      if (type === "storage-set") {
-        localStorage.setItem(key, value);
-        const iframe = iframeRef.current;
-        if (iframe && iframe.contentWindow) {
-          iframe.contentWindow.postMessage(
-            {
-              type: "storage-set-response",
-              key,
-              requestId,
-            },
-            "*",
-          );
-        }
-        return;
-      }
-
-      // AI Request – now using the server function
-      if (type === "ai-request" && code !== undefined && prompt !== undefined) {
-        try {
-          const result = await askAssistant({
-            data: { code, prompt, language: language || "plaintext" },
-          });
-          const iframe = iframeRef.current;
-          if (iframe && iframe.contentWindow) {
-            iframe.contentWindow.postMessage(
-              {
-                type: "ai-response",
-                response: result.response,
-                requestId,
-              },
-              "*",
-            );
-          }
-        } catch (err: any) {
-          const iframe = iframeRef.current;
-          if (iframe && iframe.contentWindow) {
-            iframe.contentWindow.postMessage(
-              {
-                type: "ai-response",
-                response: `Sorry, Sir. I encountered an error: ${err.message}`,
-                requestId,
-              },
-              "*",
-            );
-          }
-        }
-      }
-    };
-
-    window.addEventListener("message", handler);
-    return () => window.removeEventListener("message", handler);
-  }, [askAssistant]);
 
   // ---- Helpers ----
   const srcDoc = useMemo(() => {
