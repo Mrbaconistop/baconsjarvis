@@ -74,6 +74,7 @@ export type Database = {
         Row: {
           created_at: string
           id: string
+          tab_slug: string | null
           title: string
           updated_at: string
           user_id: string
@@ -81,6 +82,7 @@ export type Database = {
         Insert: {
           created_at?: string
           id?: string
+          tab_slug?: string | null
           title?: string
           updated_at?: string
           user_id: string
@@ -88,6 +90,7 @@ export type Database = {
         Update: {
           created_at?: string
           id?: string
+          tab_slug?: string | null
           title?: string
           updated_at?: string
           user_id?: string
@@ -120,6 +123,48 @@ export type Database = {
           platform?: Database["public"]["Enums"]["social_platform"]
           profile_pic_url?: string | null
           status?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      custom_tabs: {
+        Row: {
+          config: Json
+          content_html: string
+          created_at: string
+          description: string | null
+          icon: string
+          id: string
+          label: string
+          slug: string
+          sort_order: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          config?: Json
+          content_html?: string
+          created_at?: string
+          description?: string | null
+          icon?: string
+          id?: string
+          label: string
+          slug: string
+          sort_order?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          config?: Json
+          content_html?: string
+          created_at?: string
+          description?: string | null
+          icon?: string
+          id?: string
+          label?: string
+          slug?: string
+          sort_order?: number
+          updated_at?: string
           user_id?: string
         }
         Relationships: []
@@ -241,6 +286,33 @@ export type Database = {
         }
         Relationships: []
       }
+      learning_sessions: {
+        Row: {
+          content: string | null
+          created_at: string | null
+          id: string
+          title: string
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          content?: string | null
+          created_at?: string | null
+          id?: string
+          title?: string
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          content?: string | null
+          created_at?: string | null
+          id?: string
+          title?: string
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       map_places: {
         Row: {
           address: string | null
@@ -309,6 +381,39 @@ export type Database = {
           id?: string
           message?: string
           role?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      notes: {
+        Row: {
+          body: string
+          created_at: string
+          id: string
+          tags: string[]
+          title: string | null
+          updated_at: string
+          url: string | null
+          user_id: string
+        }
+        Insert: {
+          body: string
+          created_at?: string
+          id?: string
+          tags?: string[]
+          title?: string | null
+          updated_at?: string
+          url?: string | null
+          user_id: string
+        }
+        Update: {
+          body?: string
+          created_at?: string
+          id?: string
+          tags?: string[]
+          title?: string | null
+          updated_at?: string
+          url?: string | null
           user_id?: string
         }
         Relationships: []

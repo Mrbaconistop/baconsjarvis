@@ -2,20 +2,11 @@ import { useEffect, useMemo, useRef, useState, memo } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, type UIMessage } from "ai";
 import { supabase } from "@/integrations/supabase/client";
-import {
-  Send,
-  Square,
-  Bell,
-  Vault,
-  ListChecks,
-  CheckCircle2,
-  Wrench,
-  MapPin,
-  Mic,
-  MicOff,
-} from "lucide-react";
+import { Send, Square, Bell, Vault, ListChecks, CheckCircle2, Wrench, MapPin, Mic, MicOff } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
 import { useQueryClient } from "@tanstack/react-query";
 import { applyClientAction } from "@/lib/mapBus";
 import { toast } from "sonner";
@@ -35,7 +26,17 @@ const TOOL_META: Record<string, { icon: any; label: string }> = {
   "tool-get_directions": { icon: MapPin, label: "Getting directions" },
 };
 
-export function ChatWindow({ threadId, initial }: { threadId: string; initial: UIMessage[] }) {
+export function ChatWindow({
+  threadId,
+  initial,
+  tabSlug,
+  compact,
+}: {
+  threadId: string;
+  initial: UIMessage[];
+  tabSlug?: string | null;
+  compact?: boolean;
+}) {
   const qc = useQueryClient();
   const [input, setInput] = useState("");
   const [isRecording, setIsRecording] = useState(false);
@@ -147,9 +148,7 @@ export function ChatWindow({ threadId, initial }: { threadId: string; initial: U
     };
   }, []);
 
-
-
-  // Transport
+  // ---- Transport ----
   const transport = useMemo(
     () =>
       new DefaultChatTransport({
@@ -160,10 +159,10 @@ export function ChatWindow({ threadId, initial }: { threadId: string; initial: U
           } = await supabase.auth.getSession();
           const headers: Record<string, string> = {};
           if (session?.access_token) headers.Authorization = `Bearer ${session.access_token}`;
-          return { body: { messages, threadId, ...(body ?? {}) }, headers };
+          return { body: { messages, threadId, tabSlug: tabSlug ?? null, ...(body ?? {}) }, headers };
         },
       }),
-    [threadId],
+    [threadId, tabSlug],
   );
 
   const { messages, sendMessage, status, stop, error } = useChat({
@@ -292,12 +291,11 @@ export function ChatWindow({ threadId, initial }: { threadId: string; initial: U
           )}
         </div>
       </div>
-
     </div>
   );
 }
 
-// Memoized MessageBubble (unchanged)
+// Memoized MessageBubble
 const MessageBubble = memo(function MessageBubble({ msg }: { msg: UIMessage }) {
   const isUser = msg.role === "user";
   return (
@@ -322,7 +320,9 @@ const MessageBubble = memo(function MessageBubble({ msg }: { msg: UIMessage }) {
                 key={i}
                 className="prose prose-invert prose-sm max-w-none text-foreground prose-p:my-2 prose-headings:text-arc prose-strong:text-foreground prose-code:text-arc prose-code:bg-arc/10 prose-code:px-1 prose-code:rounded"
               >
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{part.text}</ReactMarkdown>
+                <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>
+                  {part.text}
+                </ReactMarkdown>
               </div>
             );
           }

@@ -4,27 +4,40 @@ import { z } from "zod";
 
 export const listThreads = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
-  .handler(async ({ context }) => {
+  .inputValidator((input: unknown) =>
+    z
+      .object({
+        tabSlug: z.string().nullable().optional(),
+        scope: z.enum(["all", "general", "tab"]).optional(),
+      })
+      .parse(input ?? {}),
+  )
+  .handler(async ({ data, context }) => {
     const { supabase, userId } = context as any;
-    const { data, error } = await supabase
-      .from("chat_threads").select("*")
-      .eq("user_id", userId).order("updated_at", { ascending: false });
+    let q = supabase.from("chat_threads").select("*").eq("user_id", userId);
+    if (data.tabSlug) q = q.eq("tab_slug", data.tabSlug);
+    else if (data.scope === "general") q = q.is("tab_slug", null);
+    q = q.order("updated_at", { ascending: false });
+    const { data: rows, error } = await q;
     if (error) throw error;
-    return data ?? [];
+    return rows ?? [];
   });
 
 export const createThread = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) => z.object({ title: z.string().max(120).optional() }).parse(input ?? {}))
+  .inputValidator((input: unknown) =>
+    z.object({ title: z.string().max(120).optional(), tabSlug: z.string().nullable().optional() }).parse(input ?? {}),
+  )
   .handler(async ({ data, context }) => {
     const { supabase, userId } = context as any;
     const { data: row, error } = await supabase
       .from("chat_threads")
-      .insert({ user_id: userId, title: data.title ?? "New conversation" })
+      .insert({ user_id: userId, title: data.title ?? "New conversation", tab_slug: data.tabSlug ?? null })
       .select("*").single();
     if (error) throw error;
     return row;
   });
+
 
 export const renameThread = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])

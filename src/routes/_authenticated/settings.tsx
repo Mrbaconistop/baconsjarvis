@@ -46,11 +46,10 @@ function SettingsPage() {
   });
 
   const [connecting, setConnecting] = useState(false);
-  const [provider, setProvider] = useState<"groq" | "deepseek" | "lovable" | "system" | "lmstudio" | "gemini">(
-    "system",
-  );
+  const [provider, setProvider] = useState<"groq" | "deepseek" | "system" | "lmstudio" | "gemini">("system");
   const [apiKey, setApiKey] = useState("");
   const [mode, setMode] = useState<"thinking" | "coding" | "basic">("basic");
+  const [codingSubmode, setCodingSubmode] = useState<"full" | "language_only" | "direct">("full");
   const [savingLlm, setSavingLlm] = useState(false);
 
   useEffect(() => {
@@ -75,6 +74,7 @@ function SettingsPage() {
       setProvider(llmConfig.provider as typeof provider);
       setApiKey(llmConfig.apiKey || "");
       setMode((llmConfig.mode as "thinking" | "coding" | "basic") || "basic");
+      setCodingSubmode((llmConfig.coding_submode as "full" | "language_only" | "direct") || "full");
     }
   }, [llmConfig]);
 
@@ -110,7 +110,14 @@ function SettingsPage() {
     setSavingLlm(true);
     try {
       const keyToSend = provider === "groq" && !apiKey ? undefined : apiKey || undefined;
-      await updateConfig({ data: { provider, apiKey: keyToSend, mode } });
+      await updateConfig({
+        data: {
+          provider,
+          apiKey: keyToSend,
+          mode,
+          coding_submode: mode === "coding" ? codingSubmode : undefined,
+        },
+      });
       await refetch();
       toast.success("AI settings updated");
     } catch (e: any) {
@@ -150,11 +157,10 @@ function SettingsPage() {
                 className="bg-background/40 border border-arc/20 rounded-md px-3 py-2 text-sm focus:border-arc focus:outline-none"
               >
                 <option value="system">System default</option>
+                <option value="gemini">Google Gemini</option>
                 <option value="groq">Groq</option>
                 <option value="deepseek">DeepSeek</option>
-                <option value="lovable">Lovable</option>
                 <option value="lmstudio">LM Studio (local)</option>
-                <option value="gemini">Google Gemini</option>
               </select>
             </div>
             {provider !== "system" && (
@@ -187,6 +193,34 @@ function SettingsPage() {
                 <option value="coding">💻 Coding – Technical help</option>
               </select>
             </div>
+
+            {/* Coding Submode – shown only when mode is "coding" */}
+            {mode === "coding" && (
+              <div className="flex flex-wrap items-center gap-4 pt-2 border-t border-arc/20">
+                <label className="text-sm font-medium">Coding Sub‑mode</label>
+                <div className="flex gap-1 bg-background/40 border border-arc/20 rounded-md p-1">
+                  {[
+                    { value: "full", label: "🧠 Full Workflow", desc: "Ask language + environment" },
+                    { value: "language_only", label: "💬 Language Only", desc: "Ask language only" },
+                    { value: "direct", label: "⚡ Direct", desc: "Write code immediately" },
+                  ].map((opt) => (
+                    <button
+                      key={opt.value}
+                      onClick={() => setCodingSubmode(opt.value as any)}
+                      className={`px-3 py-1.5 text-xs font-mono uppercase tracking-wider rounded transition ${
+                        codingSubmode === opt.value
+                          ? "bg-arc text-arc-foreground"
+                          : "text-hud-dim hover:text-foreground hover:bg-arc/10"
+                      }`}
+                      title={opt.desc}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <button
               onClick={saveLlm}
               disabled={savingLlm || (provider !== "system" && !apiKey)}
