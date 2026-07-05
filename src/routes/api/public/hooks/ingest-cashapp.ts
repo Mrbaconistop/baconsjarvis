@@ -63,10 +63,8 @@ export const Route = createFileRoute("/api/public/hooks/ingest-cashapp")({
     handlers: {
       POST: async ({ request }) => {
         const apikey = request.headers.get("apikey") ?? request.headers.get("x-apikey");
-        const cronSecret = process.env.CRON_SECRET;
-        const isCron = !!cronSecret && apikey === cronSecret;
-        if (!isCron) {
-          // User-triggered call with bearer token (any signed-in user syncs their own)
+        if (apikey !== process.env.SUPABASE_PUBLISHABLE_KEY) {
+          // Allow user-triggered call with bearer token (any signed-in user syncs their own)
           const auth = request.headers.get("authorization") ?? "";
           if (!auth.startsWith("Bearer ")) return new Response("Unauthorized", { status: 401 });
           return await syncForUser(auth.replace(/^Bearer\s+/i, ""));

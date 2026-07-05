@@ -13,11 +13,11 @@ import {
   MapPin,
   Mic,
   MicOff,
+  AlertCircle,
+  Bug,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import remarkMath from "remark-math";
-import rehypeKatex from "rehype-katex";
 import { useQueryClient } from "@tanstack/react-query";
 import { applyClientAction } from "@/lib/mapBus";
 import { toast } from "sonner";
@@ -38,118 +38,204 @@ const TOOL_META: Record<string, { icon: any; label: string }> = {
 };
 
 export function ChatWindow({ threadId, initial }: { threadId: string; initial: UIMessage[] }) {
+  console.log("[DEBUG] 🚀 ChatWindow component loaded");
+
   const qc = useQueryClient();
   const [input, setInput] = useState("");
-  const [isRecording, setIsRecording] = useState(false);
-  const [isTranscribing, setIsTranscribing] = useState(false);
+  const [isListening, setIsListening] = useState(false);
+  const [micSupported, setMicSupported] = useState<boolean | null>(null);
+  const [debugInfo, setDebugInfo] = useState<string>("Ready");
   const taRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const recorderRef = useRef<MediaRecorder | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
-  const streamRef = useRef<MediaStream | null>(null);
+  const recognitionRef = useRef<any>(null);
 
-  function pickMimeType(): string | null {
-    const candidates = ["audio/webm", "audio/mp4", "audio/ogg"];
-    for (const t of candidates) {
-      if (typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported(t)) return t;
+  // Check if SpeechRecognition is available
+  useEffect(() => {
+    console.log("[DEBUG] 🔍 Checking SpeechRecognition API...");
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (SR) {
+      setMicSupported(true);
+      console.log("[DEBUG] ✅ SpeechRecognition API available");
+      setDebugInfo("SpeechRecognition available");
+    } else {
+      setMicSupported(false);
+      console.warn("[DEBUG] ❌ SpeechRecognition API not available");
+      setDebugInfo("SpeechRecognition NOT available");
+      toast.error("Voice input not supported in this browser.");
     }
-    return null;
+  }, []);
+
+  // Initialize recognition only once
+  useEffect(() => {
+    console.log("[DEBUG] 🔄 Recognition init effect running. micSupported:", micSupported);
+    if (micSupported === false) return;
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SR) {
+      console.warn("[DEBUG] ❌ SR still undefined");
+      return;
+    }
+
+    console.log("[DEBUG] 🎤 Creating recognition instance...");
+    const recognition = new SR();
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    recognition.lang = "en-US";
+
+    recognition.onresult = (event: any) => {
+      const transcript = event.results[0][0].transcript;
+      console.log("[DEBUG] 📝 Transcript:", transcript);
+      setInput(transcript);
+      toast.success("Spoken, Sir. Ready to send.");
+    };
+
+    recognition.onstart = () => {
+      console.log("[DEBUG] 🎙️ Recognition STARTED");
+      setDebugInfo("Listening...");
+    };
+
+    recognition.onend = () => {
+      console.log("[DEBUG] 🔚 Recognition ended");
+      setIsListening(false);
+      setDebugInfo("Stopped");
+    };
+
+    recognition.onerror = (event: any) => {
+      console.error("[DEBUG] ❌ Recognition error:", event);
+      setDebugInfo(`Error: ${event.error}`);
+      if (event.error === "not-allowed") {
+        toast.error("Microphone access denied. Please allow it in browser settings.");
+      } else if (event.error === "no-speech") {
+        toast.error("No speech detected. Try speaking louder or closer.");
+      } else if (event.error === "audio-capture") {
+        toast.error("No microphone found. Please connect a microphone.");
+      } else {
+        toast.error(`Voice error: ${event.error}`);
+      }
+      setIsListening(false);
+    };
+
+    recognitionRef.current = recognition;
+    console.log("[DEBUG] 🎤 Recognition instance created successfully");
+
+    return () => {
+      console.log("[DEBUG] 🧹 Cleaning up recognition");
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.abort();
+        } catch {}
+      }
+    };
+  }, [micSupported]);
+
+  // Request mic permission explicitly
+  async function requestMicPermission(): Promise<boolean> {
+    try {
+      console.log("[DEBUG] 📢 Requesting microphone permission...");
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.getTracks().forEach((track) => track.stop());
+      console.log("[DEBUG] ✅ Microphone permission granted");
+      toast.success("Microphone access granted, Sir.");
+      return true;
+    } catch (err: any) {
+      console.error("[DEBUG] ❌ Permission request error:", err);
+      if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
+        toast.error("Microphone permission denied. Please allow it in browser settings.");
+      } else if (err.name === "NotFoundError") {
+        toast.error("No microphone found. Please connect a microphone.");
+      } else {
+        toast.error(`Could not access microphone: ${err.message}`);
+      }
+      return false;
+    }
   }
 
-  async function startRecording() {
-    if (isRecording || isTranscribing) return;
+  // Start listening
+  async function startListening() {
+    console.log("[DEBUG] 🎯 startListening called");
+    const recognition = recognitionRef.current;
+    if (!recognition) {
+      console.error("[DEBUG] ❌ No recognition instance");
+      toast.error("Voice input not supported in this browser.");
+      setDebugInfo("No recognition instance");
+      return;
+    }
     try {
-      const mimeType = pickMimeType();
-      if (!mimeType) {
-        toast.error("This browser can't record a supported audio format.");
-        return;
-      }
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      streamRef.current = stream;
-      const recorder = new MediaRecorder(stream, { mimeType });
-      chunksRef.current = [];
-      recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) chunksRef.current.push(e.data);
-      };
-      recorder.onstop = async () => {
-        streamRef.current?.getTracks().forEach((t) => t.stop());
-        streamRef.current = null;
-        const blob = new Blob(chunksRef.current, { type: recorder.mimeType });
-        if (blob.size < 1024) {
-          toast.error("That recording was empty — please try again.");
-          return;
-        }
-        await transcribe(blob);
-      };
-      recorder.start();
-      recorderRef.current = recorder;
-      setIsRecording(true);
+      console.log("[DEBUG] 🎙️ Calling recognition.start()...");
+      recognition.start();
+      setIsListening(true);
+      setDebugInfo("Listening...");
+      console.log("[DEBUG] 🎙️ Listening started");
       toast.info("Listening, Sir…");
     } catch (err: any) {
-      console.error("[mic] start error", err);
-      if (err?.name === "NotAllowedError" || err?.name === "PermissionDeniedError") {
-        toast.error("Microphone permission denied.");
-      } else if (err?.name === "NotFoundError") {
-        toast.error("No microphone found.");
+      console.error("[DEBUG] ❌ Failed to start recognition:", err);
+      setDebugInfo(`Start error: ${err.message}`);
+      if (err.message?.includes("permission")) {
+        const granted = await requestMicPermission();
+        if (granted) {
+          try {
+            recognition.start();
+            setIsListening(true);
+            setDebugInfo("Listening...");
+            toast.info("Listening, Sir…");
+            console.log("[DEBUG] 🎙️ Listening started after permission grant");
+          } catch (retryErr) {
+            console.error("[DEBUG] ❌ Retry failed:", retryErr);
+            setDebugInfo(`Retry error: ${(retryErr as any)?.message ?? retryErr}`);
+            toast.error("Could not start voice input after permission grant.");
+          }
+        }
       } else {
-        toast.error(`Mic error: ${err?.message ?? err}`);
+        toast.error(`Could not start voice input: ${err.message}`);
       }
     }
   }
 
-  function stopRecording() {
-    const r = recorderRef.current;
-    if (r && r.state !== "inactive") {
+  function stopListening() {
+    console.log("[DEBUG] 🛑 stopListening called");
+    if (recognitionRef.current) {
       try {
-        r.stop();
+        recognitionRef.current.stop();
       } catch (e) {
-        console.warn("[mic] stop error", e);
+        console.warn("[DEBUG] Stop error:", e);
       }
     }
-    setIsRecording(false);
-  }
-
-  async function transcribe(blob: Blob) {
-    setIsTranscribing(true);
-    try {
-      const fd = new FormData();
-      const ext = blob.type.includes("mp4") ? "mp4" : blob.type.includes("ogg") ? "ogg" : "webm";
-      fd.append("file", blob, `recording.${ext}`);
-      const res = await fetch("/api/transcribe", { method: "POST", body: fd });
-      const json: any = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(json?.error?.message ?? json?.error ?? `HTTP ${res.status}`);
-      }
-      const text: string = json?.text ?? "";
-      if (!text.trim()) {
-        toast.error("Didn't catch that, Sir.");
-        return;
-      }
-      setInput((prev) => (prev ? prev + " " + text : text));
-      taRef.current?.focus();
-    } catch (err: any) {
-      console.error("[transcribe] error", err);
-      toast.error(`Transcription failed: ${err?.message ?? err}`);
-    } finally {
-      setIsTranscribing(false);
-    }
+    setIsListening(false);
+    setDebugInfo("Stopped");
+    console.log("[DEBUG] 🛑 Listening stopped");
   }
 
   function toggleMic() {
-    if (isRecording) stopRecording();
-    else startRecording();
+    console.log("[DEBUG] 🔘 Mic toggled. isListening:", isListening);
+    if (isListening) {
+      stopListening();
+      return;
+    }
+    if (micSupported === false) {
+      toast.error("Voice input not supported in this browser.");
+      return;
+    }
+    startListening();
   }
 
-  useEffect(() => {
-    return () => {
-      try {
-        recorderRef.current?.state !== "inactive" && recorderRef.current?.stop();
-      } catch {}
-      streamRef.current?.getTracks().forEach((t) => t.stop());
-    };
-  }, []);
-
-
+  // Debug function to test recognition directly
+  function debugTest() {
+    console.log("[DEBUG] 🧪 Running debug test");
+    const recognition = recognitionRef.current;
+    if (recognition) {
+      console.log("[DEBUG] ✅ Recognition exists:", recognition);
+      console.log("[DEBUG] Recognition state:", {
+        continuous: recognition.continuous,
+        interimResults: recognition.interimResults,
+        lang: recognition.lang,
+      });
+      toast.info(`Recognition exists: ${Object.keys(recognition).join(", ")}`);
+    } else {
+      console.log("[DEBUG] ❌ No recognition instance");
+      toast.error("No recognition instance");
+    }
+    console.log("[DEBUG] micSupported:", micSupported);
+    console.log("[DEBUG] isListening:", isListening);
+  }
 
   // Transport
   const transport = useMemo(
@@ -239,18 +325,20 @@ export function ChatWindow({ threadId, initial }: { threadId: string; initial: U
         <div className="flex items-end gap-2 max-w-4xl mx-auto">
           <button
             onClick={toggleMic}
-            disabled={isTranscribing}
             className={`p-3 rounded-lg border transition ${
-              isRecording
+              isListening
                 ? "bg-critical/20 border-critical/40 text-critical animate-critical-pulse"
-                : isTranscribing
-                  ? "bg-muted/50 border-muted text-muted-foreground opacity-60"
+                : micSupported === false
+                  ? "bg-muted/50 border-muted text-muted-foreground cursor-not-allowed opacity-50"
                   : "border-arc/30 hover:bg-arc/10 text-hud-dim"
             }`}
             aria-label="Voice input"
-            title={isRecording ? "Stop recording" : isTranscribing ? "Transcribing…" : "Speak your message"}
+            title={
+              micSupported === false ? "Voice not supported" : isListening ? "Stop listening" : "Speak your message"
+            }
+            disabled={micSupported === false}
           >
-            {isRecording ? <MicOff size={16} /> : <Mic size={16} />}
+            {isListening ? <MicOff size={16} /> : <Mic size={16} />}
           </button>
 
           <textarea
@@ -265,11 +353,11 @@ export function ChatWindow({ threadId, initial }: { threadId: string; initial: U
               }
             }}
             placeholder={
-              isRecording
-                ? "Listening… tap mic to stop"
-                : isTranscribing
-                  ? "Transcribing…"
-                  : 'Speak or type, Sir. e.g. "Remind me to drink water every weekday at 10am"'
+              isListening
+                ? "Listening…"
+                : micSupported === false
+                  ? "Voice not supported – type your message"
+                  : 'Speak freely, Sir. e.g. "Remind me to drink water every weekday at 10am"'
             }
             className="flex-1 resize-none bg-background/60 border border-arc/25 rounded-lg px-4 py-3 font-mono text-sm focus:border-arc focus:outline-none max-h-40"
           />
@@ -293,8 +381,23 @@ export function ChatWindow({ threadId, initial }: { threadId: string; initial: U
             </button>
           )}
         </div>
+        <div className="flex justify-between items-center mt-2">
+          <div className="text-xs text-hud-dim">{debugInfo && <span>Status: {debugInfo}</span>}</div>
+          <button
+            onClick={debugTest}
+            className="text-xs text-hud-dim hover:text-arc flex items-center gap-1"
+            title="Debug voice recognition"
+          >
+            <Bug size={12} /> Test
+          </button>
+        </div>
+        {micSupported === false && (
+          <div className="mt-1 text-xs text-warning flex items-center gap-2 justify-center">
+            <AlertCircle size={12} />
+            <span>Voice input not supported in this browser. Try Chrome or Edge.</span>
+          </div>
+        )}
       </div>
-
     </div>
   );
 }
@@ -324,7 +427,7 @@ const MessageBubble = memo(function MessageBubble({ msg }: { msg: UIMessage }) {
                 key={i}
                 className="prose prose-invert prose-sm max-w-none text-foreground prose-p:my-2 prose-headings:text-arc prose-strong:text-foreground prose-code:text-arc prose-code:bg-arc/10 prose-code:px-1 prose-code:rounded"
               >
-                <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>{part.text}</ReactMarkdown>
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{part.text}</ReactMarkdown>
               </div>
             );
           }

@@ -13,8 +13,7 @@ import {
   getTodayCheckin,
   saveCheckin,
 } from "@/lib/discord.functions";
-import { createNotification } from "@/lib/notifications.functions";
-import { Trash2, Send, Zap, Plus, Bell } from "lucide-react";
+import { Trash2, Send, Zap, Plus } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/briefing")({
   head: () => ({ meta: [{ title: "Daily Briefing — JARVIS" }] }),
@@ -30,7 +29,6 @@ function BriefingPage() {
   const fire = useServerFn(fireDailyNow);
   const getCi = useServerFn(getTodayCheckin);
   const saveCi = useServerFn(saveCheckin);
-  const createNotif = useServerFn(createNotification);
 
   const { data: hooks } = useQuery({ queryKey: ["discord-webhooks"], queryFn: () => list() });
   const { data: checkin } = useQuery({ queryKey: ["checkin-today"], queryFn: () => getCi() });
@@ -43,55 +41,15 @@ function BriefingPage() {
     onError: (e: any) => toast.error(String(e.message ?? e)),
   });
 
-  const [notifBusy, setNotifBusy] = useState(false);
-
-  async function sendTestNotification() {
-    setNotifBusy(true);
-    try {
-      await createNotif({
-        data: {
-          type: "alert",
-          priority: "critical",
-          title: "🔔 Test Push Notification",
-          message: "This is a test alert from JARVIS. Your Discord push notifications are working!",
-          action_payload: [{ type: "dismiss", label: "Dismiss" }],
-          send_push: true,
-        },
-      });
-      toast.success("Test notification sent to Discord!");
-    } catch (e: any) {
-      toast.error(e?.message || "Failed to send test notification");
-    } finally {
-      setNotifBusy(false);
-    }
-  }
-
   return (
     <div className="flex flex-col h-screen">
       <PageHeader
         tag="05 · BRIEFING"
         title="Daily Discord Briefing"
         subtitle="JARVIS pushes a daily digest to Discord at 12:00 UTC — inbox, agenda, reminders, spending, and your check-in."
-        right={
-          <div className="flex gap-2">
-            <button
-              onClick={sendTestNotification}
-              disabled={notifBusy}
-              className="text-xs flex items-center gap-1.5 px-3 py-2 rounded-md border border-arc/30 bg-arc/10 hover:bg-arc/20 transition disabled:opacity-50"
-            >
-              <Bell size={12} /> {notifBusy ? "Sending…" : "Test Push"}
-            </button>
-            <button
-              onClick={() => fireMut.mutate()}
-              disabled={fireMut.isPending}
-              className="text-xs flex items-center gap-1.5 px-3 py-2 rounded-md bg-arc text-arc-foreground shadow-arc hover:opacity-90 transition disabled:opacity-50"
-            >
-              <Zap size={12} /> {fireMut.isPending ? "Sending…" : "Send briefing now"}
-            </button>
-          </div>
-        }
       />
       <div className="flex-1 overflow-y-auto px-8 py-6 space-y-6 max-w-3xl">
+        {/* Check-in */}
         <CheckinCard
           initial={checkin}
           onSave={async (vals) => {
@@ -101,6 +59,7 @@ function BriefingPage() {
           }}
         />
 
+        {/* Webhooks */}
         <section className="glass-strong hud-corners rounded-xl p-5">
           <div className="flex items-center justify-between mb-4">
             <div className="font-mono text-[10px] tracking-[0.3em] text-arc">DISCORD WEBHOOKS</div>
@@ -147,7 +106,7 @@ function BriefingPage() {
           </div>
           <p className="mt-4 text-xs text-hud-dim">
             Create a webhook in your Discord channel (Edit Channel → Integrations → Webhooks) and paste the URL here.
-            Daily delivery fires at 12:00 UTC. Test push notifications using the button above.
+            Daily delivery fires at 12:00 UTC.
           </p>
         </section>
       </div>
@@ -155,7 +114,6 @@ function BriefingPage() {
   );
 }
 
-// ---------- CheckinCard ----------
 function CheckinCard({ initial, onSave }: { initial: any; onSave: (v: any) => Promise<void> }) {
   const [w, setW] = useState(initial?.weight_lbs ?? "");
   const [h, setH] = useState(initial?.height_in ?? "");
@@ -215,7 +173,6 @@ function Num({ label, value, onChange }: any) {
     </label>
   );
 }
-
 function Field({ label, value, onChange, placeholder }: any) {
   return (
     <label className="block">
@@ -230,7 +187,7 @@ function Field({ label, value, onChange, placeholder }: any) {
   );
 }
 
-// ---------- SECTIONS with @everyone toggle ----------
+// Updated SECTIONS with @everyone toggle
 const SECTIONS = [
   ["include_email", "Email digest"],
   ["include_calendar", "Calendar"],

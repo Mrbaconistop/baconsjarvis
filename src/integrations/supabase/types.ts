@@ -124,45 +124,6 @@ export type Database = {
         }
         Relationships: []
       }
-      custom_tabs: {
-        Row: {
-          content_html: string
-          created_at: string
-          description: string | null
-          icon: string
-          id: string
-          label: string
-          slug: string
-          sort_order: number
-          updated_at: string
-          user_id: string
-        }
-        Insert: {
-          content_html?: string
-          created_at?: string
-          description?: string | null
-          icon?: string
-          id?: string
-          label: string
-          slug: string
-          sort_order?: number
-          updated_at?: string
-          user_id: string
-        }
-        Update: {
-          content_html?: string
-          created_at?: string
-          description?: string | null
-          icon?: string
-          id?: string
-          label?: string
-          slug?: string
-          sort_order?: number
-          updated_at?: string
-          user_id?: string
-        }
-        Relationships: []
-      }
       daily_checkins: {
         Row: {
           created_at: string
@@ -280,33 +241,6 @@ export type Database = {
         }
         Relationships: []
       }
-      learning_sessions: {
-        Row: {
-          content: string | null
-          created_at: string | null
-          id: string
-          title: string
-          updated_at: string | null
-          user_id: string
-        }
-        Insert: {
-          content?: string | null
-          created_at?: string | null
-          id?: string
-          title?: string
-          updated_at?: string | null
-          user_id: string
-        }
-        Update: {
-          content?: string | null
-          created_at?: string | null
-          id?: string
-          title?: string
-          updated_at?: string | null
-          user_id?: string
-        }
-        Relationships: []
-      }
       map_places: {
         Row: {
           address: string | null
@@ -348,33 +282,6 @@ export type Database = {
           notes?: string | null
           place_id?: string | null
           updated_at?: string
-          user_id?: string
-        }
-        Relationships: []
-      }
-      message_memory: {
-        Row: {
-          created_at: string | null
-          embedding: string | null
-          id: string
-          message: string
-          role: string
-          user_id: string
-        }
-        Insert: {
-          created_at?: string | null
-          embedding?: string | null
-          id?: string
-          message: string
-          role: string
-          user_id: string
-        }
-        Update: {
-          created_at?: string | null
-          embedding?: string | null
-          id?: string
-          message?: string
-          role?: string
           user_id?: string
         }
         Relationships: []
@@ -748,16 +655,6 @@ export type Database = {
           _user_id: string
         }
         Returns: boolean
-      }
-      match_memory: {
-        Args: { match_count?: number; query_embedding: string; user_id: string }
-        Returns: {
-          created_at: string
-          id: string
-          message: string
-          role: string
-          similarity: number
-        }[]
       }
     }
     Enums: {

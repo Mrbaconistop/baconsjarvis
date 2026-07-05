@@ -127,11 +127,13 @@ export async function sendForUserHooks(userId: string, hook: any) {
     timestamp: new Date().toISOString(),
   };
 
+  // Build payload with optional @everyone mention
   const payload: any = {
     username: "JARVIS",
     embeds: [embed],
   };
 
+  // Add @everyone if toggled
   if (hook.include_mention_everyone) {
     payload.content = "@everyone";
   }
@@ -143,52 +145,4 @@ export async function sendForUserHooks(userId: string, hook: any) {
   });
   if (!res.ok) throw new Error(`discord ${res.status}`);
   await supabaseAdmin.from("discord_webhooks").update({ last_sent_at: new Date().toISOString() }).eq("id", hook.id);
-}
-
-// ============================================================
-// NEW: Push notification function
-// ============================================================
-export async function sendDiscordNotification(
-  userId: string,
-  title: string,
-  description: string,
-  color: number = 0x00d4ff,
-  fields?: { name: string; value: string; inline?: boolean }[],
-) {
-  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-
-  // Fetch all webhooks for this user that have notifications enabled
-  const { data: hooks } = await supabaseAdmin
-    .from("discord_webhooks")
-    .select("url")
-    .eq("user_id", userId)
-    .eq("enabled", true);
-
-  if (!hooks || hooks.length === 0) return;
-
-  const embed = {
-    title,
-    description,
-    color,
-    fields: fields || [],
-    footer: { text: "JARVIS · Push notification" },
-    timestamp: new Date().toISOString(),
-  };
-
-  const payload = {
-    username: "JARVIS Notifier",
-    embeds: [embed],
-  };
-
-  for (const hook of hooks) {
-    try {
-      await fetch(hook.url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-    } catch (e) {
-      console.error("Failed to send Discord notification:", e);
-    }
-  }
 }

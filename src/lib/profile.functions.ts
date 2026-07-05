@@ -24,6 +24,7 @@ export const listAccounts = createServerFn({ method: "GET" })
     return data ?? [];
   });
 
+// ---------- LLM Config ----------
 export const getLLMConfig = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
@@ -36,7 +37,6 @@ export const getLLMConfig = createServerFn({ method: "GET" })
     return {
       provider: config.provider || "system",
       apiKey: config.api_key || "",
-      mode: config.mode || "basic",
     };
   });
 
@@ -45,54 +45,28 @@ export const updateLLMConfig = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) =>
     z
       .object({
-        provider: z.enum(["groq", "deepseek", "lovable", "system", "lmstudio", "gemini"]),
+        provider: z.enum(["groq", "deepseek", "lovable", "system", "lmstudio"]),
         apiKey: z.string().optional(),
-        mode: z.enum(["thinking", "coding", "basic"]).optional(),
       })
       .parse(input),
   )
   .handler(async ({ data, context }) => {
     const { supabase, userId } = context as any;
 
+    // Delete existing llm facts
     await supabase.from("user_facts").delete().eq("user_id", userId).eq("category", "llm");
 
-    const facts: Array<{ user_id: string; category: string; key: string; value: string }> = [];
-
+    // Insert new ones if provider is not "system"
     if (data.provider !== "system") {
-      facts.push({ user_id: userId, category: "llm", key: "provider", value: data.provider });
+      const facts: Array<{ user_id: string; category: string; key: string; value: string }> = [
+        { user_id: userId, category: "llm", key: "provider", value: data.provider },
+      ];
       if (data.apiKey) {
         facts.push({ user_id: userId, category: "llm", key: "api_key", value: data.apiKey });
       }
-    }
-
-    if (data.mode) {
-      facts.push({ user_id: userId, category: "llm", key: "mode", value: data.mode });
-    }
-
-    if (facts.length > 0) {
       const { error } = await supabase.from("user_facts").insert(facts);
       if (error) throw error;
     }
 
-    return { ok: true };
-  });
-
-export const storeGoogleConnection = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
-  .handler(async ({ context }) => {
-    const { supabase, userId } = context as any;
-    const platforms = ["gmail", "calendar"];
-    for (const platform of platforms) {
-      const { error } = await supabase.from("connected_accounts").upsert(
-        {
-          user_id: userId,
-          platform: platform,
-          status: "connected",
-          handle: null,
-        },
-        { onConflict: "user_id,platform" },
-      );
-      if (error) console.error(`Failed to store ${platform}:`, error);
-    }
     return { ok: true };
   });

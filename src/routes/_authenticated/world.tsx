@@ -1,31 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import {
-  listFeeds,
-  markFeedHandled,
-  refreshFeed,
-  fetchDiscordMessages,
-  fetchDiscordDMs,
-  getDiscordChannel,
-  setDiscordChannel,
-} from "@/lib/social.functions";
+import { listFeeds, markFeedHandled, refreshFeed, importCredentials } from "@/lib/social.functions";
 import { draftReply } from "@/lib/jarvis.functions";
 import { PageHeader, PriorityChip } from "@/components/jarvis/HudBits";
 import { formatRelative } from "@/lib/time-utils";
-import { useState } from "react";
-import {
-  Twitter,
-  Linkedin,
-  Instagram,
-  Facebook,
-  Check,
-  Sparkles,
-  RefreshCw,
-  MessageCircle,
-  Settings2,
-  X,
-} from "lucide-react";
+import { useState, useRef } from "react";
+import { Twitter, Linkedin, Instagram, Facebook, Check, Sparkles, RefreshCw, Upload, KeyRound } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_authenticated/world")({
@@ -43,8 +24,6 @@ const PLATFORMS = [
   { id: "linkedin", label: "LinkedIn", icon: Linkedin },
   { id: "instagram", label: "Instagram", icon: Instagram },
   { id: "facebook", label: "Facebook", icon: Facebook },
-  { id: "discord", label: "Discord", icon: MessageCircle },
-  { id: "discord_dm", label: "Discord DM", icon: MessageCircle },
 ] as const;
 
 function WorldPage() {
@@ -53,25 +32,15 @@ function WorldPage() {
   const handled = useServerFn(markFeedHandled);
   const draft = useServerFn(draftReply);
   const refresh = useServerFn(refreshFeed);
-  const fetchDiscord = useServerFn(fetchDiscordMessages);
-  const fetchDMs = useServerFn(fetchDiscordDMs);
-  const getChannel = useServerFn(getDiscordChannel);
-  const setChannel = useServerFn(setDiscordChannel);
+  const importCreds = useServerFn(importCredentials);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [refreshing, setRefreshing] = useState(false);
-  const [fetchingDiscord, setFetchingDiscord] = useState(false);
-  const [fetchingDMs, setFetchingDMs] = useState(false);
-  const [showChannelModal, setShowChannelModal] = useState(false);
-  const [channelInput, setChannelInput] = useState("");
+  const [uploading, setUploading] = useState(false);
 
   const { data, refetch } = useQuery({
     queryKey: ["feeds"],
     queryFn: () => list(),
-  });
-
-  const { data: channelData, refetch: refetchChannel } = useQuery({
-    queryKey: ["discord-channel"],
-    queryFn: () => getChannel(),
   });
 
   const [filter, setFilter] = useState<"all" | "negative" | "actionable">("all");
@@ -95,42 +64,46 @@ function WorldPage() {
     }
   }
 
-  async function handleFetchDiscord() {
-    setFetchingDiscord(true);
+  async function handleCredentialUpload(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
     try {
-      const result = await fetchDiscord({});
-      await refetch();
-      toast.success(`Fetched ${result?.length || 0} Discord messages, Sir.`);
+      const text = await file.text();
+      const lines = text.split("\n").filter((line) => line.trim() !== "");
+      const credentials: any[] = [];
+      for (const line of lines) {
+        const parts = line.split(":").map((s) => s.trim());
+        if (parts.length === 3) {
+          // Format: platform:username:password
+          credentials.push({
+            platform: parts[0].toLowerCase(),
+            username: parts[1],
+            password: parts[2],
+          });
+        } else if (parts.length === 2) {
+          // Format: username:password (default to twitter)
+          credentials.push({
+            platform: "twitter",
+            username: parts[0],
+            password: parts[1],
+          });
+        } else {
+          toast.warning(`Skipped invalid line: "${line}"`);
+        }
+      }
+      if (credentials.length === 0) {
+        toast.warning("No valid credentials found. Use format: platform:username:password");
+        return;
+      }
+      const result = await importCreds({ data: credentials });
+      toast.success(`Imported ${result.length} credentials to vault, Sir.`);
+      qc.invalidateQueries({ queryKey: ["vault"] });
     } catch (e: any) {
-      toast.error(e?.message ?? "Failed to fetch Discord messages");
+      toast.error(e?.message ?? "Upload failed");
     } finally {
-      setFetchingDiscord(false);
-    }
-  }
-
-  async function handleFetchDMs() {
-    setFetchingDMs(true);
-    try {
-      const result = await fetchDMs({});
-      await refetch();
-      toast.success(`Fetched ${result?.length || 0} Discord DMs, Sir.`);
-    } catch (e: any) {
-      toast.error(e?.message ?? "Failed to fetch DMs");
-    } finally {
-      setFetchingDMs(false);
-    }
-  }
-
-  async function handleSetChannel() {
-    if (!channelInput.trim()) return toast.error("Channel ID required");
-    try {
-      await setChannel({ data: { channelId: channelInput.trim() } });
-      await refetchChannel();
-      setShowChannelModal(false);
-      setChannelInput("");
-      toast.success("Discord channel set, Sir.");
-    } catch (e: any) {
-      toast.error(e?.message ?? "Failed to set channel");
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
     }
   }
 
@@ -151,27 +124,14 @@ function WorldPage() {
               {refreshing ? "Refreshing…" : "Refresh"}
             </button>
             <button
-              onClick={handleFetchDiscord}
-              disabled={fetchingDiscord}
-              className="text-xs flex items-center gap-1.5 px-3 py-2 rounded-md border border-arc/30 hover:bg-arc/10 transition disabled:opacity-50"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading}
+              className="text-xs flex items-center gap-1.5 px-3 py-2 rounded-md bg-arc text-arc-foreground shadow-arc hover:opacity-90 transition disabled:opacity-50"
             >
-              <MessageCircle size={12} className={fetchingDiscord ? "animate-spin" : ""} />
-              {fetchingDiscord ? "Fetching…" : "Discord"}
+              <KeyRound size={12} />
+              {uploading ? "Uploading…" : "Import Credentials"}
             </button>
-            <button
-              onClick={handleFetchDMs}
-              disabled={fetchingDMs}
-              className="text-xs flex items-center gap-1.5 px-3 py-2 rounded-md border border-arc/30 hover:bg-arc/10 transition disabled:opacity-50"
-            >
-              <MessageCircle size={12} className={fetchingDMs ? "animate-spin" : ""} />
-              {fetchingDMs ? "Fetching…" : "DMs"}
-            </button>
-            <button
-              onClick={() => setShowChannelModal(true)}
-              className="text-xs flex items-center gap-1.5 px-3 py-2 rounded-md border border-arc/30 hover:bg-arc/10 transition"
-            >
-              <Settings2 size={12} />
-            </button>
+            <input type="file" ref={fileInputRef} accept=".txt" onChange={handleCredentialUpload} className="hidden" />
             <div className="flex gap-1 bg-background/40 border border-arc/20 rounded-md p-1">
               {(["all", "actionable", "negative"] as const).map((k) => (
                 <button
@@ -203,11 +163,7 @@ function WorldPage() {
               <div className="flex-1 overflow-y-auto p-3 space-y-2">
                 {items.length === 0 && (
                   <div className="text-xs text-hud-dim p-4 text-center">
-                    {p.id === "discord"
-                      ? "No Discord messages yet. Configure the channel and fetch."
-                      : p.id === "discord_dm"
-                        ? "No DMs fetched yet. Click 'DMs' to fetch."
-                        : "Nothing here yet."}
+                    Nothing here yet — Refresh to generate sample posts, or import credentials to connect real accounts.
                   </div>
                 )}
                 {items.map((f: any) => (
@@ -231,45 +187,11 @@ function WorldPage() {
           );
         })}
       </div>
-
-      {/* Discord Channel Modal */}
-      {showChannelModal && (
-        <div
-          className="fixed inset-0 bg-background/80 backdrop-blur-md z-50 flex items-center justify-center p-6"
-          onClick={() => setShowChannelModal(false)}
-        >
-          <div className="glass-strong hud-corners rounded-xl p-6 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="font-display text-lg">Discord Channel</h2>
-              <button onClick={() => setShowChannelModal(false)} className="text-hud-dim hover:text-foreground">
-                <X size={16} />
-              </button>
-            </div>
-            <p className="text-sm text-muted-foreground mb-4">
-              Current channel: <span className="text-arc font-mono">{channelData?.channelId || "Not set"}</span>
-            </p>
-            <input
-              value={channelInput}
-              onChange={(e) => setChannelInput(e.target.value)}
-              placeholder="Enter Discord channel ID"
-              className="w-full bg-background/60 border border-arc/20 rounded-md px-3 py-2 text-sm font-mono focus:border-arc focus:outline-none"
-            />
-            <button
-              onClick={handleSetChannel}
-              className="w-full mt-4 bg-arc text-arc-foreground py-2 rounded-md shadow-arc hover:opacity-90 transition"
-            >
-              Set Channel
-            </button>
-            <p className="text-[10px] text-hud-dim mt-3">
-              Right‑click a Discord channel → Copy ID (enable Developer Mode in Settings first).
-            </p>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
 
+// FeedCard component (unchanged)
 function FeedCard({
   feed,
   onDraft,

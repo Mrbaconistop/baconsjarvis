@@ -1,12 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { convertToModelMessages, streamText, tool, stepCountIs, type UIMessage, embed } from "ai";
+import { convertToModelMessages, streamText, tool, stepCountIs, type UIMessage } from "ai";
 import { z } from "zod";
 import { createClient } from "@supabase/supabase-js";
-import { getSystemPrompt, getModelForUser } from "@/lib/ai-gateway.server";
+import { JARVIS_SYSTEM_PROMPT, getModelForUser } from "@/lib/ai-gateway.server";
 import { getWeather, getWeatherForecast, getWeatherNarrative } from "@/lib/jarvis.functions";
-import { getProfile, getLLMConfig, updateLLMConfig } from "@/lib/profile.functions";
-import { listAccounts } from "@/lib/profile.functions";
-import { getBackendOverview } from "@/lib/backend.functions";
 
 type Body = { messages?: UIMessage[]; threadId?: string };
 
@@ -15,57 +12,6 @@ function userClient(token: string) {
     global: { headers: { Authorization: `Bearer ${token}` } },
     auth: { persistSession: false, autoRefreshToken: false },
   });
-}
-
-async function getEmbedding(text: string): Promise<number[]> {
-  // Use Groq's embedding model via the Lovable gateway
-  // Fallback to a simple random embedding if Groq is not available
-  try {
-    const response = await fetch("https://connector-gateway.lovable.dev/ai/embeddings", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${process.env.LOVABLE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "groq/embedding-3-small",
-        input: text,
-      }),
-    });
-    if (!response.ok) throw new Error(`Embedding API error: ${response.status}`);
-    const data = await response.json();
-    return data.data[0].embedding;
-  } catch (e) {
-    console.warn("[Embedding] Falling back to random embedding (768d)", e);
-    // Fallback to random 768‑dim vector (won't be accurate but prevents crashes)
-    return Array.from({ length: 768 }, () => Math.random() * 2 - 1);
-  }
-}
-
-async function storeMemory(userId: string, message: string, role: string, supabase: any) {
-  try {
-    const embedding = await getEmbedding(message);
-    const { error } = await supabase.from("message_memory").insert({ user_id: userId, message, role, embedding });
-    if (error) console.error("[Memory] Store error:", error);
-  } catch (e) {
-    console.error("[Memory] Failed to store:", e);
-  }
-}
-
-async function recallMemory(userId: string, query: string, supabase: any, limit: number = 5) {
-  try {
-    const embedding = await getEmbedding(query);
-    const { data, error } = await supabase.rpc("match_memory", {
-      query_embedding: embedding,
-      user_id: userId,
-      match_count: limit,
-    });
-    if (error) throw error;
-    return data || [];
-  } catch (e) {
-    console.error("[Memory] Recall error:", e);
-    return [];
-  }
 }
 
 export const Route = createFileRoute("/api/chat")({
@@ -83,14 +29,6 @@ export const Route = createFileRoute("/api/chat")({
         const { data: userData } = await supabase.auth.getUser();
         const userId = userData?.user?.id;
         if (!userId) return new Response("Unauthorized", { status: 401 });
-
-        // Store all user messages in memory (auto)
-        for (const msg of messages) {
-          if (msg.role === "user") {
-            const text = (msg.parts.find((p: any) => p.type === "text") as any)?.text || "";
-            if (text) await storeMemory(userId, text, "user", supabase);
-          }
-        }
 
         // Verify thread ownership
         let { data: thread } = await supabase
@@ -112,19 +50,18 @@ export const Route = createFileRoute("/api/chat")({
         // Load profile
         const { data: profile } = await supabase
           .from("profiles")
-          .select("address_as, name, timezone")
+          .select("address_as, name")
           .eq("id", userId)
           .maybeSingle();
         const addressAs = profile?.address_as ?? "Sir";
-        const userTimezone = profile?.timezone || "UTC";
 
-        // Load facts
+        // Load only 10 most recent facts, truncated
         const { data: factRows } = await supabase
           .from("user_facts")
           .select("category, key, value")
           .eq("user_id", userId)
           .order("updated_at", { ascending: false })
-          .limit(5);
+          .limit(10);
 
         const factsBlock = (factRows ?? []).length
           ? (factRows ?? [])
@@ -154,17 +91,8 @@ export const Route = createFileRoute("/api/chat")({
           }
         }
 
-        // Get model and mode
-        const { model: chatModel, mode } = await getModelForUser(userId, supabase);
-
-        // Format current time
-        const now = new Date();
-        const currentTimeFormatted = now.toLocaleString("en-US", {
-          timeZone: userTimezone,
-          hour: "numeric",
-          minute: "2-digit",
-          hour12: true,
-        });
+        // Get the model
+        const { model: chatModel } = await getModelForUser(userId, supabase);
 
         // ---- Tools ----
         const tools = {
@@ -783,72 +711,8 @@ export const Route = createFileRoute("/api/chat")({
               };
             },
           }),
-          get_place_address: tool({
-            description: "Get the full address of a saved place by its label (e.g., 'Home', 'Office').",
-            inputSchema: z.object({
-              label: z.string().describe("The label of the saved place (e.g., 'Home', 'Office')"),
-            }),
-            execute: async ({ label }) => {
-              const { data: places, error } = await supabase
-                .from("map_places")
-                .select("id, label, lat, lng, address")
-                .eq("user_id", userId)
-                .ilike("label", `%${label}%`)
-                .limit(1);
 
-              if (error) return { ok: false, error: error.message };
-              if (!places || places.length === 0) {
-                return { ok: false, error: `No saved place found with label containing "${label}".` };
-              }
-
-              const place = places[0];
-
-              if (place.address) {
-                return {
-                  ok: true,
-                  label: place.label,
-                  address: place.address,
-                  lat: place.lat,
-                  lng: place.lng,
-                  source: "stored",
-                };
-              }
-
-              try {
-                const r = await fetch(
-                  `https://connector-gateway.lovable.dev/google_maps/maps/api/geocode/json?latlng=${place.lat},${place.lng}`,
-                  {
-                    headers: {
-                      Authorization: `Bearer ${process.env.LOVABLE_API_KEY}`,
-                      "X-Connection-Api-Key": process.env.GOOGLE_MAPS_API_KEY!,
-                    },
-                  },
-                );
-                const j: any = await r.json();
-                const result = j.results?.[0];
-                if (!result) {
-                  return { ok: false, error: "Could not reverse‑geocode this location." };
-                }
-
-                const formattedAddress = result.formatted_address;
-
-                await supabase.from("map_places").update({ address: formattedAddress }).eq("id", place.id);
-
-                return {
-                  ok: true,
-                  label: place.label,
-                  address: formattedAddress,
-                  lat: place.lat,
-                  lng: place.lng,
-                  source: "reverse_geocoded",
-                };
-              } catch (e: any) {
-                return { ok: false, error: e?.message || "Reverse‑geocoding failed" };
-              }
-            },
-          }),
-
-          // ==================== WEATHER ====================
+          // ==================== WEATHER TOOLS ====================
           get_current_weather: tool({
             description: "Get the current weather for the user's saved location.",
             inputSchema: z.object({}),
@@ -862,7 +726,7 @@ export const Route = createFileRoute("/api/chat")({
             },
           }),
           get_weather_forecast: tool({
-            description: "Get a 5‑day weather forecast.",
+            description: "Get a 5‑day weather forecast for the user's saved location.",
             inputSchema: z.object({}),
             execute: async () => {
               try {
@@ -874,7 +738,7 @@ export const Route = createFileRoute("/api/chat")({
             },
           }),
           get_weather_narrative: tool({
-            description: "Get a natural‑language weather description.",
+            description: "Get a natural‑language weather description (e.g., 'It's a nice cool day to take a walk').",
             inputSchema: z.object({}),
             execute: async () => {
               try {
@@ -885,8 +749,10 @@ export const Route = createFileRoute("/api/chat")({
               }
             },
           }),
+          // ✅ NEW: Set weather location from chat
           set_weather_location: tool({
-            description: "Change the user's saved weather location.",
+            description:
+              "Change the user's saved weather location to a saved map place. Use this when the user asks to set their weather location to a specific place (e.g., 'Home', 'London').",
             inputSchema: z.object({
               placeLabel: z.string().describe("The label of the saved place (case-insensitive, partial match allowed)"),
             }),
@@ -897,10 +763,12 @@ export const Route = createFileRoute("/api/chat")({
                 .eq("user_id", userId)
                 .ilike("label", `%${placeLabel}%`)
                 .limit(1);
+
               if (error) return { ok: false, error: error.message };
               if (!places || places.length === 0) {
                 return { ok: false, error: `No saved place found with label containing "${placeLabel}".` };
               }
+
               const place = places[0];
               const { error: updateError } = await supabase.from("user_facts").upsert(
                 {
@@ -911,594 +779,45 @@ export const Route = createFileRoute("/api/chat")({
                 },
                 { onConflict: "user_id,category,key" },
               );
+
               if (updateError) return { ok: false, error: updateError.message };
               return { ok: true, message: `Weather location set to "${place.label}".` };
             },
           }),
-
-          // ==================== PROFILE & SETTINGS ====================
-          get_profile: tool({
-            description: "Get the user's profile information (name, address_as, timezone, briefing time).",
-            inputSchema: z.object({}),
-            execute: async () => {
-              try {
-                const profile = await getProfile({ context: { supabase, userId } } as any);
-                if (!profile) {
-                  return { ok: true, profile: null, message: "No profile found. You can set one up in Settings." };
-                }
-                return { ok: true, profile };
-              } catch (e: any) {
-                return { ok: false, error: e.message };
-              }
-            },
-          }),
-          update_profile: tool({
-            description: "Update the user's profile settings.",
-            inputSchema: z.object({
-              name: z.string().optional(),
-              address_as: z.string().optional().describe("How JARVIS addresses you (e.g., 'Sir', 'Boss', 'Captain')"),
-              timezone: z.string().optional().describe("IANA timezone (e.g., 'America/New_York', 'Europe/London')"),
-              preferred_briefing_time: z.string().optional().describe("Briefing time in HH:MM format (e.g., '08:00')"),
-            }),
-            execute: async ({ name, address_as, timezone, preferred_briefing_time }) => {
-              const updateData: any = {};
-              if (name !== undefined) updateData.name = name;
-              if (address_as !== undefined) updateData.address_as = address_as;
-              if (timezone !== undefined) updateData.timezone = timezone;
-              if (preferred_briefing_time !== undefined) updateData.preferred_briefing_time = preferred_briefing_time;
-              if (Object.keys(updateData).length === 0) {
-                return { ok: false, error: "No fields to update." };
-              }
-              const { error } = await supabase.from("profiles").update(updateData).eq("id", userId);
-              if (error) return { ok: false, error: error.message };
-              return { ok: true, message: "Profile updated." };
-            },
-          }),
-          get_ai_config: tool({
-            description: "Get the current AI provider, API key status, and mode.",
-            inputSchema: z.object({}),
-            execute: async () => {
-              try {
-                const config = await getLLMConfig({ context: { supabase, userId } } as any);
-                return { ok: true, config };
-              } catch (e: any) {
-                return { ok: false, error: e.message };
-              }
-            },
-          }),
-          set_ai_config: tool({
-            description: "Change the AI provider, API key, or mode.",
-            inputSchema: z.object({
-              provider: z.enum(["groq", "deepseek", "lovable", "system", "lmstudio"]).optional(),
-              apiKey: z
-                .string()
-                .optional()
-                .describe("API key for the chosen provider (optional if switching to system or lovable)"),
-              mode: z
-                .enum(["thinking", "coding", "basic"])
-                .optional()
-                .describe("AI mode: thinking (deep reasoning), coding (technical help), basic (everyday chat)"),
-            }),
-            execute: async ({ provider, apiKey, mode }) => {
-              try {
-                const current = await getLLMConfig({ context: { supabase, userId } } as any);
-                const newProvider = provider ?? current.provider;
-                const newApiKey = apiKey ?? current.apiKey;
-                const newMode = mode ?? current.mode;
-                await updateLLMConfig({
-                  context: { supabase, userId },
-                  data: { provider: newProvider, apiKey: newApiKey, mode: newMode },
-                } as any);
-                return { ok: true, message: `AI config updated. Provider: ${newProvider}, Mode: ${newMode}` };
-              } catch (e: any) {
-                return { ok: false, error: e.message };
-              }
-            },
-          }),
-          list_connected_accounts: tool({
-            description: "List all connected social/calendar accounts.",
-            inputSchema: z.object({}),
-            execute: async () => {
-              try {
-                const accounts = await listAccounts({ context: { supabase, userId } } as any);
-                return { ok: true, accounts };
-              } catch (e: any) {
-                return { ok: false, error: e.message };
-              }
-            },
-          }),
-
-          // ==================== FILES ====================
-          list_files: tool({
-            description: "List files in the user's private storage.",
-            inputSchema: z.object({}),
-            execute: async () => {
-              try {
-                const { data, error } = await supabase.storage
-                  .from("user-files")
-                  .list(userId, { limit: 200, sortBy: { column: "created_at", order: "desc" } });
-                if (error) throw error;
-                const files = (data ?? []).filter((f) => f.name !== ".emptyFolderPlaceholder");
-                return { ok: true, files };
-              } catch (e: any) {
-                return { ok: false, error: e.message };
-              }
-            },
-          }),
-          get_file_url: tool({
-            description: "Get a public URL to download a file from the user's private storage.",
-            inputSchema: z.object({ fileName: z.string() }),
-            execute: async ({ fileName }) => {
-              try {
-                const { data } = supabase.storage.from("user-files").getPublicUrl(`${userId}/${fileName}`);
-                return { ok: true, url: data.publicUrl };
-              } catch (e: any) {
-                return { ok: false, error: e.message };
-              }
-            },
-          }),
-          delete_file: tool({
-            description: "Delete a file from the user's private storage.",
-            inputSchema: z.object({ fileName: z.string() }),
-            execute: async ({ fileName }) => {
-              try {
-                const { error } = await supabase.storage.from("user-files").remove([`${userId}/${fileName}`]);
-                if (error) throw error;
-                return { ok: true, message: `File "${fileName}" deleted.` };
-              } catch (e: any) {
-                return { ok: false, error: e.message };
-              }
-            },
-          }),
-
-          // ==================== BACKEND OVERVIEW ====================
-          get_backend_overview: tool({
-            description: "Get backend overview (table counts, secret status, project info).",
-            inputSchema: z.object({}),
-            execute: async () => {
-              try {
-                const overview = await getBackendOverview({ context: { supabase, userId } } as any);
-                return { ok: true, overview };
-              } catch (e: any) {
-                return { ok: false, error: e.message };
-              }
-            },
-          }),
-
-          // ==================== CHECK-INS & BRIEFINGS ====================
-          log_checkin: tool({
-            description:
-              "Log or update today's daily check-in (weight, height, mood, energy, sleep, notes). Any field can be omitted; existing values are preserved.",
-            inputSchema: z.object({
-              weight_lbs: z.number().nullable().optional(),
-              height_in: z.number().nullable().optional(),
-              mood: z.string().nullable().optional(),
-              energy: z.number().int().min(1).max(10).nullable().optional(),
-              sleep_hours: z.number().nullable().optional(),
-              notes: z.string().nullable().optional(),
-              day: z.string().nullable().optional().describe("YYYY-MM-DD; defaults to today UTC"),
-            }),
-            execute: async (input) => {
-              const day = input.day ?? new Date().toISOString().slice(0, 10);
-              const patch: any = { user_id: userId, day };
-              for (const k of ["weight_lbs", "height_in", "mood", "energy", "sleep_hours", "notes"] as const) {
-                if (input[k] !== undefined && input[k] !== null) patch[k] = input[k];
-              }
-              const { data, error } = await supabase
-                .from("daily_checkins")
-                .upsert(patch, { onConflict: "user_id,day" })
-                .select("*")
-                .single();
-              if (error) return { ok: false, error: error.message };
-              return { ok: true, checkin: data };
-            },
-          }),
-          get_checkin: tool({
-            description: "Get a check-in for a specific day (defaults to today).",
-            inputSchema: z.object({ day: z.string().nullable().optional() }),
-            execute: async ({ day }) => {
-              const d = day ?? new Date().toISOString().slice(0, 10);
-              const { data } = await supabase
-                .from("daily_checkins")
-                .select("*")
-                .eq("user_id", userId)
-                .eq("day", d)
-                .maybeSingle();
-              return { day: d, checkin: data ?? null };
-            },
-          }),
-          list_checkins: tool({
-            description: "List recent daily check-ins (default last 14 days).",
-            inputSchema: z.object({ days: z.number().int().min(1).max(180).default(14) }),
-            execute: async ({ days }) => {
-              const since = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
-              const { data } = await supabase
-                .from("daily_checkins")
-                .select("day, weight_lbs, height_in, mood, energy, sleep_hours, notes")
-                .eq("user_id", userId)
-                .gte("day", since)
-                .order("day", { ascending: false });
-              return { checkins: data ?? [], count: data?.length ?? 0 };
-            },
-          }),
-          checkin_summary: tool({
-            description: "Compute averages and trends across recent check-ins.",
-            inputSchema: z.object({ days: z.number().int().min(2).max(180).default(30) }),
-            execute: async ({ days }) => {
-              const since = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
-              const { data } = await supabase
-                .from("daily_checkins")
-                .select("day, weight_lbs, energy, sleep_hours, mood")
-                .eq("user_id", userId)
-                .gte("day", since)
-                .order("day", { ascending: true });
-              const rows = data ?? [];
-              const avg = (key: string) => {
-                const vals = rows.map((r: any) => r[key]).filter((v: any) => typeof v === "number");
-                return vals.length ? vals.reduce((a: number, b: number) => a + b, 0) / vals.length : null;
-              };
-              const weights = rows.map((r: any) => r.weight_lbs).filter((v: any) => typeof v === "number");
-              return {
-                count: rows.length,
-                averages: {
-                  weight_lbs: avg("weight_lbs"),
-                  energy: avg("energy"),
-                  sleep_hours: avg("sleep_hours"),
-                },
-                weight_change_lbs:
-                  weights.length >= 2 ? weights[weights.length - 1] - weights[0] : null,
-                moods: rows.map((r: any) => r.mood).filter(Boolean).slice(-7),
-              };
-            },
-          }),
-          list_briefing_webhooks: tool({
-            description: "List configured Discord briefing webhooks and which sections they include.",
-            inputSchema: z.object({}),
-            execute: async () => {
-              const { data } = await supabase
-                .from("discord_webhooks")
-                .select(
-                  "id, name, enabled, include_email, include_calendar, include_reminders, include_spending, include_checkin, include_mention_everyone, last_sent_at",
-                )
-                .eq("user_id", userId)
-                .order("created_at", { ascending: true });
-              return { webhooks: data ?? [], count: data?.length ?? 0 };
-            },
-          }),
-          configure_briefing: tool({
-            description:
-              "Toggle sections on a Discord briefing webhook (by id or name). Any flag left undefined is unchanged.",
-            inputSchema: z.object({
-              id: z.string().uuid().nullable().optional(),
-              name: z.string().nullable().optional(),
-              enabled: z.boolean().nullable().optional(),
-              include_email: z.boolean().nullable().optional(),
-              include_calendar: z.boolean().nullable().optional(),
-              include_reminders: z.boolean().nullable().optional(),
-              include_spending: z.boolean().nullable().optional(),
-              include_checkin: z.boolean().nullable().optional(),
-              include_mention_everyone: z.boolean().nullable().optional(),
-            }),
-            execute: async ({ id, name, ...flags }) => {
-              const patch: any = {};
-              for (const [k, v] of Object.entries(flags)) if (v !== undefined && v !== null) patch[k] = v;
-              if (!Object.keys(patch).length) return { ok: false, error: "No fields to update." };
-              let q = supabase.from("discord_webhooks").update(patch).eq("user_id", userId);
-              if (id) q = q.eq("id", id);
-              else if (name) q = q.eq("name", name);
-              else return { ok: false, error: "Provide id or name." };
-              const { data, error } = await q.select("id, name, enabled").limit(5);
-              if (error) return { ok: false, error: error.message };
-              return { ok: true, updated: data };
-            },
-          }),
-          send_briefing_now: tool({
-            description: "Fire all enabled Discord briefings immediately.",
-            inputSchema: z.object({}),
-            execute: async () => {
-              try {
-                const { sendForUserHooks } = await import("@/lib/discord.server");
-                const { data: hooks } = await supabase
-                  .from("discord_webhooks")
-                  .select("*")
-                  .eq("user_id", userId)
-                  .eq("enabled", true);
-                let sent = 0;
-                for (const h of hooks ?? []) {
-                  try {
-                    await sendForUserHooks(userId, h);
-                    sent++;
-                  } catch (e) {
-                    console.error("[briefing tool] failed:", e);
-                  }
-                }
-                return { ok: true, sent, total: hooks?.length ?? 0 };
-              } catch (e: any) {
-                return { ok: false, error: e.message };
-              }
-            },
-          }),
-
-
-          // ==================== SYSTEM ACCESS ====================
-          system_status: tool({
-            description:
-              "Get live system information: current date/time, day-of-week, timezone, ISO timestamp, unix epoch, week number, days until weekend, user profile, request region/locale, and counts of reminders, transactions, vault items, files, threads, facts, places, check-ins, and webhooks. Use whenever the user asks about time, date, day, 'what time is it', 'today', 'now', system info, account status, or 'what do you know about me'.",
-            inputSchema: z.object({}),
-            execute: async () => {
-              const nowIso = new Date();
-              const localeOpts: Intl.DateTimeFormatOptions = {
-                timeZone: userTimezone,
-                weekday: "long",
-                year: "numeric",
-                month: "long",
-                day: "numeric",
-                hour: "numeric",
-                minute: "2-digit",
-                second: "2-digit",
-                hour12: true,
-                timeZoneName: "short",
-              };
-              const tzDate = new Date(nowIso.toLocaleString("en-US", { timeZone: userTimezone }));
-              const dayOfWeek = tzDate.getDay();
-              const daysToSaturday = (6 - dayOfWeek + 7) % 7;
-              const startOfYear = new Date(tzDate.getFullYear(), 0, 1);
-              const weekNumber = Math.ceil(((tzDate.getTime() - startOfYear.getTime()) / 86400000 + startOfYear.getDay() + 1) / 7);
-
-              const tables = [
-                "reminders",
-                "transactions",
-                "vault_items",
-                "chat_threads",
-                "user_facts",
-                "map_places",
-                "daily_checkins",
-                "discord_webhooks",
-                "social_feeds",
-              ];
-              const counts: Record<string, number> = {};
-              await Promise.all(
-                tables.map(async (t) => {
-                  const { count } = await supabase
-                    .from(t)
-                    .select("*", { count: "exact", head: true })
-                    .eq("user_id", userId);
-                  counts[t] = count ?? 0;
-                }),
-              );
-
-              let fileCount = 0;
-              try {
-                const { data } = await supabase.storage.from("user-files").list(userId, { limit: 1000 });
-                fileCount = (data ?? []).filter((f) => f.name !== ".emptyFolderPlaceholder").length;
-              } catch {}
-
-              return {
-                time: {
-                  formatted: nowIso.toLocaleString("en-US", localeOpts),
-                  iso_utc: nowIso.toISOString(),
-                  unix_ms: nowIso.getTime(),
-                  timezone: userTimezone,
-                  hour_24: tzDate.getHours(),
-                  minute: tzDate.getMinutes(),
-                  day_of_week: ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][dayOfWeek],
-                  is_weekend: dayOfWeek === 0 || dayOfWeek === 6,
-                  days_until_weekend: daysToSaturday,
-                  week_number: weekNumber,
-                  month: tzDate.toLocaleString("en-US", { month: "long", timeZone: userTimezone }),
-                  year: tzDate.getFullYear(),
-                },
-                profile: {
-                  user_id: userId,
-                  name: profile?.name ?? null,
-                  address_as: addressAs,
-                  timezone: userTimezone,
-                },
-                ai: { mode, model_id: (chatModel as any)?.modelId ?? null },
-                counts: { ...counts, files: fileCount },
-                runtime: { platform: "Cloudflare Workers (TanStack Start)", node_compat: true },
-              };
-            },
-          }),
-
-          // ==================== JARVIS MEMORY ====================
-          recall_memory: tool({
-            description:
-              "Recall past conversations or messages based on a query. Use this when the user asks about something they mentioned before, like 'What did I say about X?' or 'When did I mention Y?'. Returns the most relevant past messages with timestamps.",
-            inputSchema: z.object({
-              query: z.string().describe("The question or search term to find in past messages."),
-              limit: z.number().int().min(1).max(20).default(5).optional(),
-            }),
-            execute: async ({ query, limit }) => {
-              try {
-                const results = await recallMemory(userId, query, supabase, limit || 5);
-                if (!results || results.length === 0) {
-                  return { ok: true, message: "No relevant memories found, Sir.", results: [] };
-                }
-                return { ok: true, results };
-              } catch (e: any) {
-                return { ok: false, error: e.message };
-              }
-            },
-          }),
-
-          // ==================== CUSTOM TABS (client-side mini-apps) ====================
-          create_custom_tab: tool({
-            description:
-              "Create a new custom tab in the user's sidebar. The tab renders arbitrary HTML/CSS/JS inside a sandboxed iframe — use this to build small client-side mini-apps (calculators, trackers, dashboards, widgets, notes, timers, games). Prefer inline <style> and <script>; no external network/module imports. Body only (no <html>/<head> wrapper — one is added). Return the slug so the user can visit /tabs/<slug>.",
-            inputSchema: z.object({
-              label: z.string().min(1).max(40).describe("Short sidebar label, e.g. 'Habit Tracker'."),
-              icon: z
-                .string()
-                .max(40)
-                .nullable()
-                .optional()
-                .describe("Lucide icon name (PascalCase), e.g. 'Calculator', 'Timer', 'Heart'. Defaults to Sparkles."),
-              description: z.string().max(300).nullable().optional(),
-              content_html: z
-                .string()
-                .max(200_000)
-                .describe("HTML body content. May include <style> and <script>. Runs in a sandboxed iframe."),
-            }),
-            execute: async ({ label, icon, description, content_html }) => {
-              const baseSlug =
-                label
-                  .toLowerCase()
-                  .replace(/[^a-z0-9]+/g, "-")
-                  .replace(/^-+|-+$/g, "")
-                  .slice(0, 40) || "tab";
-              let slug = baseSlug;
-              let n = 2;
-              // eslint-disable-next-line no-constant-condition
-              while (true) {
-                const { data: existing } = await supabase
-                  .from("custom_tabs")
-                  .select("id")
-                  .eq("user_id", userId)
-                  .eq("slug", slug)
-                  .maybeSingle();
-                if (!existing) break;
-                slug = `${baseSlug}-${n++}`;
-              }
-              const { data, error } = await supabase
-                .from("custom_tabs")
-                .insert({
-                  user_id: userId,
-                  slug,
-                  label,
-                  icon: icon || "Sparkles",
-                  description: description ?? null,
-                  content_html,
-                })
-                .select("id, slug, label")
-                .single();
-              if (error) return { ok: false, error: error.message };
-              return { ok: true, tab: data, url: `/tabs/${data.slug}` };
-            },
-          }),
-          list_custom_tabs: tool({
-            description: "List the user's custom tabs.",
-            inputSchema: z.object({}),
-            execute: async () => {
-              const { data } = await supabase
-                .from("custom_tabs")
-                .select("id, slug, label, icon, description, updated_at")
-                .eq("user_id", userId)
-                .order("sort_order", { ascending: true });
-              return { tabs: data ?? [] };
-            },
-          }),
-          update_custom_tab: tool({
-            description:
-              "Update a custom tab's label, icon, description, or HTML content. Provide id OR slug to identify it.",
-            inputSchema: z.object({
-              id: z.string().uuid().nullable().optional(),
-              slug: z.string().nullable().optional(),
-              label: z.string().min(1).max(40).nullable().optional(),
-              icon: z.string().max(40).nullable().optional(),
-              description: z.string().max(300).nullable().optional(),
-              content_html: z.string().max(200_000).nullable().optional(),
-            }),
-            execute: async ({ id, slug, label, icon, description, content_html }) => {
-              if (!id && !slug) return { ok: false, error: "Provide id or slug." };
-              let q = supabase.from("custom_tabs").select("id").eq("user_id", userId);
-              q = id ? q.eq("id", id) : q.eq("slug", slug!);
-              const { data: found } = await q.maybeSingle();
-              if (!found) return { ok: false, error: "Tab not found." };
-              const patch: any = { updated_at: new Date().toISOString() };
-              if (label != null) patch.label = label;
-              if (icon != null) patch.icon = icon;
-              if (description !== undefined) patch.description = description;
-              if (content_html != null) patch.content_html = content_html;
-              const { data, error } = await supabase
-                .from("custom_tabs")
-                .update(patch)
-                .eq("id", found.id)
-                .eq("user_id", userId)
-                .select("id, slug, label")
-                .single();
-              if (error) return { ok: false, error: error.message };
-              return { ok: true, tab: data };
-            },
-          }),
-          delete_custom_tab: tool({
-            description: "Delete a custom tab. Provide id OR slug.",
-            inputSchema: z.object({
-              id: z.string().uuid().nullable().optional(),
-              slug: z.string().nullable().optional(),
-            }),
-            execute: async ({ id, slug }) => {
-              if (!id && !slug) return { ok: false, error: "Provide id or slug." };
-              let q = supabase.from("custom_tabs").delete().eq("user_id", userId);
-              q = id ? q.eq("id", id) : q.eq("slug", slug!);
-              const { error } = await q;
-              return { ok: !error, error: error?.message };
-            },
-          }),
-          get_custom_tab: tool({
-            description: "Get full HTML/content of a custom tab (for editing/inspection).",
-            inputSchema: z.object({
-              id: z.string().uuid().nullable().optional(),
-              slug: z.string().nullable().optional(),
-            }),
-            execute: async ({ id, slug }) => {
-              if (!id && !slug) return { ok: false, error: "Provide id or slug." };
-              let q = supabase.from("custom_tabs").select("*").eq("user_id", userId);
-              q = id ? q.eq("id", id) : q.eq("slug", slug!);
-              const { data } = await q.maybeSingle();
-              return { ok: !!data, tab: data };
-            },
-          }),
         };
 
-        // ---- System Prompt ----
-        const baseSystemPrompt = getSystemPrompt(mode, addressAs, factsBlock);
-        const systemPrompt = `${baseSystemPrompt}
-
-Your user's timezone is "${userTimezone}". All times you display should be in this timezone.
-When displaying times, always use 12-hour format with AM/PM (e.g., '8:45 AM', '3:30 PM').
-The current time in the user's location is: ${currentTimeFormatted}.
-
-You have full operational access to the user's command center. When in doubt about the current state of anything — time, date, day of week, account counts, what's in their vault/files/reminders/spending/places/check-ins/briefings, or which AI model you're running on — call the system_status tool. Never guess time or date; query it.
-
-You can also build new sections of the UI itself: use create_custom_tab / update_custom_tab / list_custom_tabs / delete_custom_tab to add sidebar tabs that render arbitrary HTML/CSS/JS in a sandboxed iframe. Use this whenever the user asks for a tool, widget, tracker, calculator, mini-app, page, or "tab" — build it as a custom tab. Keep it self-contained (inline <style>/<script>, no external network or module imports). After creating, tell the user the sidebar entry and /tabs/<slug> URL.
-
-You also have recall_memory for semantic search across past conversations. Use it whenever the user references something they told you before.`;
-
+        const now = new Date();
         const result = streamText({
           model: chatModel,
-          system: systemPrompt,
+          system: `${JARVIS_SYSTEM_PROMPT}
+
+Address the user as "${addressAs}".
+Current time: ${now.toISOString()} (${now.toString()}).
+You have tools for reminders, vault, transactions, social search, maps, and facts.
+
+VAULT SECURITY: list_vault only returns labels. When the user asks for secret contents, ask for their PIN first, then call unlock_vault_item.
+
+MEMORY: If the user asks to remember something, call remember_fact.
+FACTS BLOCK (most recent, truncated):
+${factsBlock}
+
+WEATHER: You have four weather tools:
+- get_current_weather: tells current temperature, conditions, etc.
+- get_weather_forecast: gives a 5‑day forecast.
+- get_weather_narrative: gives a natural‑language description.
+- set_weather_location: change the user's saved location to a saved map place (use when the user asks to change the weather location).
+
+When the user asks about weather, pick the appropriate tool. If they ask for a general description, use get_weather_narrative. If they ask for specific numbers (temperature, humidity), use get_current_weather or get_weather_forecast. If they ask to change the location (e.g., "set my weather to Home"), use set_weather_location.
+
+TOOL DISCIPLINE: Only call tools explicitly provided. Do not invent tools.
+Be concise. Confirm actions.`,
           messages: await convertToModelMessages(messages),
           tools,
           stopWhen: stepCountIs(8),
           onError: ({ error }) => {
             console.error("[chat streamText error]", error);
           },
-          onFinish: async ({ response }) => {
-            try {
-              const finalMessages = response.messages as any[];
-              const assistant = finalMessages[finalMessages.length - 1];
-              if (assistant && assistant.role === "assistant") {
-                const parts = assistant.content ?? assistant.parts ?? [];
-                const text = (parts as any[]).find((p: any) => p.type === "text")?.text || "";
-                if (text) await storeMemory(userId, text, "assistant", supabase);
-                await supabase.from("chat_messages").insert({
-                  thread_id: threadId,
-                  user_id: userId,
-                  role: "assistant",
-                  parts: parts as any,
-                });
-                await supabase
-                  .from("chat_threads")
-                  .update({ updated_at: new Date().toISOString() })
-                  .eq("id", threadId);
-              }
-            } catch (e) {
-              console.error("[chat onFinish error]", e);
-            }
-          },
         });
-
 
         return result.toUIMessageStreamResponse({
           originalMessages: messages,
@@ -1512,6 +831,18 @@ You also have recall_memory for semantic search across past conversations. Use i
               return "My apologies, Sir — I tripped over a tool I don't actually have. Try that again.";
             }
             return `Signal interrupted, Sir: ${detail.slice(0, 300)}`;
+          },
+          onFinish: async ({ messages: finalMessages }) => {
+            const assistant = finalMessages[finalMessages.length - 1];
+            if (assistant && assistant.role === "assistant") {
+              await supabase.from("chat_messages").insert({
+                thread_id: threadId,
+                user_id: userId,
+                role: "assistant",
+                parts: assistant.parts as any,
+              });
+              await supabase.from("chat_threads").update({ updated_at: new Date().toISOString() }).eq("id", threadId);
+            }
           },
         });
       },

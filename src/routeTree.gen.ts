@@ -13,7 +13,6 @@ import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as ApiTranscribeRouteImport } from './routes/api/transcribe'
 import { Route as ApiChatRouteImport } from './routes/api/chat'
 import { Route as AuthenticatedWorldRouteImport } from './routes/_authenticated/world'
 import { Route as AuthenticatedVaultRouteImport } from './routes/_authenticated/vault'
@@ -22,12 +21,10 @@ import { Route as AuthenticatedSpendingRouteImport } from './routes/_authenticat
 import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
 import { Route as AuthenticatedPulseRouteImport } from './routes/_authenticated/pulse'
 import { Route as AuthenticatedMapRouteImport } from './routes/_authenticated/map'
-import { Route as AuthenticatedLabRouteImport } from './routes/_authenticated/lab'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
 import { Route as AuthenticatedBriefingRouteImport } from './routes/_authenticated/briefing'
 import { Route as AuthenticatedBackendRouteImport } from './routes/_authenticated/backend'
 import { Route as AuthenticatedChatIndexRouteImport } from './routes/_authenticated/chat.index'
-import { Route as AuthenticatedTabsSlugRouteImport } from './routes/_authenticated/tabs.$slug'
 import { Route as AuthenticatedChatThreadIdRouteImport } from './routes/_authenticated/chat.$threadId'
 import { Route as ApiPublicHooksIngestCashappRouteImport } from './routes/api/public/hooks/ingest-cashapp'
 import { Route as ApiPublicHooksDailyDiscordRouteImport } from './routes/api/public/hooks/daily-discord'
@@ -49,11 +46,6 @@ const AuthenticatedRouteRoute = AuthenticatedRouteRouteImport.update({
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiTranscribeRoute = ApiTranscribeRouteImport.update({
-  id: '/api/transcribe',
-  path: '/api/transcribe',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiChatRoute = ApiChatRouteImport.update({
@@ -96,11 +88,6 @@ const AuthenticatedMapRoute = AuthenticatedMapRouteImport.update({
   path: '/map',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
-const AuthenticatedLabRoute = AuthenticatedLabRouteImport.update({
-  id: '/lab',
-  path: '/lab',
-  getParentRoute: () => AuthenticatedRouteRoute,
-} as any)
 const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
   id: '/dashboard',
   path: '/dashboard',
@@ -119,11 +106,6 @@ const AuthenticatedBackendRoute = AuthenticatedBackendRouteImport.update({
 const AuthenticatedChatIndexRoute = AuthenticatedChatIndexRouteImport.update({
   id: '/chat/',
   path: '/chat/',
-  getParentRoute: () => AuthenticatedRouteRoute,
-} as any)
-const AuthenticatedTabsSlugRoute = AuthenticatedTabsSlugRouteImport.update({
-  id: '/tabs/$slug',
-  path: '/tabs/$slug',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
 const AuthenticatedChatThreadIdRoute =
@@ -152,7 +134,6 @@ export interface FileRoutesByFullPath {
   '/backend': typeof AuthenticatedBackendRoute
   '/briefing': typeof AuthenticatedBriefingRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
-  '/lab': typeof AuthenticatedLabRoute
   '/map': typeof AuthenticatedMapRoute
   '/pulse': typeof AuthenticatedPulseRoute
   '/settings': typeof AuthenticatedSettingsRoute
@@ -161,9 +142,7 @@ export interface FileRoutesByFullPath {
   '/vault': typeof AuthenticatedVaultRoute
   '/world': typeof AuthenticatedWorldRoute
   '/api/chat': typeof ApiChatRoute
-  '/api/transcribe': typeof ApiTranscribeRoute
   '/chat/$threadId': typeof AuthenticatedChatThreadIdRoute
-  '/tabs/$slug': typeof AuthenticatedTabsSlugRoute
   '/chat/': typeof AuthenticatedChatIndexRoute
   '/api/public/hooks/daily-discord': typeof ApiPublicHooksDailyDiscordRoute
   '/api/public/hooks/ingest-cashapp': typeof ApiPublicHooksIngestCashappRoute
@@ -175,7 +154,6 @@ export interface FileRoutesByTo {
   '/backend': typeof AuthenticatedBackendRoute
   '/briefing': typeof AuthenticatedBriefingRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
-  '/lab': typeof AuthenticatedLabRoute
   '/map': typeof AuthenticatedMapRoute
   '/pulse': typeof AuthenticatedPulseRoute
   '/settings': typeof AuthenticatedSettingsRoute
@@ -184,9 +162,7 @@ export interface FileRoutesByTo {
   '/vault': typeof AuthenticatedVaultRoute
   '/world': typeof AuthenticatedWorldRoute
   '/api/chat': typeof ApiChatRoute
-  '/api/transcribe': typeof ApiTranscribeRoute
   '/chat/$threadId': typeof AuthenticatedChatThreadIdRoute
-  '/tabs/$slug': typeof AuthenticatedTabsSlugRoute
   '/chat': typeof AuthenticatedChatIndexRoute
   '/api/public/hooks/daily-discord': typeof ApiPublicHooksDailyDiscordRoute
   '/api/public/hooks/ingest-cashapp': typeof ApiPublicHooksIngestCashappRoute
@@ -200,7 +176,6 @@ export interface FileRoutesById {
   '/_authenticated/backend': typeof AuthenticatedBackendRoute
   '/_authenticated/briefing': typeof AuthenticatedBriefingRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
-  '/_authenticated/lab': typeof AuthenticatedLabRoute
   '/_authenticated/map': typeof AuthenticatedMapRoute
   '/_authenticated/pulse': typeof AuthenticatedPulseRoute
   '/_authenticated/settings': typeof AuthenticatedSettingsRoute
@@ -209,9 +184,7 @@ export interface FileRoutesById {
   '/_authenticated/vault': typeof AuthenticatedVaultRoute
   '/_authenticated/world': typeof AuthenticatedWorldRoute
   '/api/chat': typeof ApiChatRoute
-  '/api/transcribe': typeof ApiTranscribeRoute
   '/_authenticated/chat/$threadId': typeof AuthenticatedChatThreadIdRoute
-  '/_authenticated/tabs/$slug': typeof AuthenticatedTabsSlugRoute
   '/_authenticated/chat/': typeof AuthenticatedChatIndexRoute
   '/api/public/hooks/daily-discord': typeof ApiPublicHooksDailyDiscordRoute
   '/api/public/hooks/ingest-cashapp': typeof ApiPublicHooksIngestCashappRoute
@@ -225,7 +198,6 @@ export interface FileRouteTypes {
     | '/backend'
     | '/briefing'
     | '/dashboard'
-    | '/lab'
     | '/map'
     | '/pulse'
     | '/settings'
@@ -234,9 +206,7 @@ export interface FileRouteTypes {
     | '/vault'
     | '/world'
     | '/api/chat'
-    | '/api/transcribe'
     | '/chat/$threadId'
-    | '/tabs/$slug'
     | '/chat/'
     | '/api/public/hooks/daily-discord'
     | '/api/public/hooks/ingest-cashapp'
@@ -248,7 +218,6 @@ export interface FileRouteTypes {
     | '/backend'
     | '/briefing'
     | '/dashboard'
-    | '/lab'
     | '/map'
     | '/pulse'
     | '/settings'
@@ -257,9 +226,7 @@ export interface FileRouteTypes {
     | '/vault'
     | '/world'
     | '/api/chat'
-    | '/api/transcribe'
     | '/chat/$threadId'
-    | '/tabs/$slug'
     | '/chat'
     | '/api/public/hooks/daily-discord'
     | '/api/public/hooks/ingest-cashapp'
@@ -272,7 +239,6 @@ export interface FileRouteTypes {
     | '/_authenticated/backend'
     | '/_authenticated/briefing'
     | '/_authenticated/dashboard'
-    | '/_authenticated/lab'
     | '/_authenticated/map'
     | '/_authenticated/pulse'
     | '/_authenticated/settings'
@@ -281,9 +247,7 @@ export interface FileRouteTypes {
     | '/_authenticated/vault'
     | '/_authenticated/world'
     | '/api/chat'
-    | '/api/transcribe'
     | '/_authenticated/chat/$threadId'
-    | '/_authenticated/tabs/$slug'
     | '/_authenticated/chat/'
     | '/api/public/hooks/daily-discord'
     | '/api/public/hooks/ingest-cashapp'
@@ -295,7 +259,6 @@ export interface RootRouteChildren {
   AuthRoute: typeof AuthRoute
   SitemapDotxmlRoute: typeof SitemapDotxmlRoute
   ApiChatRoute: typeof ApiChatRoute
-  ApiTranscribeRoute: typeof ApiTranscribeRoute
   ApiPublicHooksDailyDiscordRoute: typeof ApiPublicHooksDailyDiscordRoute
   ApiPublicHooksIngestCashappRoute: typeof ApiPublicHooksIngestCashappRoute
 }
@@ -328,13 +291,6 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/transcribe': {
-      id: '/api/transcribe'
-      path: '/api/transcribe'
-      fullPath: '/api/transcribe'
-      preLoaderRoute: typeof ApiTranscribeRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/chat': {
@@ -393,13 +349,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedMapRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/_authenticated/lab': {
-      id: '/_authenticated/lab'
-      path: '/lab'
-      fullPath: '/lab'
-      preLoaderRoute: typeof AuthenticatedLabRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
     '/_authenticated/dashboard': {
       id: '/_authenticated/dashboard'
       path: '/dashboard'
@@ -426,13 +375,6 @@ declare module '@tanstack/react-router' {
       path: '/chat'
       fullPath: '/chat/'
       preLoaderRoute: typeof AuthenticatedChatIndexRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/tabs/$slug': {
-      id: '/_authenticated/tabs/$slug'
-      path: '/tabs/$slug'
-      fullPath: '/tabs/$slug'
-      preLoaderRoute: typeof AuthenticatedTabsSlugRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/chat/$threadId': {
@@ -463,7 +405,6 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedBackendRoute: typeof AuthenticatedBackendRoute
   AuthenticatedBriefingRoute: typeof AuthenticatedBriefingRoute
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
-  AuthenticatedLabRoute: typeof AuthenticatedLabRoute
   AuthenticatedMapRoute: typeof AuthenticatedMapRoute
   AuthenticatedPulseRoute: typeof AuthenticatedPulseRoute
   AuthenticatedSettingsRoute: typeof AuthenticatedSettingsRoute
@@ -472,7 +413,6 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedVaultRoute: typeof AuthenticatedVaultRoute
   AuthenticatedWorldRoute: typeof AuthenticatedWorldRoute
   AuthenticatedChatThreadIdRoute: typeof AuthenticatedChatThreadIdRoute
-  AuthenticatedTabsSlugRoute: typeof AuthenticatedTabsSlugRoute
   AuthenticatedChatIndexRoute: typeof AuthenticatedChatIndexRoute
 }
 
@@ -480,7 +420,6 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedBackendRoute: AuthenticatedBackendRoute,
   AuthenticatedBriefingRoute: AuthenticatedBriefingRoute,
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
-  AuthenticatedLabRoute: AuthenticatedLabRoute,
   AuthenticatedMapRoute: AuthenticatedMapRoute,
   AuthenticatedPulseRoute: AuthenticatedPulseRoute,
   AuthenticatedSettingsRoute: AuthenticatedSettingsRoute,
@@ -489,7 +428,6 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedVaultRoute: AuthenticatedVaultRoute,
   AuthenticatedWorldRoute: AuthenticatedWorldRoute,
   AuthenticatedChatThreadIdRoute: AuthenticatedChatThreadIdRoute,
-  AuthenticatedTabsSlugRoute: AuthenticatedTabsSlugRoute,
   AuthenticatedChatIndexRoute: AuthenticatedChatIndexRoute,
 }
 
@@ -502,7 +440,6 @@ const rootRouteChildren: RootRouteChildren = {
   AuthRoute: AuthRoute,
   SitemapDotxmlRoute: SitemapDotxmlRoute,
   ApiChatRoute: ApiChatRoute,
-  ApiTranscribeRoute: ApiTranscribeRoute,
   ApiPublicHooksDailyDiscordRoute: ApiPublicHooksDailyDiscordRoute,
   ApiPublicHooksIngestCashappRoute: ApiPublicHooksIngestCashappRoute,
 }
