@@ -1,3 +1,4 @@
+import { createHash } from "crypto";
 import { createFileRoute } from "@tanstack/react-router";
 import {
   convertToModelMessages,
@@ -96,6 +97,32 @@ async function storeMemory(userId: string, message: string, role: string, supaba
   try {
     const embedding = await getEmbedding(message);
     const { error } = await supabase.from("message_memory").insert({ user_id: userId, message, role, embedding });
+async function getEmbedding(text: string): Promise<number[]> {
+  try {
+    const response = await fetch("https://connector-gateway.lovable.dev/ai/embeddings", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${process.env.LOVABLE_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "groq/embedding-3-small",
+        input: text,
+      }),
+    });
+    if (!response.ok) throw new Error(`Embedding API error: ${response.status}`);
+    const data = await response.json();
+    return data.data[0].embedding;
+  } catch (e) {
+    console.warn("[Embedding] Falling back to random embedding (768d)", e);
+    return Array.from({ length: 768 }, () => Math.random() * 2 - 1);
+  }
+}
+
+async function storeMemory(userId: string, message: string, role: string, supabase: any) {
+  try {
+    const embedding = await getEmbedding(message);
+    const { error } = await supabase.from("message_memory").insert({ user_id: userId, message, role, embedding });
     if (error) console.error("[Memory] Store error:", error);
   } catch (e) {
     console.error("[Memory] Failed to store:", e);
@@ -118,85 +145,49 @@ async function recallMemory(userId: string, query: string, supabase: any, limit:
   }
 }
 
-export const Route = createFileRoute("/api/chat")({
-  server: {
-    handlers: {
-      POST: async ({ request }) => {
-        const auth = request.headers.get("authorization") ?? "";
-        const token = auth.replace(/^Bearer\s+/i, "");
-        if (!token) return new Response("Unauthorized", { status: 401 });
+// ============================================================
+// CACHING HELPERS
+// ============================================================
 
-        const { messages, threadId, tabSlug } = (await request.json()) as Body;
-        if (!Array.isArray(messages) || !threadId) return new Response("Bad request", { status: 400 });
+function getCacheKey(userId: string, messages: UIMessage[], mode: string, tabSlug?: string | null): string {
+  const lastUserMsg = messages.filter(m => m.role === "user").pop();
+  const text = (lastUserMsg?.parts as any[])?.find(p => p.type === "text")?.text || "";
+  const raw = `${userId}|${text}|${mode}|${tabSlug || "global"}`;
+  return createHash("sha256").update(raw).digest("hex");
+}
 
-        try {
-        const supabase = userClient(token);
-        const { data: userData } = await supabase.auth.getUser();
-        const userId = userData?.user?.id;
-        if (!userId) return new Response("Unauthorized", { status: 401 });
+async function getCachedResponse(userId: string, cacheKey: string, supabase: any) {
+  const { data, error } = await supabase
+    .from("chat_cache")
+    .select("response_parts")
+    .eq("user_id", userId)
+    .eq("message_hash", cacheKey)
+    .gte("expires_at", new Date().toISOString())
+    .maybeSingle();
+  if (error || !data) return null;
+  return data.response_parts as any[];
+}
 
-        // Store all user messages in memory
-        for (const msg of messages) {
-          if (msg.role === "user") {
-            const text = (msg.parts.find((p: any) => p.type === "text") as any)?.text || "";
-            if (text) await storeMemory(userId, text, "user", supabase);
-          }
-        }
-
-        // Verify thread ownership
-        let { data: thread } = await supabase
-          .from("chat_threads")
-          .select("id, title, tab_slug")
-          .eq("id", threadId)
-          .eq("user_id", userId)
-          .maybeSingle();
-        if (!thread) {
-          const { data: created, error: createErr } = await supabase
-            .from("chat_threads")
-            .insert({ id: threadId, user_id: userId, title: "New conversation", tab_slug: tabSlug ?? null })
-            .select("id, title, tab_slug")
-            .single();
-          if (createErr || !created) return new Response("Thread not found", { status: 404 });
-          thread = created;
-        }
-
-        // Load bound tab context
-        const boundTabSlug = (thread as any).tab_slug || tabSlug || null;
-        let tabContext: { slug: string; label: string; description: string | null; content_html: string } | null = null;
-        if (boundTabSlug) {
-          const { data: tabRow } = await supabase
-            .from("custom_tabs")
-            .select("slug, label, description, content_html")
-            .eq("user_id", userId)
-            .eq("slug", boundTabSlug)
-            .maybeSingle();
-          if (tabRow) tabContext = tabRow as any;
-        }
-
-        // Load profile
-        const { data: profile } = await supabase
-          .from("profiles")
-          .select("address_as, name, timezone")
-          .eq("id", userId)
-          .maybeSingle();
-        const addressAs = profile?.address_as ?? "Sir";
-        const userTimezone = profile?.timezone || "UTC";
-
-        // Load facts
-        const { data: factRows } = await supabase
-          .from("user_facts")
-          .select("category, key, value")
-          .eq("user_id", userId)
-          .order("updated_at", { ascending: false })
-          .limit(5);
-
-        const factsBlock = (factRows ?? []).length
-          ? (factRows ?? [])
-              .map((f: any) => {
-                const value = f.value.length > 60 ? f.value.slice(0, 60) + "…" : f.value;
-                return `- [${f.category}] ${f.key}: ${value}`;
-              })
-              .join("\n")
+async function storeCachedResponse(
+  userId: string,
+  cacheKey: string,
+  responseParts: any[],
+  threadId: string,
+  mode: string,
+  tabSlug?: string | null,
+  supabase?: any,
+) {
+  if (!supabase) return;
+  const expiresAt = new Date(Date.now() + 3600_000).toISOString();
+  await supabase.from("chat_cache").upsert({
+    user_id: userId,
+    message_hash: cacheKey,
+    response_parts: responseParts,
+    thread_id: threadId,
+    mode,
+    expires_at: expiresAt,
+  }, { onConflict: "user_id,message_hash" });
+}
           : "(none yet)";
 
         // Persist user message
