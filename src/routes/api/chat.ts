@@ -25,7 +25,7 @@ function serializeChatError(error: unknown, stage: string, extra: Record<string,
   return {
     tag: "JARVIS_CHAT_DEBUG",
     stage,
-    name: e?.name ?? error?.constructor?.name ?? "UnknownError",
+    name: e?.name ?? e?.constructor?.name ?? "UnknownError",
     message: e?.message ?? String(error),
     code: e?.code,
     statusCode: e?.statusCode ?? e?.status ?? cause?.statusCode ?? cause?.status,
