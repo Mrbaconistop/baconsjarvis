@@ -212,6 +212,26 @@ async function storeCachedResponse(
         // Get model and mode
         const { model: chatModel, mode, submode } = await getModelForUser(userId, supabase);
 
+        // ---- CACHE CHECK ----
+        const cacheKey = getCacheKey(userId, messages, mode, boundTabSlug);
+        const cachedParts = await getCachedResponse(userId, cacheKey, supabase);
+
+        if (cachedParts) {
+          const stream = createUIMessageStream<UIMessage>({
+            originalMessages: messages,
+            execute: ({ writer }) => {
+              const id = crypto.randomUUID();
+              writer.write({ type: "text-start", id });
+              for (const part of cachedParts) {
+                if (part.type === "text") {
+                  writer.write({ type: "text-delta", id, delta: part.text });
+                }
+              }
+              writer.write({ type: "text-end", id });
+            },
+          });
+          return createUIMessageStreamResponse({ status: 200, stream });
+        }
         // Format current time
         const now = new Date();
         const currentTimeFormatted = now.toLocaleString("en-US", {
