@@ -7,7 +7,6 @@ import {
   tool,
   stepCountIs,
   type UIMessage,
-  embed,
 } from "ai";
 import { z } from "zod";
 import { createClient } from "@supabase/supabase-js";
