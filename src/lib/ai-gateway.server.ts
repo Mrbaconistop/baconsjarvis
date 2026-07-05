@@ -1,14 +1,12 @@
-import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
+import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 
 // ============================================================
-// MODE-SPECIFIC SYSTEM PROMPTS (unchanged)
+// SYSTEM PROMPTS (unchanged)
 // ============================================================
 
 const MODE_PROMPTS = {
-  thinking: `You are JARVIS, an elite personal AI assistant in the style of Tony Stark's butler – but in **Thinking Mode**.
-...
-`,
+  thinking: `You are JARVIS, an elite personal AI assistant...`,
   coding: `...`,
   basic: `...`,
 };
@@ -26,8 +24,12 @@ export function getSystemPrompt(mode: string, _addressAs: string, _factsBlock: s
 }
 
 // ============================================================
-// PROVIDER FUNCTIONS
+// PROVIDER FACTORIES
 // ============================================================
+
+export function createGeminiProvider(apiKey: string) {
+  return createGoogleGenerativeAI({ apiKey });
+}
 
 export function createGroqProvider(apiKey: string) {
   return createOpenAICompatible({
@@ -56,44 +58,36 @@ export function createLMStudioProvider(apiKey?: string) {
   });
 }
 
-export function createGeminiProvider(apiKey: string) {
-  return createGoogleGenerativeAI({ apiKey });
-}
-
-export function createLovableProvider(apiKey: string) {
-  return createOpenAICompatible({
-    name: "lovable",
-    baseURL: "https://ai.gateway.lovable.dev/v1",
-    headers: { "Lovable-API-Key": apiKey },
-  });
-}
-
 // ============================================================
-// RESOLVE MODEL
+// RESOLVE MODEL (Gemini default)
 // ============================================================
 
 const FALLBACK_GROQ_KEY = "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";
 
-type ProviderId = "groq" | "deepseek" | "lmstudio" | "gemini" | "lovable" | "system";
+type ProviderId = "groq" | "deepseek" | "lmstudio" | "gemini" | "system";
 
 export function resolveChatModel(opts?: { provider?: ProviderId; apiKey?: string }) {
   const raw = (opts?.provider ?? (process.env.CHAT_PROVIDER?.toLowerCase() as ProviderId) ?? "system") as ProviderId;
-  const apiKey = opts?.apiKey;
 
-  // "system" => Groq (has a working fallback key; Lovable gateway can 402)
+  // "system" means use the default provider (Gemini)
   const effectiveProvider: Exclude<ProviderId, "system"> =
-    raw === "system" || !["groq", "deepseek", "lmstudio", "gemini", "lovable"].includes(raw)
-      ? "groq"
+    raw === "system" || !["groq", "deepseek", "lmstudio", "gemini"].includes(raw)
+      ? "gemini" // 👈 DEFAULT
       : (raw as Exclude<ProviderId, "system">);
 
-  if (effectiveProvider === "lovable") {
-    const key = apiKey ?? process.env.LOVABLE_API_KEY;
-    if (!key) throw new Error("LOVABLE_API_KEY is not set");
-    const lovable = createLovableProvider(key);
-    const modelId = process.env.LOVABLE_MODEL ?? "google/gemini-3-flash-preview";
-    return { model: lovable(modelId) as any, provider: "lovable" as const, modelId };
+  // ---------- GEMINI ----------
+  if (effectiveProvider === "gemini") {
+    const key = apiKey ?? process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+    if (!key) {
+      console.warn("[AI] Gemini API key missing – falling back to Groq");
+      return resolveChatModel({ provider: "groq", apiKey });
+    }
+    const gemini = createGeminiProvider(key);
+    const modelId = process.env.GEMINI_MODEL ?? "gemini-1.5-flash";
+    return { model: gemini(modelId) as any, provider: "gemini" as const, modelId };
   }
 
+  // ---------- GROQ ----------
   if (effectiveProvider === "groq") {
     const key = apiKey ?? process.env.GROQ_API_KEY ?? FALLBACK_GROQ_KEY;
     const groq = createGroqProvider(key);
@@ -101,6 +95,7 @@ export function resolveChatModel(opts?: { provider?: ProviderId; apiKey?: string
     return { model: groq(modelId) as any, provider: "groq" as const, modelId };
   }
 
+  // ---------- DEEPSEEK ----------
   if (effectiveProvider === "deepseek") {
     const key = apiKey ?? process.env.DEEPSEEK_API_KEY;
     if (!key) throw new Error("DeepSeek API key is not set");
@@ -109,17 +104,15 @@ export function resolveChatModel(opts?: { provider?: ProviderId; apiKey?: string
     return { model: deepseek(modelId) as any, provider: "deepseek" as const, modelId };
   }
 
+  // ---------- LM STUDIO ----------
   if (effectiveProvider === "lmstudio") {
     const lmstudio = createLMStudioProvider(apiKey);
     const modelId = process.env.LM_STUDIO_MODEL ?? "local-model";
     return { model: lmstudio(modelId) as any, provider: "lmstudio" as const, modelId };
   }
 
-  const key = apiKey ?? process.env.GOOGLE_GENERATIVE_AI_API_KEY;
-  if (!key) throw new Error("Gemini API key is not set");
-  const gemini = createGeminiProvider(key);
-  const modelId = process.env.GEMINI_MODEL ?? "gemini-1.5-flash";
-  return { model: gemini(modelId) as any, provider: "gemini" as const, modelId };
+  // ---------- FALLBACK (should never reach here) ----------
+  throw new Error(`Unsupported provider: ${effectiveProvider}`);
 }
 
 export async function getModelForUser(userId: string, supabase: any) {
@@ -130,14 +123,11 @@ export async function getModelForUser(userId: string, supabase: any) {
     config[f.key] = f.value;
   });
 
-  const provider = (config.provider ?? process.env.CHAT_PROVIDER ?? "system") as ProviderId;
-  const effectiveProvider: ProviderId = ["groq", "deepseek", "lmstudio", "gemini", "lovable", "system"].includes(provider)
-    ? provider
-    : "system";
+  const provider = (config.provider ?? "system") as ProviderId;
   const apiKey = config.api_key;
   const mode = config.mode || "basic";
   const submode = config.coding_submode || "full";
-  return { ...resolveChatModel({ provider: effectiveProvider, apiKey }), mode, submode };
+  return { ...resolveChatModel({ provider, apiKey }), mode, submode };
 }
 
 export const JARVIS_SYSTEM_PROMPT = MODE_PROMPTS.basic;
