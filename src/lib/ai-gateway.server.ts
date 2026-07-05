@@ -80,10 +80,10 @@ export function resolveChatModel(opts?: { provider?: ProviderId; apiKey?: string
   const raw = (opts?.provider ?? (process.env.CHAT_PROVIDER?.toLowerCase() as ProviderId) ?? "system") as ProviderId;
   const apiKey = opts?.apiKey;
 
-  // "system" => Lovable AI Gateway (built-in)
+  // "system" => Groq (has a working fallback key; Lovable gateway can 402)
   const effectiveProvider: Exclude<ProviderId, "system"> =
     raw === "system" || !["groq", "deepseek", "lmstudio", "gemini", "lovable"].includes(raw)
-      ? "lovable"
+      ? "groq"
       : (raw as Exclude<ProviderId, "system">);
 
   if (effectiveProvider === "lovable") {
