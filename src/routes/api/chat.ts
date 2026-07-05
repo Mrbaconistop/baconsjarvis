@@ -129,6 +129,7 @@ export const Route = createFileRoute("/api/chat")({
         const { messages, threadId, tabSlug } = (await request.json()) as Body;
         if (!Array.isArray(messages) || !threadId) return new Response("Bad request", { status: 400 });
 
+        try {
         const supabase = userClient(token);
         const { data: userData } = await supabase.auth.getUser();
         const userId = userData?.user?.id;
@@ -2914,6 +2915,10 @@ When the user says "take me to X" or "open X", actually navigate — don't just 
             provider: (chatModel as any)?.provider,
             modelId: (chatModel as any)?.modelId,
           });
+          return chatErrorResponse(payload, messages);
+        }
+        } catch (error) {
+          const payload = debugChatError(error, "chat-request", { threadId });
           return chatErrorResponse(payload, messages);
         }
       },
