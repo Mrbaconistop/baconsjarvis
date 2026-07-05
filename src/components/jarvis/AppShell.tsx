@@ -23,8 +23,6 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { listCustomTabs } from "@/lib/custom-tabs.functions";
 import { JarvisOrb } from "./JarvisOrb";
-import { appBus, type AppAction } from "@/lib/mapBus";
-import { toast } from "sonner";
 
 const NAV = [
   { to: "/dashboard", label: "Command", icon: LayoutDashboard, tag: "00" },
@@ -74,94 +72,6 @@ export function AppShell({ children }: { children: ReactNode }) {
   useEffect(() => {
     setNavOpen(false);
   }, [loc.pathname]);
-
-  // Global JARVIS client-action bus (navigate, toast, theme, reload…)
-  useEffect(() => {
-    return appBus.register((a: AppAction) => {
-      try {
-        switch (a.type) {
-          case "navigate":
-            navigate({ to: a.to as any, replace: a.replace });
-            break;
-          case "reload":
-            window.location.reload();
-            break;
-          case "open_url":
-            if (a.new_tab === false) window.location.href = a.url;
-            else window.open(a.url, "_blank", "noopener");
-            break;
-          case "toast": {
-            const k = a.kind ?? "info";
-            (toast as any)[k]?.(a.message) ?? toast(a.message);
-            break;
-          }
-          case "set_theme": {
-            const root = document.documentElement;
-            root.classList.remove("light", "dark");
-            if (a.theme !== "system") root.classList.add(a.theme);
-            try { localStorage.setItem("theme", a.theme); } catch {}
-            break;
-          }
-          case "scroll_to": {
-            const el = document.querySelector(a.selector);
-            if (el) (el as HTMLElement).scrollIntoView({ behavior: "smooth", block: "center" });
-            break;
-          }
-          case "focus_chat": {
-            const ta = document.querySelector<HTMLTextAreaElement>("textarea");
-            ta?.focus();
-            break;
-          }
-          case "copy_to_clipboard":
-            navigator.clipboard?.writeText(a.text).then(
-              () => toast.success(a.label ? `Copied ${a.label}` : "Copied to clipboard"),
-              () => toast.error("Clipboard copy failed"),
-            );
-            break;
-          case "invalidate_queries":
-            if (a.keys && a.keys.length) a.keys.forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
-            else qc.invalidateQueries();
-            break;
-          case "start_timer": {
-            const secs = Math.max(1, Math.min(24 * 60 * 60, Math.round(a.seconds)));
-            const label = a.label || `${secs}s timer`;
-            toast.info(`Timer set: ${label} (${secs}s)`);
-            setTimeout(() => {
-              toast.success(`⏰ ${label} done, Sir.`);
-              if (a.sound !== false) {
-                try {
-                  const AC = (window as any).AudioContext || (window as any).webkitAudioContext;
-                  const ctx = new AC();
-                  const o = ctx.createOscillator();
-                  const g = ctx.createGain();
-                  o.type = "sine"; o.frequency.value = 880;
-                  o.connect(g); g.connect(ctx.destination);
-                  g.gain.setValueAtTime(0.001, ctx.currentTime);
-                  g.gain.exponentialRampToValueAtTime(0.3, ctx.currentTime + 0.02);
-                  g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.6);
-                  o.start(); o.stop(ctx.currentTime + 0.6);
-                } catch {}
-              }
-            }, secs * 1000);
-            break;
-          }
-          case "speak": {
-            try {
-              const u = new SpeechSynthesisUtterance(a.text);
-              if (a.voice) {
-                const v = speechSynthesis.getVoices().find((x) => x.name.includes(a.voice!));
-                if (v) u.voice = v;
-              }
-              speechSynthesis.speak(u);
-            } catch {}
-            break;
-          }
-        }
-      } catch (e) {
-        console.error("[appBus]", e);
-      }
-    });
-  }, [navigate, qc]);
 
   async function signOut() {
     await qc.cancelQueries();

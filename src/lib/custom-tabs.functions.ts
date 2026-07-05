@@ -3,23 +3,12 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { z } from "zod";
 
 function slugify(input: string) {
-  return (
-    input
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .slice(0, 40) || "tab"
-  );
+  return input
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40) || "tab";
 }
-
-// Schema for the config object stored in JSONB
-const configSchema = z
-  .object({
-    layout: z.enum(["default", "browser", "chat", "minimal"]).default("default"),
-    theme: z.enum(["dark", "light", "auto"]).default("dark"),
-    containerPadding: z.number().int().min(0).max(80).default(16),
-  })
-  .passthrough(); // allow extra fields for future expansion
 
 export const listCustomTabs = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
@@ -27,7 +16,7 @@ export const listCustomTabs = createServerFn({ method: "GET" })
     const { supabase, userId } = context as any;
     const { data, error } = await supabase
       .from("custom_tabs")
-      .select("id, slug, label, icon, description, sort_order, updated_at, config")
+      .select("id, slug, label, icon, description, sort_order, updated_at")
       .eq("user_id", userId)
       .order("sort_order", { ascending: true })
       .order("created_at", { ascending: true });
@@ -60,13 +49,13 @@ export const createCustomTab = createServerFn({ method: "POST" })
         description: z.string().max(300).optional().nullable(),
         content_html: z.string().max(200_000).optional(),
         slug: z.string().max(40).optional(),
-        config: configSchema.optional(),
       })
       .parse(i),
   )
   .handler(async ({ data, context }) => {
     const { supabase, userId } = context as any;
     const baseSlug = slugify(data.slug || data.label);
+    // find unique slug
     let slug = baseSlug;
     let n = 2;
     // eslint-disable-next-line no-constant-condition
@@ -89,7 +78,6 @@ export const createCustomTab = createServerFn({ method: "POST" })
         icon: data.icon || "Sparkles",
         description: data.description ?? null,
         content_html: data.content_html ?? "",
-        config: data.config ?? {},
       })
       .select("*")
       .single();
@@ -108,7 +96,6 @@ export const updateCustomTab = createServerFn({ method: "POST" })
         description: z.string().max(300).nullable().optional(),
         content_html: z.string().max(200_000).optional(),
         sort_order: z.number().int().optional(),
-        config: configSchema.optional(),
       })
       .parse(i),
   )
@@ -132,7 +119,11 @@ export const deleteCustomTab = createServerFn({ method: "POST" })
   .inputValidator((i: unknown) => z.object({ id: z.string().uuid() }).parse(i))
   .handler(async ({ data, context }) => {
     const { supabase, userId } = context as any;
-    const { error } = await supabase.from("custom_tabs").delete().eq("id", data.id).eq("user_id", userId);
+    const { error } = await supabase
+      .from("custom_tabs")
+      .delete()
+      .eq("id", data.id)
+      .eq("user_id", userId);
     if (error) throw error;
     return { ok: true };
   });
