@@ -59,38 +59,34 @@ export function createLMStudioProvider(apiKey?: string) {
   });
 }
 
-// ============================================================
-// RESOLVE MODEL (Gemini default)
-// ============================================================
-
-const FALLBACK_GROQ_KEY = "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";
-
 type ProviderId = "groq" | "deepseek" | "lmstudio" | "gemini" | "system";
 
 export function resolveChatModel(opts?: { provider?: ProviderId; apiKey?: string }) {
+  const providedApiKey = opts?.apiKey?.trim();
   const raw = (opts?.provider ?? (process.env.CHAT_PROVIDER?.toLowerCase() as ProviderId) ?? "system") as ProviderId;
 
-  // "system" means use the default provider (Gemini)
+  // "system" means use the built-in default provider.
   const effectiveProvider: Exclude<ProviderId, "system"> =
     raw === "system" || !["groq", "deepseek", "lmstudio", "gemini"].includes(raw)
-      ? "gemini" // 👈 DEFAULT: Gemini
+      ? "groq"
       : (raw as Exclude<ProviderId, "system">);
 
   // ---------- GEMINI ----------
   if (effectiveProvider === "gemini") {
-    const key = apiKey ?? process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+    const key = providedApiKey ?? process.env.GOOGLE_GENERATIVE_AI_API_KEY;
     if (!key) {
       console.warn("[AI] Gemini API key missing – falling back to Groq");
-      return resolveChatModel({ provider: "groq", apiKey });
+      return resolveChatModel({ provider: "groq", apiKey: providedApiKey });
     }
     const gemini = createGeminiProvider(key);
-    const modelId = process.env.GEMINI_MODEL ?? "gemini-1.5-flash";
+    const modelId = process.env.GEMINI_MODEL ?? "gemini-2.0-flash";
     return { model: gemini(modelId) as any, provider: "gemini" as const, modelId };
   }
 
   // ---------- GROQ ----------
   if (effectiveProvider === "groq") {
-    const key = apiKey ?? process.env.GROQ_API_KEY ?? FALLBACK_GROQ_KEY;
+    const key = providedApiKey ?? process.env.GROQ_API_KEY;
+    if (!key) throw new Error("Groq API key is not set");
     const groq = createGroqProvider(key);
     const modelId = process.env.GROQ_MODEL ?? "llama-3.1-8b-instant";
     return { model: groq(modelId) as any, provider: "groq" as const, modelId };
@@ -98,7 +94,7 @@ export function resolveChatModel(opts?: { provider?: ProviderId; apiKey?: string
 
   // ---------- DEEPSEEK ----------
   if (effectiveProvider === "deepseek") {
-    const key = apiKey ?? process.env.DEEPSEEK_API_KEY;
+    const key = providedApiKey ?? process.env.DEEPSEEK_API_KEY;
     if (!key) throw new Error("DeepSeek API key is not set");
     const deepseek = createDeepSeekProvider(key);
     const modelId = process.env.DEEPSEEK_MODEL ?? "deepseek-chat";
@@ -107,7 +103,7 @@ export function resolveChatModel(opts?: { provider?: ProviderId; apiKey?: string
 
   // ---------- LM STUDIO ----------
   if (effectiveProvider === "lmstudio") {
-    const lmstudio = createLMStudioProvider(apiKey);
+    const lmstudio = createLMStudioProvider(providedApiKey);
     const modelId = process.env.LM_STUDIO_MODEL ?? "local-model";
     return { model: lmstudio(modelId) as any, provider: "lmstudio" as const, modelId };
   }
