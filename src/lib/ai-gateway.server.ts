@@ -6,7 +6,8 @@ import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 // ============================================================
 
 const MODE_PROMPTS = {
-  thinking: `You are JARVIS, an elite personal AI assistant...`,
+  thinking: `You are JARVIS, an elite personal AI assistant in the style of Tony Stark's butler – but in **Thinking Mode**.
+...`,
   coding: `...`,
   basic: `...`,
 };
@@ -72,7 +73,7 @@ export function resolveChatModel(opts?: { provider?: ProviderId; apiKey?: string
   // "system" means use the default provider (Gemini)
   const effectiveProvider: Exclude<ProviderId, "system"> =
     raw === "system" || !["groq", "deepseek", "lmstudio", "gemini"].includes(raw)
-      ? "gemini" // 👈 DEFAULT
+      ? "gemini" // 👈 DEFAULT: Gemini
       : (raw as Exclude<ProviderId, "system">);
 
   // ---------- GEMINI ----------

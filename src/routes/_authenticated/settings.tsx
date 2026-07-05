@@ -46,9 +46,7 @@ function SettingsPage() {
   });
 
   const [connecting, setConnecting] = useState(false);
-  const [provider, setProvider] = useState<"groq" | "deepseek" | "lovable" | "system" | "lmstudio" | "gemini">(
-    "system",
-  );
+  const [provider, setProvider] = useState<"groq" | "deepseek" | "system" | "lmstudio" | "gemini">("system");
   const [apiKey, setApiKey] = useState("");
   const [mode, setMode] = useState<"thinking" | "coding" | "basic">("basic");
   const [codingSubmode, setCodingSubmode] = useState<"full" | "language_only" | "direct">("full");
@@ -159,11 +157,10 @@ function SettingsPage() {
                 className="bg-background/40 border border-arc/20 rounded-md px-3 py-2 text-sm focus:border-arc focus:outline-none"
               >
                 <option value="system">System default</option>
+                <option value="gemini">Google Gemini</option>
                 <option value="groq">Groq</option>
                 <option value="deepseek">DeepSeek</option>
-                <option value="lovable">Lovable</option>
                 <option value="lmstudio">LM Studio (local)</option>
-                <option value="gemini">Google Gemini</option>
               </select>
             </div>
             {provider !== "system" && (
