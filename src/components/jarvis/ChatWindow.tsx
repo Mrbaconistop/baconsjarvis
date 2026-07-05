@@ -2,7 +2,18 @@ import { useEffect, useMemo, useRef, useState, memo } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, type UIMessage } from "ai";
 import { supabase } from "@/integrations/supabase/client";
-import { Send, Square, Bell, Vault, ListChecks, CheckCircle2, Wrench, MapPin, Mic, MicOff } from "lucide-react";
+import {
+  Send,
+  Square,
+  Bell,
+  Vault,
+  ListChecks,
+  CheckCircle2,
+  Wrench,
+  MapPin,
+  Mic,
+  MicOff,
+} from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
@@ -26,17 +37,7 @@ const TOOL_META: Record<string, { icon: any; label: string }> = {
   "tool-get_directions": { icon: MapPin, label: "Getting directions" },
 };
 
-export function ChatWindow({
-  threadId,
-  initial,
-  tabSlug,
-  compact,
-}: {
-  threadId: string;
-  initial: UIMessage[];
-  tabSlug?: string | null;
-  compact?: boolean;
-}) {
+export function ChatWindow({ threadId, initial, tabSlug, compact }: { threadId: string; initial: UIMessage[]; tabSlug?: string | null; compact?: boolean }) {
   const qc = useQueryClient();
   const [input, setInput] = useState("");
   const [isRecording, setIsRecording] = useState(false);
@@ -148,7 +149,9 @@ export function ChatWindow({
     };
   }, []);
 
-  // ---- Transport ----
+
+
+  // Transport
   const transport = useMemo(
     () =>
       new DefaultChatTransport({
@@ -164,6 +167,7 @@ export function ChatWindow({
       }),
     [threadId, tabSlug],
   );
+
 
   const { messages, sendMessage, status, stop, error } = useChat({
     id: threadId,
@@ -291,11 +295,12 @@ export function ChatWindow({
           )}
         </div>
       </div>
+
     </div>
   );
 }
 
-// Memoized MessageBubble
+// Memoized MessageBubble (unchanged)
 const MessageBubble = memo(function MessageBubble({ msg }: { msg: UIMessage }) {
   const isUser = msg.role === "user";
   return (
@@ -320,9 +325,7 @@ const MessageBubble = memo(function MessageBubble({ msg }: { msg: UIMessage }) {
                 key={i}
                 className="prose prose-invert prose-sm max-w-none text-foreground prose-p:my-2 prose-headings:text-arc prose-strong:text-foreground prose-code:text-arc prose-code:bg-arc/10 prose-code:px-1 prose-code:rounded"
               >
-                <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>
-                  {part.text}
-                </ReactMarkdown>
+                <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>{part.text}</ReactMarkdown>
               </div>
             );
           }

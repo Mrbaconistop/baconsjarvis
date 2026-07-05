@@ -129,7 +129,6 @@ export type Database = {
       }
       custom_tabs: {
         Row: {
-          config: Json
           content_html: string
           created_at: string
           description: string | null
@@ -142,7 +141,6 @@ export type Database = {
           user_id: string
         }
         Insert: {
-          config?: Json
           content_html?: string
           created_at?: string
           description?: string | null
@@ -155,7 +153,6 @@ export type Database = {
           user_id: string
         }
         Update: {
-          config?: Json
           content_html?: string
           created_at?: string
           description?: string | null

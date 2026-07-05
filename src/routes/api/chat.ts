@@ -1,13 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import {
-  convertToModelMessages,
-  createUIMessageStream,
-  createUIMessageStreamResponse,
-  streamText,
-  tool,
-  stepCountIs,
-  type UIMessage,
-} from "ai";
+import { convertToModelMessages, streamText, tool, stepCountIs, type UIMessage, embed } from "ai";
 import { z } from "zod";
 import { createClient } from "@supabase/supabase-js";
 import { getSystemPrompt, getModelForUser } from "@/lib/ai-gateway.server";
@@ -17,51 +9,6 @@ import { listAccounts } from "@/lib/profile.functions";
 import { getBackendOverview } from "@/lib/backend.functions";
 
 type Body = { messages?: UIMessage[]; threadId?: string; tabSlug?: string | null };
-
-function serializeChatError(error: unknown, stage: string, extra: Record<string, unknown> = {}) {
-  const e = error as any;
-  const cause = e?.cause as any;
-  return {
-    tag: "JARVIS_CHAT_DEBUG",
-    stage,
-    name: e?.name ?? e?.constructor?.name ?? "UnknownError",
-    message: e?.message ?? String(error),
-    code: e?.code,
-    statusCode: e?.statusCode ?? e?.status ?? cause?.statusCode ?? cause?.status,
-    provider: e?.provider,
-    modelId: e?.modelId,
-    version: e?.version,
-    causeName: cause?.name,
-    causeMessage: cause?.message,
-    ...extra,
-  };
-}
-
-function debugChatError(error: unknown, stage: string, extra: Record<string, unknown> = {}) {
-  const payload = serializeChatError(error, stage, extra);
-  console.error(`[JARVIS_CHAT_DEBUG]\n${JSON.stringify(payload, null, 2)}`, error);
-  return payload;
-}
-
-function chatErrorResponse(payload: ReturnType<typeof serializeChatError>, originalMessages: UIMessage[]) {
-  const id = typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `chat-error-${Date.now()}`;
-  const debugText = JSON.stringify(payload, null, 2);
-  const message = `Signal interrupted, Sir. Copy this debug block into another AI if you want to troubleshoot it:\n\n\`\`\`json\n${debugText}\n\`\`\``;
-  const stream = createUIMessageStream<UIMessage>({
-    originalMessages,
-    execute: ({ writer }) => {
-      writer.write({ type: "text-start", id });
-      writer.write({ type: "text-delta", id, delta: message });
-      writer.write({ type: "text-end", id });
-    },
-    onError: (streamError) => {
-      const streamPayload = serializeChatError(streamError, "fallback-stream");
-      console.error(`[JARVIS_CHAT_DEBUG]\n${JSON.stringify(streamPayload, null, 2)}`, streamError);
-      return streamPayload.message;
-    },
-  });
-  return createUIMessageStreamResponse({ status: 200, stream });
-}
 
 function userClient(token: string) {
   return createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_PUBLISHABLE_KEY!, {
@@ -129,7 +76,6 @@ export const Route = createFileRoute("/api/chat")({
         const { messages, threadId, tabSlug } = (await request.json()) as Body;
         if (!Array.isArray(messages) || !threadId) return new Response("Bad request", { status: 400 });
 
-        try {
         const supabase = userClient(token);
         const { data: userData } = await supabase.auth.getUser();
         const userId = userData?.user?.id;
@@ -2809,7 +2755,7 @@ export const Route = createFileRoute("/api/chat")({
         };
 
         // ---- System Prompt ----
-        const baseSystemPrompt = getSystemPrompt(mode, addressAs, factsBlock, submode);
+        const baseSystemPrompt = getSystemPrompt(mode, addressAs, factsBlock);
         const systemPrompt = `${baseSystemPrompt}
 
 Your user's timezone is "${userTimezone}". All times you display should be in this timezone.
@@ -2861,66 +2807,51 @@ UTILITY BELT — reach for these instead of doing it in your head:
 
 When the user says "take me to X" or "open X", actually navigate — don't just describe the link.`;
 
-        try {
-          const result = streamText({
-            model: chatModel,
-            system: systemPrompt,
-            messages: await convertToModelMessages(messages),
-            tools,
-            stopWhen: stepCountIs(50),
-            onError: ({ error }) => {
-              debugChatError(error, "stream-runtime", { threadId, provider: (chatModel as any)?.provider, modelId: (chatModel as any)?.modelId });
-            },
-            onFinish: async ({ response }) => {
-              try {
-                const finalMessages = response.messages as any[];
-                const assistant = finalMessages[finalMessages.length - 1];
-                if (assistant && assistant.role === "assistant") {
-                  const parts = assistant.content ?? assistant.parts ?? [];
-                  const text = (parts as any[]).find((p: any) => p.type === "text")?.text || "";
-                  if (text) await storeMemory(userId, text, "assistant", supabase);
-                  await supabase.from("chat_messages").insert({
-                    thread_id: threadId,
-                    user_id: userId,
-                    role: "assistant",
-                    parts: parts as any,
-                  });
-                  await supabase.from("chat_threads").update({ updated_at: new Date().toISOString() }).eq("id", threadId);
-                }
-              } catch (e) {
-                console.error("[chat onFinish error]", e);
+        const result = streamText({
+          model: chatModel,
+          system: systemPrompt,
+          messages: await convertToModelMessages(messages),
+          tools,
+          stopWhen: stepCountIs(50),
+          onError: ({ error }) => {
+            console.error("[chat streamText error]", error);
+          },
+          onFinish: async ({ response }) => {
+            try {
+              const finalMessages = response.messages as any[];
+              const assistant = finalMessages[finalMessages.length - 1];
+              if (assistant && assistant.role === "assistant") {
+                const parts = assistant.content ?? assistant.parts ?? [];
+                const text = (parts as any[]).find((p: any) => p.type === "text")?.text || "";
+                if (text) await storeMemory(userId, text, "assistant", supabase);
+                await supabase.from("chat_messages").insert({
+                  thread_id: threadId,
+                  user_id: userId,
+                  role: "assistant",
+                  parts: parts as any,
+                });
+                await supabase.from("chat_threads").update({ updated_at: new Date().toISOString() }).eq("id", threadId);
               }
-            },
-          });
+            } catch (e) {
+              console.error("[chat onFinish error]", e);
+            }
+          },
+        });
 
-          return result.toUIMessageStreamResponse({
-            originalMessages: messages,
-            onError: (error: unknown) => {
-              const payload = debugChatError(error, "stream-response", {
-                threadId,
-                provider: (chatModel as any)?.provider,
-                modelId: (chatModel as any)?.modelId,
-              });
-              if (payload.statusCode === 402) return "AI credits exhausted, Sir. Please top up to continue.";
-              if (payload.statusCode === 429) return "Rate limit reached, Sir. Try again in a moment.";
-              if (/brave_search|not in request\.tools|tool call validation/i.test(payload.message)) {
-                return "My apologies, Sir — I tripped over a tool I don't actually have. Try that again.";
-              }
-              return `Signal interrupted, Sir. Copy this debug block into another AI if needed: ${JSON.stringify(payload)}`;
-            },
-          });
-        } catch (error) {
-          const payload = debugChatError(error, "stream-start", {
-            threadId,
-            provider: (chatModel as any)?.provider,
-            modelId: (chatModel as any)?.modelId,
-          });
-          return chatErrorResponse(payload, messages);
-        }
-        } catch (error) {
-          const payload = debugChatError(error, "chat-request", { threadId });
-          return chatErrorResponse(payload, messages);
-        }
+        return result.toUIMessageStreamResponse({
+          originalMessages: messages,
+          onError: (error: unknown) => {
+            console.error("[chat stream response error]", error);
+            const e = error as { statusCode?: number; message?: string; responseBody?: string } | null;
+            if (e?.statusCode === 402) return "AI credits exhausted, Sir. Please top up to continue.";
+            if (e?.statusCode === 429) return "Rate limit reached, Sir. Try again in a moment.";
+            const detail = e?.responseBody || e?.message || String(error);
+            if (/brave_search|not in request\.tools|tool call validation/i.test(detail)) {
+              return "My apologies, Sir — I tripped over a tool I don't actually have. Try that again.";
+            }
+            return `Signal interrupted, Sir: ${detail.slice(0, 300)}`;
+          },
+        });
       },
     },
   },

@@ -399,8 +399,10 @@ export const getWeatherNarrative = createServerFn({ method: "GET" })
     const humidity = data.main.humidity;
     const windSpeed = Math.round(data.wind.speed * 3.6);
 
+    // Build natural language description
     let narrative = "";
 
+    // Temperature description
     if (temp >= 28) {
       narrative = "It's a hot day, Sir. ";
     } else if (temp >= 22) {
@@ -415,6 +417,7 @@ export const getWeatherNarrative = createServerFn({ method: "GET" })
       narrative = "It's cold – better wrap up warm. ";
     }
 
+    // Conditions description
     const condition = description.toLowerCase();
     if (condition.includes("clear") || condition.includes("sunny")) {
       narrative += "The sky is clear and bright. ";
@@ -430,6 +433,7 @@ export const getWeatherNarrative = createServerFn({ method: "GET" })
       narrative += "It's foggy – drive carefully. ";
     }
 
+    // Activity suggestion (if it's not too extreme)
     if (temp >= 15 && temp <= 28 && !condition.includes("rain") && !condition.includes("storm")) {
       narrative += "It's a nice day for a walk or some fresh air.";
     } else if (condition.includes("sunny") && temp > 20 && temp < 30) {
@@ -444,6 +448,7 @@ export const getWeatherNarrative = createServerFn({ method: "GET" })
       narrative += "Wrap up warm if you're going outside.";
     }
 
+    // Add a friendly closing
     if (!narrative.endsWith(".") && !narrative.endsWith("!")) {
       narrative += ".";
     }
@@ -460,9 +465,8 @@ export const getWeatherNarrative = createServerFn({ method: "GET" })
       narrative: narrative,
     };
   });
-
 // ============================================================
-// PORTFOLIO FUNCTIONS
+// PORTFOLIO FUNCTIONS (added to existing file)
 // ============================================================
 
 export const getCashBalance = createServerFn({ method: "GET" })
@@ -599,63 +603,4 @@ export const updateLastPrice = createServerFn({ method: "POST" })
       .eq("ticker", ticker);
     if (error) throw error;
     return { ok: true };
-  });
-
-// ============================================================
-// AI CODE ASSISTANT (used by the editor)
-// ============================================================
-export const askCodeAssistant = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) =>
-    z
-      .object({
-        code: z.string(),
-        prompt: z.string(),
-        language: z.string().optional(),
-      })
-      .parse(input),
-  )
-  .handler(async ({ data, context }) => {
-    const { supabase, userId } = context as any;
-    const { model } = await getModelForUser(userId, supabase);
-    const systemPrompt = `
-You are JARVIS, an expert programmer. The user has asked you to help with code in a code editor.
-
-Current code:
-\`\`\`${data.language || "plaintext"}
-${data.code}
-\`\`\`
-
-User's request: ${data.prompt}
-
-Provide a clear, helpful response. If suggesting code changes, show the full updated code or explain the changes clearly.
-`;
-    const { text } = await generateText({
-      model,
-      system: systemPrompt,
-      prompt: data.prompt,
-    });
-    return { response: text };
-  });
-
-// ============================================================
-// FILE SUMMARIZER – returns raw content (safe, never crashes)
-// ============================================================
-export const summarizeFileWithGemini = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) =>
-    z
-      .object({
-        fileName: z.string(),
-        content: z.string(),
-        maxLength: z.number().optional().default(200),
-      })
-      .parse(input),
-  )
-  .handler(async ({ data, context }) => {
-    // Return the raw content directly – no AI calls, no errors
-    const truncated = data.content.length > 8000 ? data.content.slice(0, 8000) + "\n... (truncated)" : data.content;
-    return {
-      summary: `📄 **File: ${data.fileName}** (${Math.round(data.content.length / 1024)}KB)\n\n${truncated}`,
-    };
   });
