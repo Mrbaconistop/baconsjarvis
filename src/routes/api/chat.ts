@@ -1,5 +1,14 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { convertToModelMessages, streamText, tool, stepCountIs, type UIMessage, embed } from "ai";
+import {
+  convertToModelMessages,
+  createUIMessageStream,
+  createUIMessageStreamResponse,
+  streamText,
+  tool,
+  stepCountIs,
+  type UIMessage,
+  embed,
+} from "ai";
 import { z } from "zod";
 import { createClient } from "@supabase/supabase-js";
 import { getSystemPrompt, getModelForUser } from "@/lib/ai-gateway.server";
@@ -9,6 +18,51 @@ import { listAccounts } from "@/lib/profile.functions";
 import { getBackendOverview } from "@/lib/backend.functions";
 
 type Body = { messages?: UIMessage[]; threadId?: string; tabSlug?: string | null };
+
+function serializeChatError(error: unknown, stage: string, extra: Record<string, unknown> = {}) {
+  const e = error as any;
+  const cause = e?.cause as any;
+  return {
+    tag: "JARVIS_CHAT_DEBUG",
+    stage,
+    name: e?.name ?? error?.constructor?.name ?? "UnknownError",
+    message: e?.message ?? String(error),
+    code: e?.code,
+    statusCode: e?.statusCode ?? e?.status ?? cause?.statusCode ?? cause?.status,
+    provider: e?.provider,
+    modelId: e?.modelId,
+    version: e?.version,
+    causeName: cause?.name,
+    causeMessage: cause?.message,
+    ...extra,
+  };
+}
+
+function debugChatError(error: unknown, stage: string, extra: Record<string, unknown> = {}) {
+  const payload = serializeChatError(error, stage, extra);
+  console.error(`[JARVIS_CHAT_DEBUG]\n${JSON.stringify(payload, null, 2)}`, error);
+  return payload;
+}
+
+function chatErrorResponse(payload: ReturnType<typeof serializeChatError>, originalMessages: UIMessage[]) {
+  const id = typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `chat-error-${Date.now()}`;
+  const debugText = JSON.stringify(payload, null, 2);
+  const message = `Signal interrupted, Sir. Copy this debug block into another AI if you want to troubleshoot it:\n\n\`\`\`json\n${debugText}\n\`\`\``;
+  const stream = createUIMessageStream<UIMessage>({
+    originalMessages,
+    execute: ({ writer }) => {
+      writer.write({ type: "text-start", id });
+      writer.write({ type: "text-delta", id, delta: message });
+      writer.write({ type: "text-end", id });
+    },
+    onError: (streamError) => {
+      const streamPayload = serializeChatError(streamError, "fallback-stream");
+      console.error(`[JARVIS_CHAT_DEBUG]\n${JSON.stringify(streamPayload, null, 2)}`, streamError);
+      return streamPayload.message;
+    },
+  });
+  return createUIMessageStreamResponse({ status: 200, stream });
+}
 
 function userClient(token: string) {
   return createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_PUBLISHABLE_KEY!, {
