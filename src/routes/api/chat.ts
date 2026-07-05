@@ -2797,28 +2797,6 @@ async function storeCachedResponse(
             },
           }),
           age_from_birthdate: tool({
-            description: "Compute age (years, months, days) from a birthdate.",
-            inputSchema: z.object({ birthdate: z.string() }),
-            execute: async ({ birthdate }) => {
-              const b = new Date(birthdate);
-              if (isNaN(b.getTime())) return { ok: false, error: "Invalid date" };
-              const now = new Date();
-              let y = now.getFullYear() - b.getFullYear();
-              let m = now.getMonth() - b.getMonth();
-              let d = now.getDate() - b.getDate();
-              if (d < 0) {
-                m--;
-                d += new Date(now.getFullYear(), now.getMonth(), 0).getDate();
-              }
-              if (m < 0) {
-                y--;
-                m += 12;
-              }
-              return { ok: true, years: y, months: m, days: d };
-            },
-          }),
-        };
-
         // ---- System Prompt ----
         const baseSystemPrompt = getSystemPrompt(mode, addressAs, factsBlock, submode);
         const systemPrompt = `${baseSystemPrompt}
@@ -2897,7 +2875,39 @@ When the user says "take me to X" or "open X", actually navigate — don't just 
                     parts: parts as any,
                   });
                   await supabase.from("chat_threads").update({ updated_at: new Date().toISOString() }).eq("id", threadId);
+                  // ---- STORE CACHE ----
+                  await storeCachedResponse(userId, cacheKey, parts, threadId, mode, boundTabSlug, supabase);
                 }
+              } catch (e) {
+                console.error("[chat onFinish error]", e);
+              }
+            },
+          });
+
+          return result.toUIMessageStreamResponse({
+            originalMessages: messages,
+            onError: (error: unknown) => {
+              const payload = debugChatError(error, "stream-response", {
+                threadId,
+                provider: (chatModel as any)?.provider,
+                modelId: (chatModel as any)?.modelId,
+              });
+              if (payload.statusCode === 402) return "AI credits exhausted, Sir. Please top up to continue.";
+              if (payload.statusCode === 429) return "Rate limit reached, Sir. Try again in a moment.";
+              if (/brave_search|not in request\.tools|tool call validation/i.test(payload.message)) {
+                return "My apologies, Sir — I tripped over a tool I don't actually have. Try that again.";
+              }
+              return `Signal interrupted, Sir. Copy this debug block into another AI if needed: ${JSON.stringify(payload)}`;
+            },
+          });
+        } catch (error) {
+          const payload = debugChatError(error, "stream-start", {
+            threadId,
+            provider: (chatModel as any)?.provider,
+            modelId: (chatModel as any)?.modelId,
+          });
+          return chatErrorResponse(payload, messages);
+        }
               } catch (e) {
                 console.error("[chat onFinish error]", e);
               }
