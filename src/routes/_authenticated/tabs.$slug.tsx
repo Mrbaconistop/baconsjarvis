@@ -1,3 +1,4 @@
+import { getModelForUser } from "@/lib/ai-gateway.server";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
