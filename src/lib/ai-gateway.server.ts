@@ -21,8 +21,8 @@ export const CODING_SUBMODES = {
 
 export type CodingSubmode = keyof typeof CODING_SUBMODES;
 
-export function getSystemPrompt(mode: string, addressAs: string, factsBlock: string, submode?: string): string {
-  // ... (unchanged, keep your existing implementation)
+export function getSystemPrompt(mode: string, _addressAs: string, _factsBlock: string, _submode?: string): string {
+  return (MODE_PROMPTS as any)[mode] ?? MODE_PROMPTS.basic;
 }
 
 // ============================================================
