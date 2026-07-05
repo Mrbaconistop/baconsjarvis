@@ -8,7 +8,7 @@ import { getProfile, getLLMConfig, updateLLMConfig } from "@/lib/profile.functio
 import { listAccounts } from "@/lib/profile.functions";
 import { getBackendOverview } from "@/lib/backend.functions";
 
-type Body = { messages?: UIMessage[]; threadId?: string; tabSlug?: string | null };
+type Body = { messages?: UIMessage[]; threadId?: string };
 
 function userClient(token: string) {
   return createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_PUBLISHABLE_KEY!, {
@@ -76,7 +76,7 @@ export const Route = createFileRoute("/api/chat")({
         const token = auth.replace(/^Bearer\s+/i, "");
         if (!token) return new Response("Unauthorized", { status: 401 });
 
-        const { messages, threadId, tabSlug } = (await request.json()) as Body;
+        const { messages, threadId } = (await request.json()) as Body;
         if (!Array.isArray(messages) || !threadId) return new Response("Bad request", { status: 400 });
 
         const supabase = userClient(token);
@@ -95,33 +95,19 @@ export const Route = createFileRoute("/api/chat")({
         // Verify thread ownership
         let { data: thread } = await supabase
           .from("chat_threads")
-          .select("id, title, tab_slug")
+          .select("id, title")
           .eq("id", threadId)
           .eq("user_id", userId)
           .maybeSingle();
         if (!thread) {
           const { data: created, error: createErr } = await supabase
             .from("chat_threads")
-            .insert({ id: threadId, user_id: userId, title: "New conversation", tab_slug: tabSlug ?? null })
-            .select("id, title, tab_slug")
+            .insert({ id: threadId, user_id: userId, title: "New conversation" })
+            .select("id, title")
             .single();
           if (createErr || !created) return new Response("Thread not found", { status: 404 });
           thread = created;
         }
-
-        // Load bound tab context (if this thread is scoped to a custom tab)
-        const boundTabSlug = (thread as any).tab_slug || tabSlug || null;
-        let tabContext: { slug: string; label: string; description: string | null; content_html: string } | null = null;
-        if (boundTabSlug) {
-          const { data: tabRow } = await supabase
-            .from("custom_tabs")
-            .select("slug, label, description, content_html")
-            .eq("user_id", userId)
-            .eq("slug", boundTabSlug)
-            .maybeSingle();
-          if (tabRow) tabContext = tabRow as any;
-        }
-
 
         // Load profile
         const { data: profile } = await supabase
@@ -1477,28 +1463,6 @@ You have full operational access to the user's command center. When in doubt abo
 
 You can also build new sections of the UI itself: use create_custom_tab / update_custom_tab / list_custom_tabs / delete_custom_tab to add sidebar tabs that render arbitrary HTML/CSS/JS in a sandboxed iframe. Use this whenever the user asks for a tool, widget, tracker, calculator, mini-app, page, or "tab" — build it as a custom tab. Keep it self-contained (inline <style>/<script>, no external network or module imports). After creating, tell the user the sidebar entry and /tabs/<slug> URL.
 
-DESIGN LANGUAGE for custom tabs — make them BUBBLY, playful, and delightful, not flat corporate boxes:
-- Rounded everything: 16–24px radii on cards, 999px on pills/buttons.
-- Soft depth: layered box-shadows with color-tinted glows (e.g. rgba of the accent), never harsh black shadows.
-- Gradients: use vibrant multi-stop linear/radial gradients for backgrounds, buttons, and accents.
-- Micro-interactions: hover transforms (translate/scale), smooth transitions (200–300ms cubic-bezier), subtle pulse/float keyframe animations on hero elements.
-- Typography: system-ui, generous letter-spacing on labels, bold display sizes.
-- Color: pick a distinctive palette per tab that fits the topic — avoid defaulting to the same blue every time. Dark backgrounds with neon/pastel accents are usually a win.
-- Interactive: real buttons/inputs/localStorage state so the tab actually works, not a static mockup.
-- Responsive: flex/grid that reflows on narrow widths.
-Assume the tab renders on a dark app shell but is otherwise its own world.
-${
-  tabContext
-    ? `
-
-CURRENT TAB CONTEXT — this conversation is scoped to the custom tab "${tabContext.label}" (slug: ${tabContext.slug}).
-${tabContext.description ? `Tab description: ${tabContext.description}\n` : ""}When the user asks to change/tweak/style/add-feature to "this tab", "it", "the page", etc., call update_custom_tab with slug="${tabContext.slug}" — do NOT create a new tab. When rewriting, keep working functionality unless the user asks otherwise. Current HTML (truncated to 8KB):
-\`\`\`html
-${(tabContext.content_html || "").slice(0, 8000)}
-\`\`\`
-`
-    : ""
-}
 You also have recall_memory for semantic search across past conversations. Use it whenever the user references something they told you before.`;
 
         const result = streamText({
@@ -1510,8 +1474,6 @@ You also have recall_memory for semantic search across past conversations. Use i
           onError: ({ error }) => {
             console.error("[chat streamText error]", error);
           },
-
-
           onFinish: async ({ response }) => {
             try {
               const finalMessages = response.messages as any[];
