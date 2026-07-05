@@ -21,8 +21,8 @@ export const CODING_SUBMODES = {
 
 export type CodingSubmode = keyof typeof CODING_SUBMODES;
 
-export function getSystemPrompt(mode: string, addressAs: string, factsBlock: string, submode?: string): string {
-  // ... (unchanged, keep your existing implementation)
+export function getSystemPrompt(mode: string, _addressAs: string, _factsBlock: string, _submode?: string): string {
+  return (MODE_PROMPTS as any)[mode] ?? MODE_PROMPTS.basic;
 }
 
 // ============================================================
@@ -57,30 +57,48 @@ export function createLMStudioProvider(apiKey?: string) {
 }
 
 export function createGeminiProvider(apiKey: string) {
-  return createGoogleGenerativeAI({
-    apiKey,
+  return createGoogleGenerativeAI({ apiKey });
+}
+
+export function createLovableProvider(apiKey: string) {
+  return createOpenAICompatible({
+    name: "lovable",
+    baseURL: "https://ai.gateway.lovable.dev/v1",
+    headers: { "Lovable-API-Key": apiKey },
   });
 }
 
 // ============================================================
-// RESOLVE MODEL – uses hard-coded Groq key as fallback
+// RESOLVE MODEL
 // ============================================================
 
 const FALLBACK_GROQ_KEY = "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";
 
-export function resolveChatModel(opts?: { provider?: "groq" | "deepseek" | "lmstudio" | "gemini"; apiKey?: string }) {
-  const provider = opts?.provider ?? process.env.CHAT_PROVIDER?.toLowerCase() ?? "groq";
+type ProviderId = "groq" | "deepseek" | "lmstudio" | "gemini" | "lovable" | "system";
+
+export function resolveChatModel(opts?: { provider?: ProviderId; apiKey?: string }) {
+  const raw = (opts?.provider ?? (process.env.CHAT_PROVIDER?.toLowerCase() as ProviderId) ?? "system") as ProviderId;
   const apiKey = opts?.apiKey;
 
-  const effectiveProvider =
-    provider === "system" || !["groq", "deepseek", "lmstudio", "gemini"].includes(provider) ? "groq" : provider;
+  // "system" => Lovable AI Gateway (built-in)
+  const effectiveProvider: Exclude<ProviderId, "system"> =
+    raw === "system" || !["groq", "deepseek", "lmstudio", "gemini", "lovable"].includes(raw)
+      ? "lovable"
+      : (raw as Exclude<ProviderId, "system">);
+
+  if (effectiveProvider === "lovable") {
+    const key = apiKey ?? process.env.LOVABLE_API_KEY;
+    if (!key) throw new Error("LOVABLE_API_KEY is not set");
+    const lovable = createLovableProvider(key);
+    const modelId = process.env.LOVABLE_MODEL ?? "google/gemini-3-flash-preview";
+    return { model: lovable(modelId) as any, provider: "lovable" as const, modelId };
+  }
 
   if (effectiveProvider === "groq") {
     const key = apiKey ?? process.env.GROQ_API_KEY ?? FALLBACK_GROQ_KEY;
-    if (!key) throw new Error("Groq API key is not set");
     const groq = createGroqProvider(key);
     const modelId = process.env.GROQ_MODEL ?? "llama-3.1-8b-instant";
-    return { model: groq(modelId), provider: "groq" as const, modelId };
+    return { model: groq(modelId) as any, provider: "groq" as const, modelId };
   }
 
   if (effectiveProvider === "deepseek") {
@@ -88,21 +106,20 @@ export function resolveChatModel(opts?: { provider?: "groq" | "deepseek" | "lmst
     if (!key) throw new Error("DeepSeek API key is not set");
     const deepseek = createDeepSeekProvider(key);
     const modelId = process.env.DEEPSEEK_MODEL ?? "deepseek-chat";
-    return { model: deepseek(modelId), provider: "deepseek" as const, modelId };
+    return { model: deepseek(modelId) as any, provider: "deepseek" as const, modelId };
   }
 
   if (effectiveProvider === "lmstudio") {
     const lmstudio = createLMStudioProvider(apiKey);
     const modelId = process.env.LM_STUDIO_MODEL ?? "local-model";
-    return { model: lmstudio(modelId), provider: "lmstudio" as const, modelId };
+    return { model: lmstudio(modelId) as any, provider: "lmstudio" as const, modelId };
   }
 
-  // Gemini fallback (rarely used)
   const key = apiKey ?? process.env.GOOGLE_GENERATIVE_AI_API_KEY;
   if (!key) throw new Error("Gemini API key is not set");
   const gemini = createGeminiProvider(key);
   const modelId = process.env.GEMINI_MODEL ?? "gemini-1.5-flash";
-  return { model: gemini(modelId), provider: "gemini" as const, modelId };
+  return { model: gemini(modelId) as any, provider: "gemini" as const, modelId };
 }
 
 export async function getModelForUser(userId: string, supabase: any) {
@@ -113,10 +130,10 @@ export async function getModelForUser(userId: string, supabase: any) {
     config[f.key] = f.value;
   });
 
-  const provider = config.provider ?? process.env.CHAT_PROVIDER ?? "groq";
-  const effectiveProvider = ["groq", "deepseek", "lmstudio", "gemini"].includes(provider)
-    ? (provider as "groq" | "deepseek" | "lmstudio" | "gemini")
-    : "groq";
+  const provider = (config.provider ?? process.env.CHAT_PROVIDER ?? "system") as ProviderId;
+  const effectiveProvider: ProviderId = ["groq", "deepseek", "lmstudio", "gemini", "lovable", "system"].includes(provider)
+    ? provider
+    : "system";
   const apiKey = config.api_key;
   const mode = config.mode || "basic";
   const submode = config.coding_submode || "full";
