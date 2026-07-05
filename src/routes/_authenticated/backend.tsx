@@ -55,19 +55,19 @@ function BackendPage() {
       />
 
       <div className="flex gap-1 border-b border-arc/15">
-        {([
-          ["overview", "Overview", Plug],
-          ["database", "Database", Database],
-          ["secrets", "Secrets", KeyRound],
-          ["files", "Files", FolderOpen],
-        ] as const).map(([k, label, Icon]) => (
+        {(
+          [
+            ["overview", "Overview", Plug],
+            ["database", "Database", Database],
+            ["secrets", "Secrets", KeyRound],
+            ["files", "Files", FolderOpen],
+          ] as const
+        ).map(([k, label, Icon]) => (
           <button
             key={k}
             onClick={() => setTab(k)}
             className={`flex items-center gap-2 px-4 py-2 text-sm font-mono transition border-b-2 -mb-px ${
-              tab === k
-                ? "border-arc text-arc"
-                : "border-transparent text-muted-foreground hover:text-foreground"
+              tab === k ? "border-arc text-arc" : "border-transparent text-muted-foreground hover:text-foreground"
             }`}
           >
             <Icon size={14} />
@@ -78,7 +78,13 @@ function BackendPage() {
 
       {isLoading && <div className="text-sm text-muted-foreground">Loading backend status…</div>}
 
-      {tab === "overview" && data && <OverviewPanel connection={(data as any).connection} tables={(data as any).tables} secrets={(data as any).secrets} />}
+      {tab === "overview" && data && (
+        <OverviewPanel
+          connection={(data as any).connection}
+          tables={(data as any).tables}
+          secrets={(data as any).secrets}
+        />
+      )}
       {tab === "database" && data && <DatabasePanel tables={(data as any).tables} />}
       {tab === "secrets" && data && <SecretsPanel secrets={(data as any).secrets} />}
       {tab === "files" && <FilesPanel />}
@@ -86,7 +92,7 @@ function BackendPage() {
   );
 }
 
-/* ---------- Overview ---------- */
+// ---------- Overview ----------
 function OverviewPanel({ connection, tables, secrets }: any) {
   const totalRows = tables.reduce((sum: number, t: any) => sum + (t.rows ?? 0), 0);
   const present = secrets.filter((s: any) => s.present).length;
@@ -98,7 +104,7 @@ function OverviewPanel({ connection, tables, secrets }: any) {
       <Stat label="Secrets configured" value={`${present} / ${secrets.length}`} />
       <Stat label="Publishable key" value={connection.publishable_key_present ? "Loaded" : "Missing"} />
       <Stat label="Service role" value={connection.service_role_present ? "Loaded" : "Missing"} />
-      <div className="md:col-span-3 panel-surface p-4 text-xs text-muted-foreground font-mono">
+      <div className="md:col-span-3 glass p-4 text-xs text-muted-foreground font-mono">
         Your user id: <span className="text-arc">{connection.user_id}</span>
       </div>
     </div>
@@ -107,14 +113,14 @@ function OverviewPanel({ connection, tables, secrets }: any) {
 
 function Stat({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
   return (
-    <div className="panel-surface p-4">
+    <div className="glass p-4">
       <div className="text-[10px] font-mono uppercase tracking-widest text-arc/70">{label}</div>
       <div className={`mt-2 text-lg ${mono ? "font-mono" : "font-display"}`}>{value}</div>
     </div>
   );
 }
 
-/* ---------- Database ---------- */
+// ---------- Database ----------
 function DatabasePanel({ tables }: { tables: { table: string; rows: number | null; error: string | null }[] }) {
   const [selected, setSelected] = useState<string | null>(null);
   const preview = useServerFn(previewTable);
@@ -126,7 +132,7 @@ function DatabasePanel({ tables }: { tables: { table: string; rows: number | nul
 
   return (
     <div className="grid md:grid-cols-[280px_1fr] gap-4">
-      <div className="panel-surface p-2 max-h-[60vh] overflow-y-auto">
+      <div className="glass p-2 max-h-[60vh] overflow-y-auto">
         {tables.map((t) => (
           <button
             key={t.table}
@@ -140,7 +146,7 @@ function DatabasePanel({ tables }: { tables: { table: string; rows: number | nul
           </button>
         ))}
       </div>
-      <div className="panel-surface p-4 min-h-[400px]">
+      <div className="glass p-4 min-h-[400px]">
         {!selected ? (
           <div className="text-sm text-muted-foreground">Select a table to preview rows.</div>
         ) : isLoading ? (
@@ -162,15 +168,20 @@ function DatabasePanel({ tables }: { tables: { table: string; rows: number | nul
   );
 }
 
-/* ---------- Secrets ---------- */
-function SecretsPanel({ secrets }: { secrets: { name: string; description: string; managed?: string; present: boolean }[] }) {
+// ---------- Secrets ----------
+function SecretsPanel({
+  secrets,
+}: {
+  secrets: { name: string; description: string; managed?: string; present: boolean }[];
+}) {
   return (
     <div className="space-y-2">
       <div className="text-xs text-muted-foreground">
-        Values are never displayed. Connector-managed secrets are edited via the Connectors panel; others via the secrets tooling.
+        Values are never displayed. Connector-managed secrets are edited via the Connectors panel; others via the
+        secrets tooling.
       </div>
       {secrets.map((s) => (
-        <div key={s.name} className="panel-surface p-3 flex items-center justify-between">
+        <div key={s.name} className="glass p-3 flex items-center justify-between">
           <div>
             <div className="font-mono text-sm">{s.name}</div>
             <div className="text-xs text-muted-foreground">
@@ -191,7 +202,7 @@ function SecretsPanel({ secrets }: { secrets: { name: string; description: strin
   );
 }
 
-/* ---------- Files ---------- */
+// ---------- Files (Full) ----------
 function FilesPanel() {
   const ctx = useRouteContext({ from: "/_authenticated" });
   const userId = (ctx as any).user.id as string;
@@ -201,7 +212,11 @@ function FilesPanel() {
   const [newBody, setNewBody] = useState("");
   const [editing, setEditing] = useState<{ name: string; body: string } | null>(null);
 
-  const { data: files = [], isLoading } = useQuery({
+  const {
+    data: files = [],
+    isLoading,
+    refetch,
+  } = useQuery({
     queryKey: ["user-files", userId],
     queryFn: async () => {
       const { data, error } = await supabase.storage.from("user-files").list(userId, {
@@ -275,7 +290,7 @@ function FilesPanel() {
 
   return (
     <div className="grid md:grid-cols-[1fr_360px] gap-4">
-      <div className="panel-surface p-4 space-y-3">
+      <div className="glass p-4 space-y-3">
         <div className="flex items-center justify-between">
           <div className="font-mono text-sm flex items-center gap-2">
             <FolderOpen size={14} className="text-arc" /> Your files
@@ -293,6 +308,9 @@ function FilesPanel() {
             >
               <Upload size={12} /> UPLOAD
             </button>
+            <button onClick={() => refetch()} className="p-1.5 rounded hover:bg-arc/10 text-muted-foreground">
+              <RefreshCw size={14} />
+            </button>
           </div>
         </div>
 
@@ -303,7 +321,7 @@ function FilesPanel() {
             No files yet. Upload one or create a text file.
           </div>
         ) : (
-          <div className="divide-y divide-arc/10">
+          <div className="divide-y divide-arc/10 max-h-[60vh] overflow-y-auto">
             {files.map((f) => (
               <div key={f.name} className="flex items-center justify-between py-2">
                 <div className="flex items-center gap-2 min-w-0">
@@ -316,9 +334,15 @@ function FilesPanel() {
                   </div>
                 </div>
                 <div className="flex items-center gap-1">
-                  <IconBtn onClick={() => openInEditor(f.name)} title="Edit"><Eye size={14} /></IconBtn>
-                  <IconBtn onClick={() => downloadFile(f.name)} title="Download"><Download size={14} /></IconBtn>
-                  <IconBtn onClick={() => deleteFile(f.name)} title="Delete" danger><Trash2 size={14} /></IconBtn>
+                  <IconBtn onClick={() => openInEditor(f.name)} title="Edit">
+                    <Eye size={14} />
+                  </IconBtn>
+                  <IconBtn onClick={() => downloadFile(f.name)} title="Download">
+                    <Download size={14} />
+                  </IconBtn>
+                  <IconBtn onClick={() => deleteFile(f.name)} title="Delete" danger>
+                    <Trash2 size={14} />
+                  </IconBtn>
                 </div>
               </div>
             ))}
@@ -330,7 +354,10 @@ function FilesPanel() {
             <div className="flex items-center justify-between">
               <div className="font-mono text-sm">{editing.name}</div>
               <div className="flex gap-2">
-                <button onClick={saveEditor} className="flex items-center gap-1 px-3 py-1 text-xs bg-arc/20 text-arc rounded">
+                <button
+                  onClick={saveEditor}
+                  className="flex items-center gap-1 px-3 py-1 text-xs bg-arc/20 text-arc rounded"
+                >
                   <Save size={12} /> SAVE
                 </button>
                 <button onClick={() => setEditing(null)} className="px-3 py-1 text-xs rounded hover:bg-arc/10">
@@ -347,7 +374,7 @@ function FilesPanel() {
         )}
       </div>
 
-      <div className="panel-surface p-4 space-y-3 h-fit">
+      <div className="glass p-4 space-y-3 h-fit">
         <div className="font-mono text-sm flex items-center gap-2">
           <Plus size={14} className="text-arc" /> New text file
         </div>
@@ -370,7 +397,8 @@ function FilesPanel() {
           CREATE FILE
         </button>
         <div className="text-[10px] text-muted-foreground">
-          Files are private to your account and stored in the <span className="text-arc font-mono">user-files</span> bucket.
+          Files are private to your account and stored in the <span className="text-arc font-mono">user-files</span>{" "}
+          bucket.
         </div>
       </div>
     </div>

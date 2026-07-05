@@ -1,7 +1,13 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { getProfile, listAccounts, getLLMConfig, updateLLMConfig } from "@/lib/profile.functions";
+import {
+  getProfile,
+  listAccounts,
+  getLLMConfig,
+  updateLLMConfig,
+  storeGoogleConnection,
+} from "@/lib/profile.functions";
 import { PageHeader } from "@/components/jarvis/HudBits";
 import { Twitter, Linkedin, Instagram, Facebook, Mail, Calendar, CheckCircle2, Circle } from "lucide-react";
 import { lovable } from "@/integrations/lovable";
@@ -22,36 +28,56 @@ const PLATFORM_META: Record<string, { label: string; icon: any; note: string }> 
   calendar: { label: "Google Calendar", icon: Calendar, note: "Connect to surface upcoming events." },
 };
 
-// ✅ Default Groq API key (provided by you, can be overridden by user)
 const DEFAULT_GROQ_KEY = "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";
 
 function SettingsPage() {
+  const qc = useQueryClient();
   const prof = useServerFn(getProfile);
   const accts = useServerFn(listAccounts);
   const getConfig = useServerFn(getLLMConfig);
   const updateConfig = useServerFn(updateLLMConfig);
+  const storeGoogle = useServerFn(storeGoogleConnection);
 
   const { data: profile } = useQuery({ queryKey: ["profile"], queryFn: () => prof() });
-  const { data: accounts } = useQuery({ queryKey: ["accounts"], queryFn: () => accts() });
+  const { data: accounts, refetch: refetchAccounts } = useQuery({ queryKey: ["accounts"], queryFn: () => accts() });
   const { data: llmConfig, refetch } = useQuery({
     queryKey: ["llm-config"],
     queryFn: () => getConfig(),
   });
 
   const [connecting, setConnecting] = useState(false);
-  const [provider, setProvider] = useState<"groq" | "deepseek" | "lovable" | "system" | "lmstudio">("system");
+  const [provider, setProvider] = useState<"groq" | "deepseek" | "lovable" | "system" | "lmstudio" | "gemini">(
+    "system",
+  );
   const [apiKey, setApiKey] = useState("");
+  const [mode, setMode] = useState<"thinking" | "coding" | "basic">("basic");
   const [savingLlm, setSavingLlm] = useState(false);
 
-  // Load saved config
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const code = urlParams.get("code");
+    const state = urlParams.get("state");
+    if (code || state) {
+      storeGoogle()
+        .then(() => {
+          toast.success("Google connected, Sir.");
+          refetchAccounts();
+          window.history.replaceState({}, "", window.location.pathname);
+        })
+        .catch((e: any) => {
+          toast.error(e.message || "Failed to save connection.");
+        });
+    }
+  }, []);
+
   useEffect(() => {
     if (llmConfig) {
       setProvider(llmConfig.provider as typeof provider);
       setApiKey(llmConfig.apiKey || "");
+      setMode((llmConfig.mode as "thinking" | "coding" | "basic") || "basic");
     }
   }, [llmConfig]);
 
-  // ✅ When provider changes to "groq" and no key is set, pre‑fill the default key
   useEffect(() => {
     if (provider === "groq" && !apiKey) {
       setApiKey(DEFAULT_GROQ_KEY);
@@ -69,7 +95,12 @@ function SettingsPage() {
         toast.error("Could not connect Google");
         return;
       }
-      if (!result.redirected) toast.success("Google connected");
+      if (result.redirected) return;
+      await storeGoogle();
+      toast.success("Google connected, Sir.");
+      refetchAccounts();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to connect Google");
     } finally {
       setConnecting(false);
     }
@@ -78,11 +109,10 @@ function SettingsPage() {
   async function saveLlm() {
     setSavingLlm(true);
     try {
-      // If provider is "groq" and key is empty, we'll send undefined to keep the existing key
       const keyToSend = provider === "groq" && !apiKey ? undefined : apiKey || undefined;
-      await updateConfig({ data: { provider, apiKey: keyToSend } });
+      await updateConfig({ data: { provider, apiKey: keyToSend, mode } });
       await refetch();
-      toast.success("AI provider updated");
+      toast.success("AI settings updated");
     } catch (e: any) {
       toast.error(e.message ?? "Failed to update");
     } finally {
@@ -124,6 +154,7 @@ function SettingsPage() {
                 <option value="deepseek">DeepSeek</option>
                 <option value="lovable">Lovable</option>
                 <option value="lmstudio">LM Studio (local)</option>
+                <option value="gemini">Google Gemini</option>
               </select>
             </div>
             {provider !== "system" && (
@@ -134,12 +165,28 @@ function SettingsPage() {
                   value={apiKey}
                   onChange={(e) => setApiKey(e.target.value)}
                   placeholder={
-                    provider === "groq" ? "Default key is pre‑filled – replace with your own" : "Enter your API key"
+                    provider === "groq"
+                      ? "Default key is pre‑filled – replace with your own"
+                      : provider === "gemini"
+                        ? "Enter your Google AI API key"
+                        : "Enter your API key"
                   }
                   className="bg-background/40 border border-arc/20 rounded-md px-3 py-2 text-sm font-mono focus:border-arc focus:outline-none w-64"
                 />
               </div>
             )}
+            <div className="flex flex-wrap items-center gap-4">
+              <label className="text-sm font-medium">AI Mode</label>
+              <select
+                value={mode}
+                onChange={(e) => setMode(e.target.value as typeof mode)}
+                className="bg-background/40 border border-arc/20 rounded-md px-3 py-2 text-sm focus:border-arc focus:outline-none"
+              >
+                <option value="basic">🗣️ Basic – Everyday chat</option>
+                <option value="thinking">🧠 Thinking – Deep reasoning</option>
+                <option value="coding">💻 Coding – Technical help</option>
+              </select>
+            </div>
             <button
               onClick={saveLlm}
               disabled={savingLlm || (provider !== "system" && !apiKey)}
@@ -153,6 +200,20 @@ function SettingsPage() {
               {provider === "groq" && (
                 <span className="block mt-1 text-arc/70">
                   💡 A default Groq key is pre‑filled. You can use it or replace it with your own.
+                </span>
+              )}
+              {provider === "gemini" && (
+                <span className="block mt-1 text-arc/70">
+                  💡 Get your free API key from{" "}
+                  <a
+                    href="https://aistudio.google.com/app/apikey"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline"
+                  >
+                    Google AI Studio
+                  </a>
+                  . Default model: <span className="font-mono">gemini-1.5-flash</span>.
                 </span>
               )}
             </p>

@@ -1,327 +1,288 @@
-import { createFileRoute, useRouter, Link } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState, useMemo } from "react";
-import { supabase } from "@/integrations/supabase/client";
-
-import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
+import { useServerFn } from "@tanstack/react-start";
+import { useState } from "react";
+import { PageHeader } from "@/components/jarvis/HudBits";
+import { getCashBalance, setCashBalance, getHoldings, addTransaction, updateLastPrice } from "@/lib/jarvis.functions";
 import { toast } from "sonner";
-import { Trash2, RefreshCw, Plus, AlertTriangle } from "lucide-react";
-
-function SpendingError({ error, reset }: { error: Error; reset: () => void }) {
-  const router = useRouter();
-  const msg = error?.message ?? "Unknown error";
-  const lower = msg.toLowerCase();
-  let hint = "I couldn't load your spending data.";
-  if (lower.includes("jwt") || lower.includes("auth") || lower.includes("unauthorized")) {
-    hint = "Your session expired. Sign back in and I'll fetch the ledger again.";
-  } else if (lower.includes("permission") || lower.includes("rls") || lower.includes("policy")) {
-    hint = "I don't have permission to read the transactions table. The access policy may be missing.";
-  } else if (lower.includes("relation") && lower.includes("does not exist")) {
-    hint = "The transactions table isn't set up yet. The latest migration may not have run.";
-  } else if (lower.includes("network") || lower.includes("fetch")) {
-    hint = "I can't reach the backend right now. Check your connection and try again.";
-  }
-  return (
-    <div className="max-w-2xl">
-      <Card className="p-6 space-y-4">
-        <div className="flex items-center gap-3">
-          <AlertTriangle className="w-5 h-5 text-amber-400" />
-          <h1 className="text-2xl font-light">Spending ledger unavailable</h1>
-        </div>
-        <p className="text-sm text-muted-foreground">{hint}</p>
-        <details className="text-xs text-muted-foreground">
-          <summary className="cursor-pointer">Technical detail</summary>
-          <pre className="mt-2 whitespace-pre-wrap break-words font-mono">{msg}</pre>
-        </details>
-        <div className="flex gap-2">
-          <Button
-            size="sm"
-            onClick={() => {
-              router.invalidate();
-              reset();
-            }}
-          >
-            Retry
-          </Button>
-          <Button asChild variant="outline" size="sm">
-            <Link to="/dashboard">Back to dashboard</Link>
-          </Button>
-        </div>
-      </Card>
-    </div>
-  );
-}
+import { Plus, DollarSign, Edit, RefreshCw, TrendingUp, TrendingDown } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/spending")({
-  component: SpendingPage,
-  errorComponent: SpendingError,
-  notFoundComponent: () => (
-    <Card className="p-6 max-w-xl">
-      <h1 className="text-2xl font-light">No spending records found</h1>
-      <p className="text-sm text-muted-foreground mt-2">
-        I couldn't find any transactions for your account yet. Log one in chat or use the Add button on the Spending
-        page once it loads.
-      </p>
-    </Card>
-  ),
+  head: () => ({ meta: [{ title: "Portfolio — JARVIS" }] }),
+  component: PortfolioPage,
 });
 
-type Tx = {
-  id: string;
-  amount_cents: number;
-  merchant: string | null;
-  category: string;
-  note: string | null;
-  source: string;
-  occurred_at: string;
-};
-
-const CATEGORIES = [
-  "food",
-  "transport",
-  "entertainment",
-  "bills",
-  "shopping",
-  "groceries",
-  "transfer",
-  "income",
-  "other",
-];
-
-function fmt(cents: number) {
-  const v = Math.abs(cents) / 100;
-  return `${cents < 0 ? "+" : ""}$${v.toFixed(2)}`;
-}
-
-function SpendingPage() {
+function PortfolioPage() {
   const qc = useQueryClient();
-  const [syncing, setSyncing] = useState(false);
-  const [adding, setAdding] = useState(false);
+  const getCash = useServerFn(getCashBalance);
+  const setCash = useServerFn(setCashBalance);
+  const getHoldingsFn = useServerFn(getHoldings);
+  const addTx = useServerFn(addTransaction);
+  const updatePrice = useServerFn(updateLastPrice);
 
-  const {
-    data: txs = [],
-    error: txError,
-    isLoading,
-    refetch,
-  } = useQuery({
-    queryKey: ["transactions"],
-    queryFn: async () => {
-      const since = new Date(Date.now() - 90 * 86400000).toISOString();
-      const { data, error } = await supabase
-        .from("transactions")
-        .select("*")
-        .gte("occurred_at", since)
-        .order("occurred_at", { ascending: false })
-        .limit(200);
-      if (error) throw error;
-      return data as Tx[];
-    },
-    retry: 1,
+  const { data: cash, refetch: refetchCash } = useQuery({
+    queryKey: ["cash-balance"],
+    queryFn: () => getCash(),
+  });
+  const { data: holdings, refetch: refetchHoldings } = useQuery({
+    queryKey: ["stock-holdings"],
+    queryFn: () => getHoldingsFn(),
   });
 
-  // ✅ Memoized computed values
-  const now = useMemo(() => Date.now(), []);
-  const week = useMemo(() => txs.filter((t) => now - new Date(t.occurred_at).getTime() < 7 * 86400000), [txs, now]);
-  const month = useMemo(
-    () =>
-      txs.filter(
-        (t) =>
-          new Date(t.occurred_at).getMonth() === new Date().getMonth() &&
-          new Date(t.occurred_at).getFullYear() === new Date().getFullYear(),
-      ),
-    [txs],
-  );
-  const last30 = useMemo(() => txs.filter((t) => now - new Date(t.occurred_at).getTime() < 30 * 86400000), [txs, now]);
+  const [showAdd, setShowAdd] = useState(false);
+  const [showEditCash, setShowEditCash] = useState(false);
+  const [newCash, setNewCash] = useState("");
+  const [form, setForm] = useState({
+    type: "buy" as "buy" | "sell",
+    ticker: "",
+    shares: "",
+    price: "",
+    note: "",
+  });
 
-  const sum = (arr: Tx[]) => arr.reduce((s, t) => s + Math.max(t.amount_cents, 0), 0);
-
-  const byCat = useMemo(() => {
-    const map: Record<string, number> = {};
-    for (const t of last30) map[t.category] = (map[t.category] ?? 0) + Math.max(t.amount_cents, 0);
-    return map;
-  }, [last30]);
-  const catMax = useMemo(() => Math.max(1, ...Object.values(byCat)), [byCat]);
-
-  async function sync() {
-    setSyncing(true);
+  async function handleAddTx(e: React.FormEvent) {
+    e.preventDefault();
+    const shares = parseFloat(form.shares);
+    const price = parseFloat(form.price);
+    if (!form.ticker || isNaN(shares) || isNaN(price) || shares <= 0 || price <= 0) {
+      toast.error("Please fill in all fields correctly.");
+      return;
+    }
     try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      const res = await fetch("/api/public/hooks/ingest-cashapp", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${session?.access_token}` },
+      await addTx({
+        data: {
+          type: form.type,
+          ticker: form.ticker.toUpperCase(),
+          shares,
+          price_per_share: price,
+          note: form.note || undefined,
+        },
       });
-      const j = await res.json();
-      if (!res.ok) throw new Error(j?.error ?? "Sync failed");
-      toast.success(`Imported ${j.inserted ?? 0} Cash App transaction(s)`);
+      toast.success(`${form.type === "buy" ? "Bought" : "Sold"} ${form.ticker.toUpperCase()}`);
+      setShowAdd(false);
+      setForm({ type: "buy", ticker: "", shares: "", price: "", note: "" });
+      refetchCash();
+      refetchHoldings();
       qc.invalidateQueries({ queryKey: ["transactions"] });
     } catch (e: any) {
-      toast.error(e.message ?? "Sync failed");
-    } finally {
-      setSyncing(false);
+      toast.error(e.message);
     }
   }
 
-  async function del(id: string) {
-    const { error } = await supabase.from("transactions").delete().eq("id", id);
-    if (error) toast.error(error.message);
-    else qc.invalidateQueries({ queryKey: ["transactions"] });
-  }
-
-  async function addManual(form: FormData) {
-    const amount = parseFloat(String(form.get("amount") ?? "0"));
-    if (!isFinite(amount) || amount === 0) return toast.error("Enter an amount");
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) return;
-    const { error } = await supabase.from("transactions").insert({
-      user_id: user.id,
-      amount_cents: Math.round(amount * 100),
-      merchant: String(form.get("merchant") ?? "") || null,
-      category: String(form.get("category") ?? "other"),
-      note: String(form.get("note") ?? "") || null,
-      source: "manual",
-    });
-    if (error) toast.error(error.message);
-    else {
-      toast.success("Logged");
-      setAdding(false);
-      qc.invalidateQueries({ queryKey: ["transactions"] });
+  async function handleSetCash() {
+    const cents = Math.round(parseFloat(newCash) * 100);
+    if (isNaN(cents)) return toast.error("Enter a valid amount.");
+    try {
+      await setCash({ data: { amount_cents: cents } });
+      toast.success("Cash balance updated.");
+      setShowEditCash(false);
+      setNewCash("");
+      refetchCash();
+    } catch (e: any) {
+      toast.error(e.message);
     }
   }
+
+  async function handleUpdatePrice(ticker: string, currentPrice: number) {
+    const input = window.prompt(`Enter current price for ${ticker}:`, currentPrice.toFixed(2));
+    if (input === null) return;
+    const price = parseFloat(input);
+    if (isNaN(price) || price <= 0) return toast.error("Invalid price.");
+    try {
+      await updatePrice({ data: { ticker, last_price: price } });
+      toast.success(`Price updated for ${ticker}`);
+      refetchHoldings();
+    } catch (e: any) {
+      toast.error(e.message);
+    }
+  }
+
+  const totalValue = (holdings || []).reduce((sum: number, h: any) => {
+    const price = h.last_price_cents ? h.last_price_cents / 100 : h.avg_cost_cents / 100;
+    return sum + h.shares * price;
+  }, 0);
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-light tracking-wide">Spending</h1>
-          <p className="text-sm text-muted-foreground">
-            Cash App receipts auto-import hourly. Chat me amounts and I'll log them too.
-          </p>
+    <div className="flex flex-col h-screen">
+      <PageHeader
+        tag="04 · PORTFOLIO"
+        title="Portfolio Tracker"
+        subtitle="Track your cash and stock holdings."
+        right={
+          <button
+            onClick={() => setShowAdd(true)}
+            className="text-xs flex items-center gap-1.5 px-3 py-2 rounded-md bg-arc text-arc-foreground shadow-arc hover:opacity-90 transition"
+          >
+            <Plus size={12} /> Add Transaction
+          </button>
+        }
+      />
+
+      <div className="flex-1 overflow-y-auto px-8 py-6 space-y-6">
+        {/* Cash Balance */}
+        <div className="glass-strong hud-corners rounded-xl p-5">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="font-mono text-[10px] tracking-[0.3em] text-arc">CASH BALANCE</div>
+              <div className="font-display text-3xl mt-1 text-glow">${((cash || 0) / 100).toFixed(2)}</div>
+            </div>
+            <button
+              onClick={() => setShowEditCash(true)}
+              className="text-xs flex items-center gap-1.5 px-3 py-2 rounded-md border border-arc/30 hover:bg-arc/10"
+            >
+              <Edit size={12} /> Edit
+            </button>
+          </div>
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => setAdding((v) => !v)}>
-            <Plus className="w-4 h-4 mr-1" />
-            Add
-          </Button>
-          <Button size="sm" onClick={sync} disabled={syncing}>
-            <RefreshCw className={`w-4 h-4 mr-1 ${syncing ? "animate-spin" : ""}`} />
-            {syncing ? "Syncing…" : "Sync Cash App"}
-          </Button>
+
+        {/* Holdings */}
+        <div className="glass-strong hud-corners rounded-xl p-5">
+          <div className="flex items-center justify-between mb-4">
+            <div className="font-mono text-[10px] tracking-[0.3em] text-arc">HOLDINGS</div>
+            <div className="text-sm text-muted-foreground">
+              Total Value: <span className="text-arc font-display">${totalValue.toFixed(2)}</span>
+            </div>
+          </div>
+          {!holdings || holdings.length === 0 ? (
+            <div className="text-sm text-muted-foreground">No stock holdings yet.</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-hud-dim font-mono text-[10px] uppercase tracking-wider">
+                    <th className="text-left py-2">Ticker</th>
+                    <th className="text-right py-2">Shares</th>
+                    <th className="text-right py-2">Avg Cost</th>
+                    <th className="text-right py-2">Last Price</th>
+                    <th className="text-right py-2">Value</th>
+                    <th className="text-right py-2">P/L</th>
+                    <th className="text-right py-2"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {holdings.map((h: any) => {
+                    const avgCost = h.avg_cost_cents / 100;
+                    const lastPrice = h.last_price_cents ? h.last_price_cents / 100 : avgCost;
+                    const value = h.shares * lastPrice;
+                    const pl = h.shares * (lastPrice - avgCost);
+                    return (
+                      <tr key={h.ticker} className="border-t border-arc/10">
+                        <td className="py-2 font-mono">{h.ticker}</td>
+                        <td className="text-right">{h.shares}</td>
+                        <td className="text-right">${avgCost.toFixed(2)}</td>
+                        <td className="text-right">${lastPrice.toFixed(2)}</td>
+                        <td className="text-right">${value.toFixed(2)}</td>
+                        <td className={`text-right ${pl >= 0 ? "text-success" : "text-critical"}`}>${pl.toFixed(2)}</td>
+                        <td className="text-right">
+                          <button
+                            onClick={() => handleUpdatePrice(h.ticker, lastPrice)}
+                            className="text-xs text-hud-dim hover:text-arc"
+                          >
+                            <RefreshCw size={14} />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       </div>
 
-      {txError && (
-        <Card className="p-4 border-amber-500/40">
-          <div className="flex items-start gap-3">
-            <AlertTriangle className="w-4 h-4 text-amber-400 mt-0.5" />
-            <div className="flex-1">
-              <div className="text-sm font-medium">Couldn't load transactions</div>
-              <div className="text-xs text-muted-foreground mt-1">{(txError as Error).message}</div>
-            </div>
-            <Button size="sm" variant="outline" onClick={() => refetch()}>
-              Retry
-            </Button>
+      {/* Add Transaction Modal */}
+      {showAdd && (
+        <div
+          className="fixed inset-0 bg-background/80 backdrop-blur-md z-50 flex items-center justify-center p-6"
+          onClick={() => setShowAdd(false)}
+        >
+          <div className="glass-strong hud-corners rounded-xl p-6 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+            <h2 className="font-display text-lg mb-4">Add Transaction</h2>
+            <form onSubmit={handleAddTx} className="space-y-4">
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setForm({ ...form, type: "buy" })}
+                  className={`flex-1 py-2 rounded-md text-sm font-medium transition ${form.type === "buy" ? "bg-success/20 text-success border border-success/40" : "bg-background/40 border border-arc/20"}`}
+                >
+                  Buy
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setForm({ ...form, type: "sell" })}
+                  className={`flex-1 py-2 rounded-md text-sm font-medium transition ${form.type === "sell" ? "bg-critical/20 text-critical border border-critical/40" : "bg-background/40 border border-arc/20"}`}
+                >
+                  Sell
+                </button>
+              </div>
+              <input
+                value={form.ticker}
+                onChange={(e) => setForm({ ...form, ticker: e.target.value.toUpperCase() })}
+                placeholder="Ticker (e.g., MRVL)"
+                className="w-full bg-background/60 border border-arc/20 rounded-md px-3 py-2 text-sm font-mono focus:border-arc focus:outline-none"
+                required
+              />
+              <input
+                type="number"
+                step="any"
+                value={form.shares}
+                onChange={(e) => setForm({ ...form, shares: e.target.value })}
+                placeholder="Shares"
+                className="w-full bg-background/60 border border-arc/20 rounded-md px-3 py-2 text-sm focus:border-arc focus:outline-none"
+                required
+              />
+              <input
+                type="number"
+                step="any"
+                value={form.price}
+                onChange={(e) => setForm({ ...form, price: e.target.value })}
+                placeholder="Price per share"
+                className="w-full bg-background/60 border border-arc/20 rounded-md px-3 py-2 text-sm focus:border-arc focus:outline-none"
+                required
+              />
+              <input
+                value={form.note}
+                onChange={(e) => setForm({ ...form, note: e.target.value })}
+                placeholder="Note (optional)"
+                className="w-full bg-background/60 border border-arc/20 rounded-md px-3 py-2 text-sm focus:border-arc focus:outline-none"
+              />
+              <button
+                type="submit"
+                className="w-full bg-arc text-arc-foreground py-2 rounded-md shadow-arc hover:opacity-90 transition"
+              >
+                Add Transaction
+              </button>
+            </form>
           </div>
-        </Card>
+        </div>
       )}
 
-      {isLoading && !txError && <div className="text-sm text-muted-foreground">Loading ledger…</div>}
-
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {[
-          { label: "This week", v: sum(week) },
-          { label: "This month", v: sum(month) },
-          { label: "Last 30 days", v: sum(last30) },
-        ].map((s) => (
-          <Card key={s.label} className="p-5">
-            <div className="text-xs uppercase tracking-widest text-muted-foreground">{s.label}</div>
-            <div className="text-3xl font-light mt-1">${(s.v / 100).toFixed(2)}</div>
-          </Card>
-        ))}
-      </div>
-
-      {adding && (
-        <Card className="p-4">
-          <form
-            className="grid grid-cols-2 md:grid-cols-5 gap-3"
-            onSubmit={(e) => {
-              e.preventDefault();
-              addManual(new FormData(e.currentTarget));
-            }}
-          >
+      {/* Edit Cash Modal */}
+      {showEditCash && (
+        <div
+          className="fixed inset-0 bg-background/80 backdrop-blur-md z-50 flex items-center justify-center p-6"
+          onClick={() => setShowEditCash(false)}
+        >
+          <div className="glass-strong hud-corners rounded-xl p-6 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+            <h2 className="font-display text-lg mb-4">Edit Cash Balance</h2>
             <input
-              name="amount"
-              placeholder="Amount"
               type="number"
               step="0.01"
-              className="px-3 py-2 rounded bg-background border"
-              required
+              value={newCash}
+              onChange={(e) => setNewCash(e.target.value)}
+              placeholder="Enter current cash balance"
+              className="w-full bg-background/60 border border-arc/20 rounded-md px-3 py-2 text-sm focus:border-arc focus:outline-none"
             />
-            <input name="merchant" placeholder="Merchant" className="px-3 py-2 rounded bg-background border" />
-            <select name="category" className="px-3 py-2 rounded bg-background border" defaultValue="other">
-              {CATEGORIES.map((c) => (
-                <option key={c}>{c}</option>
-              ))}
-            </select>
-            <input name="note" placeholder="Note" className="px-3 py-2 rounded bg-background border" />
-            <Button type="submit">Save</Button>
-          </form>
-        </Card>
+            <button
+              onClick={handleSetCash}
+              className="w-full mt-4 bg-arc text-arc-foreground py-2 rounded-md shadow-arc hover:opacity-90 transition"
+            >
+              Update Cash
+            </button>
+          </div>
+        </div>
       )}
-
-      <Card className="p-5">
-        <h2 className="text-sm uppercase tracking-widest text-muted-foreground mb-3">Last 30 days by category</h2>
-        {Object.keys(byCat).length === 0 && <p className="text-sm text-muted-foreground">No spending yet.</p>}
-        <div className="space-y-2">
-          {Object.entries(byCat)
-            .sort((a, b) => b[1] - a[1])
-            .map(([cat, cents]) => (
-              <div key={cat} className="space-y-1">
-                <div className="flex justify-between text-sm">
-                  <span className="capitalize">{cat}</span>
-                  <span className="tabular-nums">${(cents / 100).toFixed(2)}</span>
-                </div>
-                <div className="h-1.5 bg-muted rounded-full overflow-hidden">
-                  <div className="h-full bg-primary" style={{ width: `${(cents / catMax) * 100}%` }} />
-                </div>
-              </div>
-            ))}
-        </div>
-      </Card>
-
-      <Card className="p-0 overflow-hidden">
-        <div className="px-5 py-3 border-b text-sm uppercase tracking-widest text-muted-foreground">
-          Recent transactions
-        </div>
-        <div className="divide-y">
-          {txs.length === 0 && <div className="p-5 text-sm text-muted-foreground">Nothing logged yet.</div>}
-          {txs.map((t) => (
-            <div key={t.id} className="flex items-center px-5 py-3 gap-4">
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="font-medium truncate">{t.merchant ?? "—"}</span>
-                  <span className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
-                    {t.category}
-                  </span>
-                  <span className="text-[10px] uppercase tracking-wider text-muted-foreground">{t.source}</span>
-                </div>
-                {t.note && <div className="text-xs text-muted-foreground truncate">{t.note}</div>}
-                <div className="text-xs text-muted-foreground">{new Date(t.occurred_at).toLocaleString()}</div>
-              </div>
-              <div className={`tabular-nums font-medium ${t.amount_cents < 0 ? "text-emerald-500" : ""}`}>
-                {fmt(t.amount_cents)}
-              </div>
-              <Button variant="ghost" size="icon" onClick={() => del(t.id)}>
-                <Trash2 className="w-4 h-4" />
-              </Button>
-            </div>
-          ))}
-        </div>
-      </Card>
     </div>
   );
 }

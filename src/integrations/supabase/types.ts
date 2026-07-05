@@ -286,6 +286,33 @@ export type Database = {
         }
         Relationships: []
       }
+      message_memory: {
+        Row: {
+          created_at: string | null
+          embedding: string | null
+          id: string
+          message: string
+          role: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          embedding?: string | null
+          id?: string
+          message: string
+          role: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          embedding?: string | null
+          id?: string
+          message?: string
+          role?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       notifications: {
         Row: {
           action_payload: Json
@@ -655,6 +682,16 @@ export type Database = {
           _user_id: string
         }
         Returns: boolean
+      }
+      match_memory: {
+        Args: { match_count?: number; query_embedding: string; user_id: string }
+        Returns: {
+          created_at: string
+          id: string
+          message: string
+          role: string
+          similarity: number
+        }[]
       }
     }
     Enums: {

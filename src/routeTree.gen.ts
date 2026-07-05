@@ -13,6 +13,7 @@ import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ApiTranscribeRouteImport } from './routes/api/transcribe'
 import { Route as ApiChatRouteImport } from './routes/api/chat'
 import { Route as AuthenticatedWorldRouteImport } from './routes/_authenticated/world'
 import { Route as AuthenticatedVaultRouteImport } from './routes/_authenticated/vault'
@@ -46,6 +47,11 @@ const AuthenticatedRouteRoute = AuthenticatedRouteRouteImport.update({
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiTranscribeRoute = ApiTranscribeRouteImport.update({
+  id: '/api/transcribe',
+  path: '/api/transcribe',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiChatRoute = ApiChatRouteImport.update({
@@ -142,6 +148,7 @@ export interface FileRoutesByFullPath {
   '/vault': typeof AuthenticatedVaultRoute
   '/world': typeof AuthenticatedWorldRoute
   '/api/chat': typeof ApiChatRoute
+  '/api/transcribe': typeof ApiTranscribeRoute
   '/chat/$threadId': typeof AuthenticatedChatThreadIdRoute
   '/chat/': typeof AuthenticatedChatIndexRoute
   '/api/public/hooks/daily-discord': typeof ApiPublicHooksDailyDiscordRoute
@@ -162,6 +169,7 @@ export interface FileRoutesByTo {
   '/vault': typeof AuthenticatedVaultRoute
   '/world': typeof AuthenticatedWorldRoute
   '/api/chat': typeof ApiChatRoute
+  '/api/transcribe': typeof ApiTranscribeRoute
   '/chat/$threadId': typeof AuthenticatedChatThreadIdRoute
   '/chat': typeof AuthenticatedChatIndexRoute
   '/api/public/hooks/daily-discord': typeof ApiPublicHooksDailyDiscordRoute
@@ -184,6 +192,7 @@ export interface FileRoutesById {
   '/_authenticated/vault': typeof AuthenticatedVaultRoute
   '/_authenticated/world': typeof AuthenticatedWorldRoute
   '/api/chat': typeof ApiChatRoute
+  '/api/transcribe': typeof ApiTranscribeRoute
   '/_authenticated/chat/$threadId': typeof AuthenticatedChatThreadIdRoute
   '/_authenticated/chat/': typeof AuthenticatedChatIndexRoute
   '/api/public/hooks/daily-discord': typeof ApiPublicHooksDailyDiscordRoute
@@ -206,6 +215,7 @@ export interface FileRouteTypes {
     | '/vault'
     | '/world'
     | '/api/chat'
+    | '/api/transcribe'
     | '/chat/$threadId'
     | '/chat/'
     | '/api/public/hooks/daily-discord'
@@ -226,6 +236,7 @@ export interface FileRouteTypes {
     | '/vault'
     | '/world'
     | '/api/chat'
+    | '/api/transcribe'
     | '/chat/$threadId'
     | '/chat'
     | '/api/public/hooks/daily-discord'
@@ -247,6 +258,7 @@ export interface FileRouteTypes {
     | '/_authenticated/vault'
     | '/_authenticated/world'
     | '/api/chat'
+    | '/api/transcribe'
     | '/_authenticated/chat/$threadId'
     | '/_authenticated/chat/'
     | '/api/public/hooks/daily-discord'
@@ -259,6 +271,7 @@ export interface RootRouteChildren {
   AuthRoute: typeof AuthRoute
   SitemapDotxmlRoute: typeof SitemapDotxmlRoute
   ApiChatRoute: typeof ApiChatRoute
+  ApiTranscribeRoute: typeof ApiTranscribeRoute
   ApiPublicHooksDailyDiscordRoute: typeof ApiPublicHooksDailyDiscordRoute
   ApiPublicHooksIngestCashappRoute: typeof ApiPublicHooksIngestCashappRoute
 }
@@ -291,6 +304,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/transcribe': {
+      id: '/api/transcribe'
+      path: '/api/transcribe'
+      fullPath: '/api/transcribe'
+      preLoaderRoute: typeof ApiTranscribeRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/chat': {
@@ -440,6 +460,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthRoute: AuthRoute,
   SitemapDotxmlRoute: SitemapDotxmlRoute,
   ApiChatRoute: ApiChatRoute,
+  ApiTranscribeRoute: ApiTranscribeRoute,
   ApiPublicHooksDailyDiscordRoute: ApiPublicHooksDailyDiscordRoute,
   ApiPublicHooksIngestCashappRoute: ApiPublicHooksIngestCashappRoute,
 }

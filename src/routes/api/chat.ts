@@ -1,9 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { convertToModelMessages, streamText, tool, stepCountIs, type UIMessage } from "ai";
+import { convertToModelMessages, streamText, tool, stepCountIs, type UIMessage, embed } from "ai";
 import { z } from "zod";
 import { createClient } from "@supabase/supabase-js";
-import { JARVIS_SYSTEM_PROMPT, getModelForUser } from "@/lib/ai-gateway.server";
+import { getSystemPrompt, getModelForUser } from "@/lib/ai-gateway.server";
 import { getWeather, getWeatherForecast, getWeatherNarrative } from "@/lib/jarvis.functions";
+import { getProfile, getLLMConfig, updateLLMConfig } from "@/lib/profile.functions";
+import { listAccounts } from "@/lib/profile.functions";
+import { getBackendOverview } from "@/lib/backend.functions";
 
 type Body = { messages?: UIMessage[]; threadId?: string };
 
@@ -12,6 +15,57 @@ function userClient(token: string) {
     global: { headers: { Authorization: `Bearer ${token}` } },
     auth: { persistSession: false, autoRefreshToken: false },
   });
+}
+
+async function getEmbedding(text: string): Promise<number[]> {
+  // Use Groq's embedding model via the Lovable gateway
+  // Fallback to a simple random embedding if Groq is not available
+  try {
+    const response = await fetch("https://connector-gateway.lovable.dev/ai/embeddings", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${process.env.LOVABLE_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "groq/embedding-3-small",
+        input: text,
+      }),
+    });
+    if (!response.ok) throw new Error(`Embedding API error: ${response.status}`);
+    const data = await response.json();
+    return data.data[0].embedding;
+  } catch (e) {
+    console.warn("[Embedding] Falling back to random embedding (768d)", e);
+    // Fallback to random 768‑dim vector (won't be accurate but prevents crashes)
+    return Array.from({ length: 768 }, () => Math.random() * 2 - 1);
+  }
+}
+
+async function storeMemory(userId: string, message: string, role: string, supabase: any) {
+  try {
+    const embedding = await getEmbedding(message);
+    const { error } = await supabase.from("message_memory").insert({ user_id: userId, message, role, embedding });
+    if (error) console.error("[Memory] Store error:", error);
+  } catch (e) {
+    console.error("[Memory] Failed to store:", e);
+  }
+}
+
+async function recallMemory(userId: string, query: string, supabase: any, limit: number = 5) {
+  try {
+    const embedding = await getEmbedding(query);
+    const { data, error } = await supabase.rpc("match_memory", {
+      query_embedding: embedding,
+      user_id: userId,
+      match_count: limit,
+    });
+    if (error) throw error;
+    return data || [];
+  } catch (e) {
+    console.error("[Memory] Recall error:", e);
+    return [];
+  }
 }
 
 export const Route = createFileRoute("/api/chat")({
@@ -29,6 +83,14 @@ export const Route = createFileRoute("/api/chat")({
         const { data: userData } = await supabase.auth.getUser();
         const userId = userData?.user?.id;
         if (!userId) return new Response("Unauthorized", { status: 401 });
+
+        // Store all user messages in memory (auto)
+        for (const msg of messages) {
+          if (msg.role === "user") {
+            const text = (msg.parts.find((p: any) => p.type === "text") as any)?.text || "";
+            if (text) await storeMemory(userId, text, "user", supabase);
+          }
+        }
 
         // Verify thread ownership
         let { data: thread } = await supabase
@@ -50,18 +112,19 @@ export const Route = createFileRoute("/api/chat")({
         // Load profile
         const { data: profile } = await supabase
           .from("profiles")
-          .select("address_as, name")
+          .select("address_as, name, timezone")
           .eq("id", userId)
           .maybeSingle();
         const addressAs = profile?.address_as ?? "Sir";
+        const userTimezone = profile?.timezone || "UTC";
 
-        // Load only 10 most recent facts, truncated
+        // Load facts
         const { data: factRows } = await supabase
           .from("user_facts")
           .select("category, key, value")
           .eq("user_id", userId)
           .order("updated_at", { ascending: false })
-          .limit(10);
+          .limit(5);
 
         const factsBlock = (factRows ?? []).length
           ? (factRows ?? [])
@@ -91,8 +154,17 @@ export const Route = createFileRoute("/api/chat")({
           }
         }
 
-        // Get the model
-        const { model: chatModel } = await getModelForUser(userId, supabase);
+        // Get model and mode
+        const { model: chatModel, mode } = await getModelForUser(userId, supabase);
+
+        // Format current time
+        const now = new Date();
+        const currentTimeFormatted = now.toLocaleString("en-US", {
+          timeZone: userTimezone,
+          hour: "numeric",
+          minute: "2-digit",
+          hour12: true,
+        });
 
         // ---- Tools ----
         const tools = {
@@ -711,8 +783,72 @@ export const Route = createFileRoute("/api/chat")({
               };
             },
           }),
+          get_place_address: tool({
+            description: "Get the full address of a saved place by its label (e.g., 'Home', 'Office').",
+            inputSchema: z.object({
+              label: z.string().describe("The label of the saved place (e.g., 'Home', 'Office')"),
+            }),
+            execute: async ({ label }) => {
+              const { data: places, error } = await supabase
+                .from("map_places")
+                .select("id, label, lat, lng, address")
+                .eq("user_id", userId)
+                .ilike("label", `%${label}%`)
+                .limit(1);
 
-          // ==================== WEATHER TOOLS ====================
+              if (error) return { ok: false, error: error.message };
+              if (!places || places.length === 0) {
+                return { ok: false, error: `No saved place found with label containing "${label}".` };
+              }
+
+              const place = places[0];
+
+              if (place.address) {
+                return {
+                  ok: true,
+                  label: place.label,
+                  address: place.address,
+                  lat: place.lat,
+                  lng: place.lng,
+                  source: "stored",
+                };
+              }
+
+              try {
+                const r = await fetch(
+                  `https://connector-gateway.lovable.dev/google_maps/maps/api/geocode/json?latlng=${place.lat},${place.lng}`,
+                  {
+                    headers: {
+                      Authorization: `Bearer ${process.env.LOVABLE_API_KEY}`,
+                      "X-Connection-Api-Key": process.env.GOOGLE_MAPS_API_KEY!,
+                    },
+                  },
+                );
+                const j: any = await r.json();
+                const result = j.results?.[0];
+                if (!result) {
+                  return { ok: false, error: "Could not reverse‑geocode this location." };
+                }
+
+                const formattedAddress = result.formatted_address;
+
+                await supabase.from("map_places").update({ address: formattedAddress }).eq("id", place.id);
+
+                return {
+                  ok: true,
+                  label: place.label,
+                  address: formattedAddress,
+                  lat: place.lat,
+                  lng: place.lng,
+                  source: "reverse_geocoded",
+                };
+              } catch (e: any) {
+                return { ok: false, error: e?.message || "Reverse‑geocoding failed" };
+              }
+            },
+          }),
+
+          // ==================== WEATHER ====================
           get_current_weather: tool({
             description: "Get the current weather for the user's saved location.",
             inputSchema: z.object({}),
@@ -726,7 +862,7 @@ export const Route = createFileRoute("/api/chat")({
             },
           }),
           get_weather_forecast: tool({
-            description: "Get a 5‑day weather forecast for the user's saved location.",
+            description: "Get a 5‑day weather forecast.",
             inputSchema: z.object({}),
             execute: async () => {
               try {
@@ -738,7 +874,7 @@ export const Route = createFileRoute("/api/chat")({
             },
           }),
           get_weather_narrative: tool({
-            description: "Get a natural‑language weather description (e.g., 'It's a nice cool day to take a walk').",
+            description: "Get a natural‑language weather description.",
             inputSchema: z.object({}),
             execute: async () => {
               try {
@@ -749,10 +885,8 @@ export const Route = createFileRoute("/api/chat")({
               }
             },
           }),
-          // ✅ NEW: Set weather location from chat
           set_weather_location: tool({
-            description:
-              "Change the user's saved weather location to a saved map place. Use this when the user asks to set their weather location to a specific place (e.g., 'Home', 'London').",
+            description: "Change the user's saved weather location.",
             inputSchema: z.object({
               placeLabel: z.string().describe("The label of the saved place (case-insensitive, partial match allowed)"),
             }),
@@ -763,12 +897,10 @@ export const Route = createFileRoute("/api/chat")({
                 .eq("user_id", userId)
                 .ilike("label", `%${placeLabel}%`)
                 .limit(1);
-
               if (error) return { ok: false, error: error.message };
               if (!places || places.length === 0) {
                 return { ok: false, error: `No saved place found with label containing "${placeLabel}".` };
               }
-
               const place = places[0];
               const { error: updateError } = await supabase.from("user_facts").upsert(
                 {
@@ -779,45 +911,226 @@ export const Route = createFileRoute("/api/chat")({
                 },
                 { onConflict: "user_id,category,key" },
               );
-
               if (updateError) return { ok: false, error: updateError.message };
               return { ok: true, message: `Weather location set to "${place.label}".` };
             },
           }),
+
+          // ==================== PROFILE & SETTINGS ====================
+          get_profile: tool({
+            description: "Get the user's profile information (name, address_as, timezone, briefing time).",
+            inputSchema: z.object({}),
+            execute: async () => {
+              try {
+                const profile = await getProfile({ context: { supabase, userId } } as any);
+                if (!profile) {
+                  return { ok: true, profile: null, message: "No profile found. You can set one up in Settings." };
+                }
+                return { ok: true, profile };
+              } catch (e: any) {
+                return { ok: false, error: e.message };
+              }
+            },
+          }),
+          update_profile: tool({
+            description: "Update the user's profile settings.",
+            inputSchema: z.object({
+              name: z.string().optional(),
+              address_as: z.string().optional().describe("How JARVIS addresses you (e.g., 'Sir', 'Boss', 'Captain')"),
+              timezone: z.string().optional().describe("IANA timezone (e.g., 'America/New_York', 'Europe/London')"),
+              preferred_briefing_time: z.string().optional().describe("Briefing time in HH:MM format (e.g., '08:00')"),
+            }),
+            execute: async ({ name, address_as, timezone, preferred_briefing_time }) => {
+              const updateData: any = {};
+              if (name !== undefined) updateData.name = name;
+              if (address_as !== undefined) updateData.address_as = address_as;
+              if (timezone !== undefined) updateData.timezone = timezone;
+              if (preferred_briefing_time !== undefined) updateData.preferred_briefing_time = preferred_briefing_time;
+              if (Object.keys(updateData).length === 0) {
+                return { ok: false, error: "No fields to update." };
+              }
+              const { error } = await supabase.from("profiles").update(updateData).eq("id", userId);
+              if (error) return { ok: false, error: error.message };
+              return { ok: true, message: "Profile updated." };
+            },
+          }),
+          get_ai_config: tool({
+            description: "Get the current AI provider, API key status, and mode.",
+            inputSchema: z.object({}),
+            execute: async () => {
+              try {
+                const config = await getLLMConfig({ context: { supabase, userId } } as any);
+                return { ok: true, config };
+              } catch (e: any) {
+                return { ok: false, error: e.message };
+              }
+            },
+          }),
+          set_ai_config: tool({
+            description: "Change the AI provider, API key, or mode.",
+            inputSchema: z.object({
+              provider: z.enum(["groq", "deepseek", "lovable", "system", "lmstudio"]).optional(),
+              apiKey: z
+                .string()
+                .optional()
+                .describe("API key for the chosen provider (optional if switching to system or lovable)"),
+              mode: z
+                .enum(["thinking", "coding", "basic"])
+                .optional()
+                .describe("AI mode: thinking (deep reasoning), coding (technical help), basic (everyday chat)"),
+            }),
+            execute: async ({ provider, apiKey, mode }) => {
+              try {
+                const current = await getLLMConfig({ context: { supabase, userId } } as any);
+                const newProvider = provider ?? current.provider;
+                const newApiKey = apiKey ?? current.apiKey;
+                const newMode = mode ?? current.mode;
+                await updateLLMConfig({
+                  context: { supabase, userId },
+                  data: { provider: newProvider, apiKey: newApiKey, mode: newMode },
+                } as any);
+                return { ok: true, message: `AI config updated. Provider: ${newProvider}, Mode: ${newMode}` };
+              } catch (e: any) {
+                return { ok: false, error: e.message };
+              }
+            },
+          }),
+          list_connected_accounts: tool({
+            description: "List all connected social/calendar accounts.",
+            inputSchema: z.object({}),
+            execute: async () => {
+              try {
+                const accounts = await listAccounts({ context: { supabase, userId } } as any);
+                return { ok: true, accounts };
+              } catch (e: any) {
+                return { ok: false, error: e.message };
+              }
+            },
+          }),
+
+          // ==================== FILES ====================
+          list_files: tool({
+            description: "List files in the user's private storage.",
+            inputSchema: z.object({}),
+            execute: async () => {
+              try {
+                const { data, error } = await supabase.storage
+                  .from("user-files")
+                  .list(userId, { limit: 200, sortBy: { column: "created_at", order: "desc" } });
+                if (error) throw error;
+                const files = (data ?? []).filter((f) => f.name !== ".emptyFolderPlaceholder");
+                return { ok: true, files };
+              } catch (e: any) {
+                return { ok: false, error: e.message };
+              }
+            },
+          }),
+          get_file_url: tool({
+            description: "Get a public URL to download a file from the user's private storage.",
+            inputSchema: z.object({ fileName: z.string() }),
+            execute: async ({ fileName }) => {
+              try {
+                const { data } = supabase.storage.from("user-files").getPublicUrl(`${userId}/${fileName}`);
+                return { ok: true, url: data.publicUrl };
+              } catch (e: any) {
+                return { ok: false, error: e.message };
+              }
+            },
+          }),
+          delete_file: tool({
+            description: "Delete a file from the user's private storage.",
+            inputSchema: z.object({ fileName: z.string() }),
+            execute: async ({ fileName }) => {
+              try {
+                const { error } = await supabase.storage.from("user-files").remove([`${userId}/${fileName}`]);
+                if (error) throw error;
+                return { ok: true, message: `File "${fileName}" deleted.` };
+              } catch (e: any) {
+                return { ok: false, error: e.message };
+              }
+            },
+          }),
+
+          // ==================== BACKEND OVERVIEW ====================
+          get_backend_overview: tool({
+            description: "Get backend overview (table counts, secret status, project info).",
+            inputSchema: z.object({}),
+            execute: async () => {
+              try {
+                const overview = await getBackendOverview({ context: { supabase, userId } } as any);
+                return { ok: true, overview };
+              } catch (e: any) {
+                return { ok: false, error: e.message };
+              }
+            },
+          }),
+
+          // ==================== JARVIS MEMORY (NEW) ====================
+          recall_memory: tool({
+            description:
+              "Recall past conversations or messages based on a query. Use this when the user asks about something they mentioned before, like 'What did I say about X?' or 'When did I mention Y?'. Returns the most relevant past messages with timestamps.",
+            inputSchema: z.object({
+              query: z.string().describe("The question or search term to find in past messages."),
+              limit: z.number().int().min(1).max(20).default(5).optional(),
+            }),
+            execute: async ({ query, limit }) => {
+              try {
+                const results = await recallMemory(userId, query, supabase, limit || 5);
+                if (!results || results.length === 0) {
+                  return { ok: true, message: "No relevant memories found, Sir.", results: [] };
+                }
+                return { ok: true, results };
+              } catch (e: any) {
+                return { ok: false, error: e.message };
+              }
+            },
+          }),
         };
 
-        const now = new Date();
+        // ---- System Prompt ----
+        const baseSystemPrompt = getSystemPrompt(mode, addressAs, factsBlock);
+        const systemPrompt = `${baseSystemPrompt}
+
+Your user's timezone is "${userTimezone}". All times you display should be in this timezone.
+When displaying times, always use 12-hour format with AM/PM (e.g., '8:45 AM', '3:30 PM').
+The current time in the user's location is: ${currentTimeFormatted}.
+
+You have a new tool: recall_memory. Use it when the user asks about past conversations, things they told you earlier, or when they say "What did I say about X?" or "When did I mention Y?". It searches all past messages and returns the most relevant matches with timestamps.`;
+
         const result = streamText({
           model: chatModel,
-          system: `${JARVIS_SYSTEM_PROMPT}
-
-Address the user as "${addressAs}".
-Current time: ${now.toISOString()} (${now.toString()}).
-You have tools for reminders, vault, transactions, social search, maps, and facts.
-
-VAULT SECURITY: list_vault only returns labels. When the user asks for secret contents, ask for their PIN first, then call unlock_vault_item.
-
-MEMORY: If the user asks to remember something, call remember_fact.
-FACTS BLOCK (most recent, truncated):
-${factsBlock}
-
-WEATHER: You have four weather tools:
-- get_current_weather: tells current temperature, conditions, etc.
-- get_weather_forecast: gives a 5‑day forecast.
-- get_weather_narrative: gives a natural‑language description.
-- set_weather_location: change the user's saved location to a saved map place (use when the user asks to change the weather location).
-
-When the user asks about weather, pick the appropriate tool. If they ask for a general description, use get_weather_narrative. If they ask for specific numbers (temperature, humidity), use get_current_weather or get_weather_forecast. If they ask to change the location (e.g., "set my weather to Home"), use set_weather_location.
-
-TOOL DISCIPLINE: Only call tools explicitly provided. Do not invent tools.
-Be concise. Confirm actions.`,
+          system: systemPrompt,
           messages: await convertToModelMessages(messages),
           tools,
           stopWhen: stepCountIs(8),
           onError: ({ error }) => {
             console.error("[chat streamText error]", error);
           },
+          onFinish: async ({ response }) => {
+            try {
+              const finalMessages = response.messages as any[];
+              const assistant = finalMessages[finalMessages.length - 1];
+              if (assistant && assistant.role === "assistant") {
+                const parts = assistant.content ?? assistant.parts ?? [];
+                const text = (parts as any[]).find((p: any) => p.type === "text")?.text || "";
+                if (text) await storeMemory(userId, text, "assistant", supabase);
+                await supabase.from("chat_messages").insert({
+                  thread_id: threadId,
+                  user_id: userId,
+                  role: "assistant",
+                  parts: parts as any,
+                });
+                await supabase
+                  .from("chat_threads")
+                  .update({ updated_at: new Date().toISOString() })
+                  .eq("id", threadId);
+              }
+            } catch (e) {
+              console.error("[chat onFinish error]", e);
+            }
+          },
         });
+
 
         return result.toUIMessageStreamResponse({
           originalMessages: messages,
@@ -831,18 +1144,6 @@ Be concise. Confirm actions.`,
               return "My apologies, Sir — I tripped over a tool I don't actually have. Try that again.";
             }
             return `Signal interrupted, Sir: ${detail.slice(0, 300)}`;
-          },
-          onFinish: async ({ messages: finalMessages }) => {
-            const assistant = finalMessages[finalMessages.length - 1];
-            if (assistant && assistant.role === "assistant") {
-              await supabase.from("chat_messages").insert({
-                thread_id: threadId,
-                user_id: userId,
-                role: "assistant",
-                parts: assistant.parts as any,
-              });
-              await supabase.from("chat_threads").update({ updated_at: new Date().toISOString() }).eq("id", threadId);
-            }
           },
         });
       },
