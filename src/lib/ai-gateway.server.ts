@@ -79,7 +79,7 @@ export function resolveChatModel(opts?: { provider?: ProviderId; apiKey?: string
       return resolveChatModel({ provider: "groq", apiKey: providedApiKey });
     }
     const gemini = createGeminiProvider(key);
-    const modelId = process.env.GEMINI_MODEL ?? "gemini-2.0-flash";
+    const modelId = process.env.GEMINI_MODEL ?? "gemini-2.5-flash";
     return { model: gemini(modelId) as any, provider: "gemini" as const, modelId };
   }
 
