@@ -38,6 +38,9 @@ const NAV = [
   { to: "/pulse", label: "Pulse", icon: Activity, tag: "07" },
   { to: "/backend", label: "Backend", icon: Activity, tag: "10" },
   { to: "/lab", label: "Lab", icon: GraduationCap, tag: "12" },
+  // New stock analysis pages
+  { to: "/patterns", label: "Patterns", icon: Activity, tag: "11" },
+  { to: "/predictor", label: "Predictor", icon: Activity, tag: "13" },
   { to: "/settings", label: "Settings", icon: Settings, tag: "08" },
 ] as const;
 
@@ -62,7 +65,9 @@ export function AppShell({ children }: { children: ReactNode }) {
         qc.invalidateQueries({ queryKey: ["custom-tabs-nav"] });
       })
       .subscribe();
-    return () => { supabase.removeChannel(ch); };
+    return () => {
+      supabase.removeChannel(ch);
+    };
   }, [qc]);
 
   useEffect(() => {
@@ -99,7 +104,9 @@ export function AppShell({ children }: { children: ReactNode }) {
             const root = document.documentElement;
             root.classList.remove("light", "dark");
             if (a.theme !== "system") root.classList.add(a.theme);
-            try { localStorage.setItem("theme", a.theme); } catch {}
+            try {
+              localStorage.setItem("theme", a.theme);
+            } catch {}
             break;
           }
           case "scroll_to": {
@@ -134,12 +141,15 @@ export function AppShell({ children }: { children: ReactNode }) {
                   const ctx = new AC();
                   const o = ctx.createOscillator();
                   const g = ctx.createGain();
-                  o.type = "sine"; o.frequency.value = 880;
-                  o.connect(g); g.connect(ctx.destination);
+                  o.type = "sine";
+                  o.frequency.value = 880;
+                  o.connect(g);
+                  g.connect(ctx.destination);
                   g.gain.setValueAtTime(0.001, ctx.currentTime);
                   g.gain.exponentialRampToValueAtTime(0.3, ctx.currentTime + 0.02);
                   g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.6);
-                  o.start(); o.stop(ctx.currentTime + 0.6);
+                  o.start();
+                  o.stop(ctx.currentTime + 0.6);
                 } catch {}
               }
             }, secs * 1000);
@@ -200,9 +210,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               key={item.to}
               to={item.to}
               className={`group flex items-center gap-3 px-3 py-2.5 rounded-md transition relative ${
-                active
-                  ? "bg-arc/15 text-arc shadow-arc"
-                  : "text-muted-foreground hover:text-foreground hover:bg-arc/5"
+                active ? "bg-arc/15 text-arc shadow-arc" : "text-muted-foreground hover:text-foreground hover:bg-arc/5"
               }`}
             >
               <span className="font-mono text-[10px] text-arc/60 w-5">{item.tag}</span>
@@ -237,7 +245,9 @@ export function AppShell({ children }: { children: ReactNode }) {
                   <span className="font-mono text-[10px] text-arc/60 w-5">C{String(i + 1).padStart(2, "0")}</span>
                   <IconComp size={16} />
                   <span className="text-sm font-medium truncate">{t.label}</span>
-                  {active && <span className="absolute left-0 top-2 bottom-2 w-0.5 bg-arc rounded-r animate-hud-pulse" />}
+                  {active && (
+                    <span className="absolute left-0 top-2 bottom-2 w-0.5 bg-arc rounded-r animate-hud-pulse" />
+                  )}
                 </Link>
               );
             })}
@@ -281,10 +291,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       {/* Mobile drawer */}
       {navOpen && (
         <div className="lg:hidden fixed inset-0 z-50 flex">
-          <div
-            className="absolute inset-0 bg-background/80 backdrop-blur-sm"
-            onClick={() => setNavOpen(false)}
-          />
+          <div className="absolute inset-0 bg-background/80 backdrop-blur-sm" onClick={() => setNavOpen(false)} />
           <aside className="relative w-72 max-w-[85vw] border-r border-arc/20 bg-background/95 backdrop-blur-xl flex flex-col animate-in slide-in-from-left duration-200">
             {SidebarBody}
           </aside>
@@ -304,9 +311,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           </button>
           <JarvisOrb size={26} />
           <div className="flex-1 min-w-0">
-            <div className="font-display text-sm leading-none truncate">
-              {activeItem?.label ?? "JARVIS"}
-            </div>
+            <div className="font-display text-sm leading-none truncate">{activeItem?.label ?? "JARVIS"}</div>
             <div className="font-mono text-[9px] tracking-[0.25em] text-arc/70" suppressHydrationWarning>
               {time.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
             </div>
