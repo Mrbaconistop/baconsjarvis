@@ -35,6 +35,39 @@ export type Database = {
         }
         Relationships: []
       }
+      chat_cache: {
+        Row: {
+          created_at: string | null
+          expires_at: string | null
+          id: string
+          message_hash: string
+          mode: string | null
+          response_parts: Json
+          thread_id: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          expires_at?: string | null
+          id?: string
+          message_hash: string
+          mode?: string | null
+          response_parts: Json
+          thread_id?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          expires_at?: string | null
+          id?: string
+          message_hash?: string
+          mode?: string | null
+          response_parts?: Json
+          thread_id?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       chat_messages: {
         Row: {
           created_at: string
