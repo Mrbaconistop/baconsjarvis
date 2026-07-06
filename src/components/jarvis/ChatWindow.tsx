@@ -65,21 +65,22 @@ export function ChatWindow({
 
   // ---- TTS state ----
   const [ttsEnabled, setTtsEnabled] = useState<boolean>(() => {
+    if (typeof window === "undefined") return true;
     const saved = localStorage.getItem("jarvis-tts-enabled");
     return saved !== null ? saved === "true" : true;
   });
   const [isSpeaking, setIsSpeaking] = useState(false);
 
-  // ---- TTS speak function with JARVIS voice ----
+  // ---- TTS speak function with JARVIS voice (client only) ----
   const speak = useCallback(
     (text: string) => {
+      if (typeof window === "undefined") return;
       if (!ttsEnabled || !window.speechSynthesis || !text?.trim()) return;
       window.speechSynthesis.cancel();
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.rate = 0.95;
       utterance.pitch = 0.85;
       utterance.lang = "en-US";
-      // Prefer male, British, or Microsoft voices
       const voices = window.speechSynthesis.getVoices();
       const preferred =
         voices.find(
@@ -105,14 +106,44 @@ export function ChatWindow({
   const toggleTts = useCallback(() => {
     setTtsEnabled((prev) => {
       const next = !prev;
-      localStorage.setItem("jarvis-tts-enabled", String(next));
-      if (!next) window.speechSynthesis?.cancel();
+      if (typeof window !== "undefined") {
+        localStorage.setItem("jarvis-tts-enabled", String(next));
+        if (!next) window.speechSynthesis?.cancel();
+      }
       return next;
     });
   }, []);
 
-  // ---- Auto‑speak assistant messages ----
+  // ---- Auto‑speak assistant messages (client only) ----
+  const { messages, sendMessage, status, stop, error } = useChat({
+    id: threadId,
+    messages: initial,
+    transport: useMemo(
+      () =>
+        new DefaultChatTransport({
+          api: "/api/chat",
+          prepareSendMessagesRequest: async ({ messages, body }) => {
+            const {
+              data: { session },
+            } = await supabase.auth.getSession();
+            const headers: Record<string, string> = {};
+            if (session?.access_token) headers.Authorization = `Bearer ${session.access_token}`;
+            return { body: { messages, threadId, tabSlug: tabSlug ?? null, ...(body ?? {}) }, headers };
+          },
+        }),
+      [threadId, tabSlug],
+    ),
+    onFinish: () => {
+      qc.invalidateQueries({ queryKey: ["threads"] });
+      qc.invalidateQueries({ queryKey: ["reminders"] });
+      qc.invalidateQueries({ queryKey: ["vault"] });
+      qc.invalidateQueries({ queryKey: ["map_places"] });
+    },
+  });
+
+  // ---- Auto‑speak effect ----
   useEffect(() => {
+    if (typeof window === "undefined") return;
     const last = messages[messages.length - 1];
     if (last?.role === "assistant") {
       const text = (last.parts || [])
@@ -121,7 +152,6 @@ export function ChatWindow({
         .join(" ")
         .trim();
       if (text) {
-        // Delay a bit for UI smoothness
         const timer = setTimeout(() => speak(text), 200);
         return () => clearTimeout(timer);
       }
@@ -130,6 +160,7 @@ export function ChatWindow({
 
   // ---- Handle explicit speak_text tool calls ----
   useEffect(() => {
+    if (typeof window === "undefined") return;
     const last = messages[messages.length - 1];
     if (last?.role === "assistant") {
       for (const part of last.parts || []) {
@@ -140,8 +171,9 @@ export function ChatWindow({
     }
   }, [messages, speak]);
 
-  // ---- Voice input with silence detection ----
+  // ---- Voice input with silence detection (client only) ----
   function pickMimeType(): string | null {
+    if (typeof window === "undefined") return null;
     const candidates = ["audio/webm", "audio/mp4", "audio/ogg"];
     for (const t of candidates) {
       if (typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported(t)) return t;
@@ -149,7 +181,8 @@ export function ChatWindow({
     return null;
   }
 
-  async function startRecording() {
+  const startRecording = useCallback(async () => {
+    if (typeof window === "undefined") return;
     if (isRecording || isTranscribing || isSpeaking) return;
     try {
       const mimeType = pickMimeType();
@@ -160,7 +193,6 @@ export function ChatWindow({
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
 
-      // Setup audio context for volume detection
       const audioContext = new AudioContext();
       const source = audioContext.createMediaStreamSource(stream);
       const analyser = audioContext.createAnalyser();
@@ -195,7 +227,6 @@ export function ChatWindow({
       setIsRecording(true);
       toast.info("Listening… (auto‑stop after 1.5s silence)");
 
-      // Silence detection loop
       const detectSilence = () => {
         if (!analyserRef.current || !dataArrayRef.current || !isRecording) return;
         analyserRef.current.getByteTimeDomainData(dataArrayRef.current);
@@ -208,10 +239,8 @@ export function ChatWindow({
         const volume = Math.max(0, Math.min(1, rms * 2));
 
         if (volume < 0.02) {
-          // Silence detected – start or reset timer
           if (!silenceTimerRef.current) {
             silenceTimerRef.current = setTimeout(() => {
-              // Stop after 1.5s of silence
               if (recorderRef.current?.state === "recording") {
                 recorderRef.current.stop();
                 setIsRecording(false);
@@ -220,13 +249,11 @@ export function ChatWindow({
             }, 1500);
           }
         } else {
-          // Sound detected – clear timer
           if (silenceTimerRef.current) {
             clearTimeout(silenceTimerRef.current);
             silenceTimerRef.current = null;
           }
         }
-        // Continue loop only if still recording
         if (isRecording) {
           requestAnimationFrame(detectSilence);
         }
@@ -242,9 +269,10 @@ export function ChatWindow({
         toast.error(`Mic error: ${err?.message ?? err}`);
       }
     }
-  }
+  }, [isRecording, isTranscribing, isSpeaking]);
 
-  function stopRecording() {
+  const stopRecording = useCallback(() => {
+    if (typeof window === "undefined") return;
     const r = recorderRef.current;
     if (r && r.state !== "inactive") {
       try {
@@ -262,44 +290,46 @@ export function ChatWindow({
       streamRef.current.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
     }
-  }
+  }, []);
 
-  async function transcribeAndSend(blob: Blob) {
-    setIsTranscribing(true);
-    try {
-      const fd = new FormData();
-      const ext = blob.type.includes("mp4") ? "mp4" : blob.type.includes("ogg") ? "ogg" : "webm";
-      fd.append("file", blob, `recording.${ext}`);
-      const res = await fetch("/api/transcribe", { method: "POST", body: fd });
-      const json: any = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(json?.error?.message ?? json?.error ?? `HTTP ${res.status}`);
+  const transcribeAndSend = useCallback(
+    async (blob: Blob) => {
+      setIsTranscribing(true);
+      try {
+        const fd = new FormData();
+        const ext = blob.type.includes("mp4") ? "mp4" : blob.type.includes("ogg") ? "ogg" : "webm";
+        fd.append("file", blob, `recording.${ext}`);
+        const res = await fetch("/api/transcribe", { method: "POST", body: fd });
+        const json: any = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(json?.error?.message ?? json?.error ?? `HTTP ${res.status}`);
+        }
+        const text: string = json?.text ?? "";
+        if (!text.trim()) {
+          toast.error("Didn't catch that, Sir.");
+          return;
+        }
+        await sendMessage({ text });
+        setInput("");
+      } catch (err: any) {
+        console.error("[transcribe] error", err);
+        toast.error(`Transcription failed: ${err?.message ?? err}`);
+      } finally {
+        setIsTranscribing(false);
       }
-      const text: string = json?.text ?? "";
-      if (!text.trim()) {
-        toast.error("Didn't catch that, Sir.");
-        return;
-      }
-      // Auto‑send the transcribed message
-      await sendMessage({ text });
-      // Optionally clear input (if we want to keep it, we can leave as is)
-      setInput("");
-    } catch (err: any) {
-      console.error("[transcribe] error", err);
-      toast.error(`Transcription failed: ${err?.message ?? err}`);
-    } finally {
-      setIsTranscribing(false);
-    }
-  }
+    },
+    [sendMessage],
+  );
 
-  function toggleMic() {
+  const toggleMic = useCallback(() => {
     if (isRecording) stopRecording();
     else startRecording();
-  }
+  }, [isRecording, startRecording, stopRecording]);
 
   // Cleanup on unmount
   useEffect(() => {
     return () => {
+      if (typeof window === "undefined") return;
       try {
         recorderRef.current?.state !== "inactive" && recorderRef.current?.stop();
       } catch {}
@@ -308,35 +338,6 @@ export function ChatWindow({
       window.speechSynthesis?.cancel();
     };
   }, []);
-
-  // ---- Transport ----
-  const transport = useMemo(
-    () =>
-      new DefaultChatTransport({
-        api: "/api/chat",
-        prepareSendMessagesRequest: async ({ messages, body }) => {
-          const {
-            data: { session },
-          } = await supabase.auth.getSession();
-          const headers: Record<string, string> = {};
-          if (session?.access_token) headers.Authorization = `Bearer ${session.access_token}`;
-          return { body: { messages, threadId, tabSlug: tabSlug ?? null, ...(body ?? {}) }, headers };
-        },
-      }),
-    [threadId, tabSlug],
-  );
-
-  const { messages, sendMessage, status, stop, error } = useChat({
-    id: threadId,
-    messages: initial,
-    transport,
-    onFinish: () => {
-      qc.invalidateQueries({ queryKey: ["threads"] });
-      qc.invalidateQueries({ queryKey: ["reminders"] });
-      qc.invalidateQueries({ queryKey: ["vault"] });
-      qc.invalidateQueries({ queryKey: ["map_places"] });
-    },
-  });
 
   const busy = status === "submitted" || status === "streaming";
 
