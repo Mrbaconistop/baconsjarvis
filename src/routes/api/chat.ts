@@ -120,9 +120,20 @@ async function recallMemory(userId: string, query: string, supabase: any, limit:
 }
 
 function getCacheKey(userId: string, messages: UIMessage[], mode: string, tabSlug?: string | null): string {
-  const lastUserMsg = messages.filter((m) => m.role === "user").pop();
-  const text = (lastUserMsg?.parts as any[])?.find((p) => p.type === "text")?.text || "";
-  const raw = `${userId}|${text}|${mode}|${tabSlug || "global"}`;
+  // Hash the last 3 messages (regardless of role) so cache keys reflect
+  // recent conversational context, not just the final user turn.
+  const tail = messages
+    .slice(-3)
+    .map((m) => {
+      const text =
+        (m.parts as any[])
+          ?.filter((p) => p?.type === "text")
+          ?.map((p: any) => p.text)
+          .join(" ") ?? "";
+      return `${m.role}:${text}`;
+    })
+    .join("|");
+  const raw = `${userId}|${mode}|${tabSlug || "global"}|${tail}`;
   return createHash("sha256").update(raw).digest("hex");
 }
 
@@ -148,7 +159,18 @@ async function storeCachedResponse(
   supabase?: any,
 ) {
   if (!supabase) return;
-  const expiresAt = new Date(Date.now() + 3600_000).toISOString();
+  // Do NOT cache responses that invoked tools — tool results are
+  // side-effectful, and replaying them would lie about state.
+  const hasTool = (responseParts as any[]).some(
+    (p) => typeof p?.type === "string" && p.type.startsWith("tool-"),
+  );
+  if (hasTool) return;
+  // Skip trivially short / empty assistant turns.
+  const textLen = (responseParts as any[])
+    .filter((p) => p?.type === "text")
+    .reduce((n: number, p: any) => n + (p.text?.length ?? 0), 0);
+  if (textLen < 20) return;
+  const expiresAt = new Date(Date.now() + 24 * 3600_000).toISOString(); // 24h TTL
   await supabase.from("chat_cache").upsert(
     {
       user_id: userId,
@@ -2902,12 +2924,28 @@ UTILITY BELT — reach for these instead of doing it in your head:
 When the user says "take me to X" or "open X", actually navigate — don't just describe the link.`;
 
           try {
+            const providerName = String((chatModel as any)?.provider ?? "").toLowerCase();
+            // Provider prompt-caching hints:
+            //  - Gemini: implicit caching is automatic when the shared prefix
+            //    exceeds the model's min-token threshold (system prompt is
+            //    stable + placed first, so this "just works"). We surface
+            //    `cachedContentTokenCount` from usageMetadata in onFinish.
+            //  - Anthropic: cacheControl on the system message via
+            //    providerOptions.anthropic marks the system prompt as a
+            //    cacheable prefix (ephemeral, ~5 min).
+            //  - Groq / DeepSeek: no-op, they auto-cache prefixes server-side.
+            const providerOptions: Record<string, any> = {};
+            if (providerName.includes("anthropic")) {
+              providerOptions.anthropic = { cacheControl: { type: "ephemeral" } };
+            }
+
             const result = streamText({
               model: chatModel,
               system: systemPrompt,
               messages: await convertToModelMessages(messages),
               tools,
               stopWhen: stepCountIs(50),
+              ...(Object.keys(providerOptions).length ? { providerOptions } : {}),
               onError: ({ error }) => {
                 debugChatError(error, "stream-runtime", {
                   threadId,
@@ -2915,8 +2953,18 @@ When the user says "take me to X" or "open X", actually navigate — don't just 
                   modelId: (chatModel as any)?.modelId,
                 });
               },
-              onFinish: async ({ response }) => {
+              onFinish: async ({ response, usage, providerMetadata }) => {
                 try {
+                  // Prompt-cache telemetry
+                  const cachedTokens =
+                    (providerMetadata as any)?.google?.usageMetadata?.cachedContentTokenCount ??
+                    (providerMetadata as any)?.anthropic?.cacheReadInputTokens ??
+                    (usage as any)?.cachedInputTokens ??
+                    0;
+                  console.log(
+                    `[CACHE] provider=${providerName} promptTokens=${(usage as any)?.inputTokens ?? "?"} cached=${cachedTokens}`,
+                  );
+
                   const finalMessages = response.messages as any[];
                   const assistant = finalMessages[finalMessages.length - 1];
                   if (assistant && assistant.role === "assistant") {
