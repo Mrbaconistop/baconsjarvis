@@ -1,8 +1,21 @@
-import { useEffect, useMemo, useRef, useState, memo } from "react";
+import { useEffect, useMemo, useRef, useState, memo, useCallback } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, type UIMessage } from "ai";
 import { supabase } from "@/integrations/supabase/client";
-import { Send, Square, Bell, Vault, ListChecks, CheckCircle2, Wrench, MapPin, Mic, MicOff } from "lucide-react";
+import {
+  Send,
+  Square,
+  Bell,
+  Vault,
+  ListChecks,
+  CheckCircle2,
+  Wrench,
+  MapPin,
+  Mic,
+  MicOff,
+  Volume2,
+  VolumeX,
+} from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
@@ -46,7 +59,88 @@ export function ChatWindow({
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const dataArrayRef = useRef<Uint8Array | null>(null);
+  const silenceTimerRef = useRef<NodeJS.Timeout | null>(null);
 
+  // ---- TTS state ----
+  const [ttsEnabled, setTtsEnabled] = useState<boolean>(() => {
+    const saved = localStorage.getItem("jarvis-tts-enabled");
+    return saved !== null ? saved === "true" : true;
+  });
+  const [isSpeaking, setIsSpeaking] = useState(false);
+
+  // ---- TTS speak function with JARVIS voice ----
+  const speak = useCallback(
+    (text: string) => {
+      if (!ttsEnabled || !window.speechSynthesis || !text?.trim()) return;
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.rate = 0.95;
+      utterance.pitch = 0.85;
+      utterance.lang = "en-US";
+      // Prefer male, British, or Microsoft voices
+      const voices = window.speechSynthesis.getVoices();
+      const preferred =
+        voices.find(
+          (v) =>
+            v.lang.startsWith("en") &&
+            (v.name.includes("David") ||
+              v.name.includes("Daniel") ||
+              v.name.includes("Microsoft") ||
+              v.name.includes("Google UK") ||
+              v.name.includes("Male")),
+        ) ||
+        voices.find((v) => v.lang.startsWith("en") && v.name.includes("Male")) ||
+        voices.find((v) => v.lang.startsWith("en"));
+      if (preferred) utterance.voice = preferred;
+      utterance.onstart = () => setIsSpeaking(true);
+      utterance.onend = () => setIsSpeaking(false);
+      utterance.onerror = () => setIsSpeaking(false);
+      window.speechSynthesis.speak(utterance);
+    },
+    [ttsEnabled],
+  );
+
+  const toggleTts = useCallback(() => {
+    setTtsEnabled((prev) => {
+      const next = !prev;
+      localStorage.setItem("jarvis-tts-enabled", String(next));
+      if (!next) window.speechSynthesis?.cancel();
+      return next;
+    });
+  }, []);
+
+  // ---- Auto‑speak assistant messages ----
+  useEffect(() => {
+    const last = messages[messages.length - 1];
+    if (last?.role === "assistant") {
+      const text = (last.parts || [])
+        .filter((p: any) => p.type === "text")
+        .map((p: any) => p.text)
+        .join(" ")
+        .trim();
+      if (text) {
+        // Delay a bit for UI smoothness
+        const timer = setTimeout(() => speak(text), 200);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [messages, speak]);
+
+  // ---- Handle explicit speak_text tool calls ----
+  useEffect(() => {
+    const last = messages[messages.length - 1];
+    if (last?.role === "assistant") {
+      for (const part of last.parts || []) {
+        if (part.type === "tool-response" && part.result?.client_action?.type === "speak") {
+          speak(part.result.client_action.text);
+        }
+      }
+    }
+  }, [messages, speak]);
+
+  // ---- Voice input with silence detection ----
   function pickMimeType(): string | null {
     const candidates = ["audio/webm", "audio/mp4", "audio/ogg"];
     for (const t of candidates) {
@@ -56,7 +150,7 @@ export function ChatWindow({
   }
 
   async function startRecording() {
-    if (isRecording || isTranscribing) return;
+    if (isRecording || isTranscribing || isSpeaking) return;
     try {
       const mimeType = pickMimeType();
       if (!mimeType) {
@@ -65,6 +159,16 @@ export function ChatWindow({
       }
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
+
+      // Setup audio context for volume detection
+      const audioContext = new AudioContext();
+      const source = audioContext.createMediaStreamSource(stream);
+      const analyser = audioContext.createAnalyser();
+      analyser.fftSize = 512;
+      source.connect(analyser);
+      analyserRef.current = analyser;
+      dataArrayRef.current = new Uint8Array(analyser.frequencyBinCount);
+
       const recorder = new MediaRecorder(stream, { mimeType });
       chunksRef.current = [];
       recorder.ondataavailable = (e) => {
@@ -73,17 +177,61 @@ export function ChatWindow({
       recorder.onstop = async () => {
         streamRef.current?.getTracks().forEach((t) => t.stop());
         streamRef.current = null;
+        analyserRef.current = null;
+        dataArrayRef.current = null;
+        if (silenceTimerRef.current) {
+          clearTimeout(silenceTimerRef.current);
+          silenceTimerRef.current = null;
+        }
         const blob = new Blob(chunksRef.current, { type: recorder.mimeType });
         if (blob.size < 1024) {
-          toast.error("That recording was empty — please try again.");
+          toast.error("Recording too short — please try again.");
           return;
         }
-        await transcribe(blob);
+        await transcribeAndSend(blob);
       };
-      recorder.start();
+      recorder.start(100);
       recorderRef.current = recorder;
       setIsRecording(true);
-      toast.info("Listening, Sir…");
+      toast.info("Listening… (auto‑stop after 1.5s silence)");
+
+      // Silence detection loop
+      const detectSilence = () => {
+        if (!analyserRef.current || !dataArrayRef.current || !isRecording) return;
+        analyserRef.current.getByteTimeDomainData(dataArrayRef.current);
+        let sum = 0;
+        for (let i = 0; i < dataArrayRef.current.length; i++) {
+          const val = (dataArrayRef.current[i] - 128) / 128;
+          sum += val * val;
+        }
+        const rms = Math.sqrt(sum / dataArrayRef.current.length);
+        const volume = Math.max(0, Math.min(1, rms * 2));
+
+        if (volume < 0.02) {
+          // Silence detected – start or reset timer
+          if (!silenceTimerRef.current) {
+            silenceTimerRef.current = setTimeout(() => {
+              // Stop after 1.5s of silence
+              if (recorderRef.current?.state === "recording") {
+                recorderRef.current.stop();
+                setIsRecording(false);
+              }
+              silenceTimerRef.current = null;
+            }, 1500);
+          }
+        } else {
+          // Sound detected – clear timer
+          if (silenceTimerRef.current) {
+            clearTimeout(silenceTimerRef.current);
+            silenceTimerRef.current = null;
+          }
+        }
+        // Continue loop only if still recording
+        if (isRecording) {
+          requestAnimationFrame(detectSilence);
+        }
+      };
+      detectSilence();
     } catch (err: any) {
       console.error("[mic] start error", err);
       if (err?.name === "NotAllowedError" || err?.name === "PermissionDeniedError") {
@@ -106,9 +254,17 @@ export function ChatWindow({
       }
     }
     setIsRecording(false);
+    if (silenceTimerRef.current) {
+      clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
+    }
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+    }
   }
 
-  async function transcribe(blob: Blob) {
+  async function transcribeAndSend(blob: Blob) {
     setIsTranscribing(true);
     try {
       const fd = new FormData();
@@ -124,8 +280,10 @@ export function ChatWindow({
         toast.error("Didn't catch that, Sir.");
         return;
       }
-      setInput((prev) => (prev ? prev + " " + text : text));
-      taRef.current?.focus();
+      // Auto‑send the transcribed message
+      await sendMessage({ text });
+      // Optionally clear input (if we want to keep it, we can leave as is)
+      setInput("");
     } catch (err: any) {
       console.error("[transcribe] error", err);
       toast.error(`Transcription failed: ${err?.message ?? err}`);
@@ -139,12 +297,15 @@ export function ChatWindow({
     else startRecording();
   }
 
+  // Cleanup on unmount
   useEffect(() => {
     return () => {
       try {
         recorderRef.current?.state !== "inactive" && recorderRef.current?.stop();
       } catch {}
       streamRef.current?.getTracks().forEach((t) => t.stop());
+      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+      window.speechSynthesis?.cancel();
     };
   }, []);
 
@@ -234,18 +395,39 @@ export function ChatWindow({
 
       <div className="border-t border-arc/15 bg-background/40 backdrop-blur px-4 py-3">
         <div className="flex items-end gap-2 max-w-4xl mx-auto">
+          {/* TTS Toggle Button */}
+          <button
+            onClick={toggleTts}
+            className={`p-3 rounded-lg border transition ${
+              ttsEnabled ? "border-arc/30 bg-arc/10 text-arc" : "border-muted/30 bg-muted/20 text-muted-foreground"
+            }`}
+            aria-label="Toggle TTS"
+            title={ttsEnabled ? "Disable voice output" : "Enable voice output"}
+          >
+            {ttsEnabled ? <Volume2 size={16} /> : <VolumeX size={16} />}
+          </button>
+
+          {/* Mic Button */}
           <button
             onClick={toggleMic}
-            disabled={isTranscribing}
+            disabled={isTranscribing || isSpeaking}
             className={`p-3 rounded-lg border transition ${
               isRecording
                 ? "bg-critical/20 border-critical/40 text-critical animate-critical-pulse"
-                : isTranscribing
+                : isTranscribing || isSpeaking
                   ? "bg-muted/50 border-muted text-muted-foreground opacity-60"
                   : "border-arc/30 hover:bg-arc/10 text-hud-dim"
             }`}
             aria-label="Voice input"
-            title={isRecording ? "Stop recording" : isTranscribing ? "Transcribing…" : "Speak your message"}
+            title={
+              isRecording
+                ? "Stop recording"
+                : isTranscribing
+                  ? "Transcribing…"
+                  : isSpeaking
+                    ? "JARVIS is speaking"
+                    : "Speak your message"
+            }
           >
             {isRecording ? <MicOff size={16} /> : <Mic size={16} />}
           </button>
@@ -263,10 +445,12 @@ export function ChatWindow({
             }}
             placeholder={
               isRecording
-                ? "Listening… tap mic to stop"
+                ? "Listening… (auto‑send after silence)"
                 : isTranscribing
                   ? "Transcribing…"
-                  : 'Speak or type, Sir. e.g. "Remind me to drink water every weekday at 10am"'
+                  : isSpeaking
+                    ? "JARVIS is speaking…"
+                    : 'Speak or type, Sir. e.g. "Remind me to drink water every weekday at 10am"'
             }
             className="flex-1 resize-none bg-background/60 border border-arc/25 rounded-lg px-4 py-3 font-mono text-sm focus:border-arc focus:outline-none max-h-40"
           />
@@ -295,7 +479,7 @@ export function ChatWindow({
   );
 }
 
-// Memoized MessageBubble
+// Memoized MessageBubble (unchanged)
 const MessageBubble = memo(function MessageBubble({ msg }: { msg: UIMessage }) {
   const isUser = msg.role === "user";
   return (
