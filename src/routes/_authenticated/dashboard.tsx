@@ -14,7 +14,6 @@ import {
   getWeatherLocation,
   setWeatherLocation,
 } from "@/lib/jarvis.functions";
-import { getPredictorLeaderboard } from "@/lib/predictor.functions";
 import { supabase } from "@/integrations/supabase/client";
 import { Sparkles, Cloud, Droplets, Wind, RefreshCw, MapPin, Calendar, Sun, CloudRain, Snowflake } from "lucide-react";
 import { toast } from "sonner";
@@ -38,7 +37,6 @@ function Dashboard() {
   const getNarrativeFn = useServerFn(getWeatherNarrative);
   const getLocationFn = useServerFn(getWeatherLocation);
   const setLocationFn = useServerFn(setWeatherLocation);
-  const getLeaderboard = useServerFn(getPredictorLeaderboard);
 
   const weatherQuery = useQuery({
     queryKey: ["weather"],
@@ -75,12 +73,6 @@ function Dashboard() {
 
   const { data: feeds } = useQuery({ queryKey: ["feeds"], queryFn: () => list() });
   const [busy, setBusy] = useState(false);
-
-  const { data: leaderboardData, isLoading: leaderboardLoading } = useQuery({
-    queryKey: ["stock-picks"],
-    queryFn: () => getLeaderboard(),
-    refetchInterval: 5 * 60_000,
-  });
 
   async function generateBriefing() {
     setBusy(true);
@@ -272,40 +264,6 @@ function Dashboard() {
         </div>
 
         <PriorityHub />
-
-        {/* Stock Picks Widget */}
-        <div className="glass-strong hud-corners rounded-xl p-5">
-          <div className="flex items-center gap-2 mb-3">
-            <Sparkles size={14} className="text-arc" />
-            <div className="font-mono text-[10px] tracking-[0.3em] text-arc">TOP STOCK PICKS</div>
-          </div>
-          {leaderboardLoading ? (
-            <div className="text-sm text-muted-foreground font-mono animate-pulse">Loading picks…</div>
-          ) : !leaderboardData?.rows?.length ? (
-            <div className="text-sm text-muted-foreground">No high‑confidence picks yet, Sir. Analyze more stocks.</div>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              {leaderboardData.rows.slice(0, 3).map((stock) => (
-                <div
-                  key={stock.ticker}
-                  className="bg-background/40 border border-arc/20 rounded-lg p-3 flex justify-between items-center"
-                >
-                  <div>
-                    <div className="font-mono text-sm text-arc">{stock.ticker}</div>
-                    <div className="text-[10px] text-hud-dim font-mono">
-                      {stock.topPattern} · {Math.round(stock.currentConfidence * 100)}% conf
-                    </div>
-                  </div>
-                  <div className="text-right text-xs font-mono">
-                    <span className={stock.historicalAccuracy > 0.5 ? "text-success" : "text-critical"}>
-                      {(stock.historicalAccuracy * 100).toFixed(0)}%
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
       </div>
     </div>
   );
