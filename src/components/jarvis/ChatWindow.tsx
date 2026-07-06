@@ -43,12 +43,17 @@ export function ChatWindow({
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // ---- TTS state ----
-  const [ttsEnabled, setTtsEnabled] = useState<boolean>(() => {
-    if (typeof window === "undefined") return true;
-    const saved = localStorage.getItem("jarvis-tts-enabled");
-    return saved !== null ? saved === "true" : true;
-  });
+  const [ttsEnabled, setTtsEnabled] = useState(true);
 
+  // Load preference from localStorage (client only)
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("jarvis-tts-enabled");
+      if (saved !== null) setTtsEnabled(saved === "true");
+    }
+  }, []);
+
+  // ---- Speak function (client only) ----
   const speak = useCallback(
     (text: string) => {
       if (typeof window === "undefined") return;
@@ -58,6 +63,7 @@ export function ChatWindow({
       utterance.rate = 0.95;
       utterance.pitch = 0.85;
       utterance.lang = "en-US";
+      // Prefer a male/British voice
       const voices = window.speechSynthesis.getVoices();
       const preferred =
         voices.find(
@@ -119,7 +125,6 @@ export function ChatWindow({
 
   // ---- Auto‑speak assistant messages ----
   useEffect(() => {
-    if (typeof window === "undefined") return;
     const last = messages[messages.length - 1];
     if (last?.role === "assistant") {
       const text = (last.parts || [])
@@ -136,7 +141,6 @@ export function ChatWindow({
 
   // ---- Handle explicit speak_text tool calls ----
   useEffect(() => {
-    if (typeof window === "undefined") return;
     const last = messages[messages.length - 1];
     if (last?.role === "assistant") {
       for (const part of last.parts || []) {
@@ -227,7 +231,7 @@ export function ChatWindow({
                 submit();
               }
             }}
-            placeholder={'Speak or type, Sir. e.g. "Remind me to drink water every weekday at 10am"'}
+            placeholder='Type a message, Sir. e.g. "Remind me to drink water every weekday at 10am"'
             className="flex-1 resize-none bg-background/60 border border-arc/25 rounded-lg px-4 py-3 font-mono text-sm focus:border-arc focus:outline-none max-h-40"
           />
 
