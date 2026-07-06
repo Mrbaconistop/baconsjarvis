@@ -12,7 +12,13 @@ import { z } from "zod";
 import { createClient } from "@supabase/supabase-js";
 import { createHash } from "crypto";
 import { getSystemPrompt, getModelForUser } from "@/lib/ai-gateway.server";
-import { getWeather, getWeatherForecast, getWeatherNarrative } from "@/lib/jarvis.functions";
+import {
+  getWeather,
+  getWeatherForecast,
+  getWeatherNarrative,
+  getStockSnapshot,
+  searchStocks,
+} from "@/lib/jarvis.functions";
 import { getProfile, getLLMConfig, updateLLMConfig } from "@/lib/profile.functions";
 import { listAccounts } from "@/lib/profile.functions";
 import { getBackendOverview } from "@/lib/backend.functions";
@@ -120,8 +126,6 @@ async function recallMemory(userId: string, query: string, supabase: any, limit:
 }
 
 function getCacheKey(userId: string, messages: UIMessage[], mode: string, tabSlug?: string | null): string {
-  // Hash the last 3 messages (regardless of role) so cache keys reflect
-  // recent conversational context, not just the final user turn.
   const tail = messages
     .slice(-3)
     .map((m) => {
@@ -159,16 +163,13 @@ async function storeCachedResponse(
   supabase?: any,
 ) {
   if (!supabase) return;
-  // Do NOT cache responses that invoked tools — tool results are
-  // side-effectful, and replaying them would lie about state.
   const hasTool = (responseParts as any[]).some((p) => typeof p?.type === "string" && p.type.startsWith("tool-"));
   if (hasTool) return;
-  // Skip trivially short / empty assistant turns.
   const textLen = (responseParts as any[])
     .filter((p) => p?.type === "text")
     .reduce((n: number, p: any) => n + (p.text?.length ?? 0), 0);
   if (textLen < 20) return;
-  const expiresAt = new Date(Date.now() + 24 * 3600_000).toISOString(); // 24h TTL
+  const expiresAt = new Date(Date.now() + 24 * 3600_000).toISOString();
   await supabase.from("chat_cache").upsert(
     {
       user_id: userId,
@@ -281,7 +282,6 @@ export const Route = createFileRoute("/api/chat")({
 
           const { model: chatModel, mode, submode } = await getModelForUser(userId, supabase);
 
-          // ---- CACHE CHECK ----
           const cacheKey = getCacheKey(userId, messages, mode, boundTabSlug);
           const cachedParts = await getCachedResponse(userId, cacheKey, supabase);
 
@@ -314,11 +314,11 @@ export const Route = createFileRoute("/api/chat")({
           });
 
           // ============================================================
-          // TOOLS – Insert your tools object here
+          // TOOLS – Full object with all your original tools,
+          // except get_stock_quote, analyze_stock, scan_top_picks
+          // (those are removed). Added search_stocks & get_stock_snapshot.
           // ============================================================
-          // ⚠️  PASTE THE TOOLS OBJECT FROM HALF 2 BELOW THIS LINE ⚠️
           const tools = {
-            // --- HALF 2 STARTS HERE ---            // --- CONTINUED FROM HALF 1 ---
             create_reminder: tool({
               description: "Create a one-off or recurring reminder.",
               inputSchema: z.object({
@@ -2867,73 +2867,56 @@ export const Route = createFileRoute("/api/chat")({
               },
             }),
 
-            // ===== STOCK ANALYSIS TOOLS =====
-            get_stock_quote: tool({
-              description: "Get current stock price and change for a ticker.",
-              inputSchema: z.object({
-                symbol: z.string().toUpperCase(),
-              }),
+            // ===== STOCK SEARCH & SNAPSHOT TOOLS (working, imported) =====
+            search_stocks: tool({
+              description: "Search for a stock symbol by company name or ticker.",
+              inputSchema: z.object({ query: z.string() }),
+              execute: async ({ query }) => {
+                const result = await searchStocks({ data: { q: query } });
+                if (!result.ok) return { ok: false, error: result.error };
+                return { ok: true, results: result.results };
+              },
+            }),
+            get_stock_snapshot: tool({
+              description: "Get a quick snapshot of a stock (price, change, market cap, industry).",
+              inputSchema: z.object({ symbol: z.string() }),
               execute: async ({ symbol }) => {
-                try {
-                  const { getQuote } = await import("@/lib/jarvis.functions");
-                  const data = await getQuote(symbol);
-                  return { ok: true, symbol, ...data };
-                } catch (e: any) {
-                  return { ok: false, error: e.message };
-                }
-              },
-            }),
-
-            analyze_stock: tool({
-              description: "Run a full stock analysis: direction, confidence, target price, expected return.",
-              inputSchema: z.object({
-                symbol: z.string().toUpperCase(),
-                horizon: z.enum(["1d", "1w", "1m", "6m", "1y"]).default("1d"),
-              }),
-              execute: async ({ symbol, horizon }) => {
-                try {
-                  const { analyzeStockTicker } = await import("@/lib/jarvis.functions");
-                  const horizonDays = { "1d": 1, "1w": 7, "1m": 30, "6m": 182, "1y": 365 }[horizon] || 1;
-                  const { fetchHistorical, predictStock } = await import("@/lib/jarvis.functions");
-                  const series = await fetchHistorical(symbol);
-                  const pred = predictStock(series, horizonDays, "balanced");
-                  return {
-                    ok: true,
-                    symbol,
-                    direction: pred.direction,
-                    confidence: pred.confidence,
-                    targetPrice: pred.targetPrice,
-                    expectedReturn: pred.expectedReturn,
-                    low: pred.low,
-                    high: pred.high,
-                    currentPrice: series[series.length - 1].p,
-                    signals: pred.signals,
-                  };
-                } catch (e: any) {
-                  return { ok: false, error: e.message };
-                }
-              },
-            }),
-
-            scan_top_picks: tool({
-              description: "Get the top 5 stocks from the leaderboard (requires predictions tracked).",
-              inputSchema: z.object({}),
-              execute: async () => {
-                try {
-                  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-                  const { data } = await supabaseAdmin
-                    .from("leaderboard_snapshot")
-                    .select("rows")
-                    .eq("horizon_days", 30)
-                    .maybeSingle();
-                  return { ok: true, rows: (data?.rows as any[])?.slice(0, 5) ?? [] };
-                } catch (e: any) {
-                  return { ok: false, error: e.message };
-                }
+                const result = await getStockSnapshot({ data: { symbol } });
+                if (!result.ok) return { ok: false, error: result.error };
+                const {
+                  symbol: s,
+                  price,
+                  change,
+                  high,
+                  low,
+                  open,
+                  prevClose,
+                  name,
+                  industry,
+                  marketCap,
+                  exchange,
+                  currency,
+                } = result;
+                return {
+                  ok: true,
+                  symbol: s,
+                  name,
+                  price,
+                  change: change?.toFixed(2),
+                  high,
+                  low,
+                  open,
+                  prevClose,
+                  industry,
+                  marketCap: marketCap ? `$${(marketCap / 1e9).toFixed(2)}B` : "—",
+                  exchange,
+                  currency,
+                };
               },
             }),
           };
           // ============================================================
+
           // ---- System Prompt ----
           const baseSystemPrompt = getSystemPrompt(mode, addressAs, factsBlock, submode);
           const systemPrompt = `${baseSystemPrompt}
@@ -2989,15 +2972,6 @@ When the user says "take me to X" or "open X", actually navigate — don't just 
 
           try {
             const providerName = String((chatModel as any)?.provider ?? "").toLowerCase();
-            // Provider prompt-caching hints:
-            //  - Gemini: implicit caching is automatic when the shared prefix
-            //    exceeds the model's min-token threshold (system prompt is
-            //    stable + placed first, so this "just works"). We surface
-            //    `cachedContentTokenCount` from usageMetadata in onFinish.
-            //  - Anthropic: cacheControl on the system message via
-            //    providerOptions.anthropic marks the system prompt as a
-            //    cacheable prefix (ephemeral, ~5 min).
-            //  - Groq / DeepSeek: no-op, they auto-cache prefixes server-side.
             const providerOptions: Record<string, any> = {};
             if (providerName.includes("anthropic")) {
               providerOptions.anthropic = { cacheControl: { type: "ephemeral" } };
@@ -3019,7 +2993,6 @@ When the user says "take me to X" or "open X", actually navigate — don't just 
               },
               onFinish: async ({ response, usage, providerMetadata }) => {
                 try {
-                  // Prompt-cache telemetry
                   const cachedTokens =
                     (providerMetadata as any)?.google?.usageMetadata?.cachedContentTokenCount ??
                     (providerMetadata as any)?.anthropic?.cacheReadInputTokens ??
@@ -3045,7 +3018,6 @@ When the user says "take me to X" or "open X", actually navigate — don't just 
                       .from("chat_threads")
                       .update({ updated_at: new Date().toISOString() })
                       .eq("id", threadId);
-                    // ---- STORE CACHE ----
                     await storeCachedResponse(userId, cacheKey, parts, threadId, mode, boundTabSlug, supabase);
                     console.log("💾 [CACHE] Stored response for key:", cacheKey);
                   }
