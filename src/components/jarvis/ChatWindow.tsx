@@ -2,20 +2,7 @@ import { useEffect, useMemo, useRef, useState, memo, useCallback } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, type UIMessage } from "ai";
 import { supabase } from "@/integrations/supabase/client";
-import {
-  Send,
-  Square,
-  Bell,
-  Vault,
-  ListChecks,
-  CheckCircle2,
-  Wrench,
-  MapPin,
-  Mic,
-  MicOff,
-  Volume2,
-  VolumeX,
-} from "lucide-react";
+import { Send, Square, Bell, Vault, ListChecks, CheckCircle2, Wrench, MapPin, Volume2, VolumeX } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
@@ -52,16 +39,8 @@ export function ChatWindow({
 }) {
   const qc = useQueryClient();
   const [input, setInput] = useState("");
-  const [isRecording, setIsRecording] = useState(false);
-  const [isTranscribing, setIsTranscribing] = useState(false);
   const taRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const recorderRef = useRef<MediaRecorder | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
-  const streamRef = useRef<MediaStream | null>(null);
-  const analyserRef = useRef<AnalyserNode | null>(null);
-  const dataArrayRef = useRef<Uint8Array | null>(null);
-  const silenceTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // ---- TTS state ----
   const [ttsEnabled, setTtsEnabled] = useState<boolean>(() => {
@@ -69,9 +48,7 @@ export function ChatWindow({
     const saved = localStorage.getItem("jarvis-tts-enabled");
     return saved !== null ? saved === "true" : true;
   });
-  const [isSpeaking, setIsSpeaking] = useState(false);
 
-  // ---- TTS speak function with JARVIS voice (client only) ----
   const speak = useCallback(
     (text: string) => {
       if (typeof window === "undefined") return;
@@ -95,9 +72,6 @@ export function ChatWindow({
         voices.find((v) => v.lang.startsWith("en") && v.name.includes("Male")) ||
         voices.find((v) => v.lang.startsWith("en"));
       if (preferred) utterance.voice = preferred;
-      utterance.onstart = () => setIsSpeaking(true);
-      utterance.onend = () => setIsSpeaking(false);
-      utterance.onerror = () => setIsSpeaking(false);
       window.speechSynthesis.speak(utterance);
     },
     [ttsEnabled],
@@ -114,25 +88,27 @@ export function ChatWindow({
     });
   }, []);
 
-  // ---- Auto‑speak assistant messages (client only) ----
+  // ---- Transport ----
+  const transport = useMemo(
+    () =>
+      new DefaultChatTransport({
+        api: "/api/chat",
+        prepareSendMessagesRequest: async ({ messages, body }) => {
+          const {
+            data: { session },
+          } = await supabase.auth.getSession();
+          const headers: Record<string, string> = {};
+          if (session?.access_token) headers.Authorization = `Bearer ${session.access_token}`;
+          return { body: { messages, threadId, tabSlug: tabSlug ?? null, ...(body ?? {}) }, headers };
+        },
+      }),
+    [threadId, tabSlug],
+  );
+
   const { messages, sendMessage, status, stop, error } = useChat({
     id: threadId,
     messages: initial,
-    transport: useMemo(
-      () =>
-        new DefaultChatTransport({
-          api: "/api/chat",
-          prepareSendMessagesRequest: async ({ messages, body }) => {
-            const {
-              data: { session },
-            } = await supabase.auth.getSession();
-            const headers: Record<string, string> = {};
-            if (session?.access_token) headers.Authorization = `Bearer ${session.access_token}`;
-            return { body: { messages, threadId, tabSlug: tabSlug ?? null, ...(body ?? {}) }, headers };
-          },
-        }),
-      [threadId, tabSlug],
-    ),
+    transport,
     onFinish: () => {
       qc.invalidateQueries({ queryKey: ["threads"] });
       qc.invalidateQueries({ queryKey: ["reminders"] });
@@ -141,7 +117,7 @@ export function ChatWindow({
     },
   });
 
-  // ---- Auto‑speak effect ----
+  // ---- Auto‑speak assistant messages ----
   useEffect(() => {
     if (typeof window === "undefined") return;
     const last = messages[messages.length - 1];
@@ -170,174 +146,6 @@ export function ChatWindow({
       }
     }
   }, [messages, speak]);
-
-  // ---- Voice input with silence detection (client only) ----
-  function pickMimeType(): string | null {
-    if (typeof window === "undefined") return null;
-    const candidates = ["audio/webm", "audio/mp4", "audio/ogg"];
-    for (const t of candidates) {
-      if (typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported(t)) return t;
-    }
-    return null;
-  }
-
-  const startRecording = useCallback(async () => {
-    if (typeof window === "undefined") return;
-    if (isRecording || isTranscribing || isSpeaking) return;
-    try {
-      const mimeType = pickMimeType();
-      if (!mimeType) {
-        toast.error("This browser can't record a supported audio format.");
-        return;
-      }
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      streamRef.current = stream;
-
-      const audioContext = new AudioContext();
-      const source = audioContext.createMediaStreamSource(stream);
-      const analyser = audioContext.createAnalyser();
-      analyser.fftSize = 512;
-      source.connect(analyser);
-      analyserRef.current = analyser;
-      dataArrayRef.current = new Uint8Array(analyser.frequencyBinCount);
-
-      const recorder = new MediaRecorder(stream, { mimeType });
-      chunksRef.current = [];
-      recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) chunksRef.current.push(e.data);
-      };
-      recorder.onstop = async () => {
-        streamRef.current?.getTracks().forEach((t) => t.stop());
-        streamRef.current = null;
-        analyserRef.current = null;
-        dataArrayRef.current = null;
-        if (silenceTimerRef.current) {
-          clearTimeout(silenceTimerRef.current);
-          silenceTimerRef.current = null;
-        }
-        const blob = new Blob(chunksRef.current, { type: recorder.mimeType });
-        if (blob.size < 1024) {
-          toast.error("Recording too short — please try again.");
-          return;
-        }
-        await transcribeAndSend(blob);
-      };
-      recorder.start(100);
-      recorderRef.current = recorder;
-      setIsRecording(true);
-      toast.info("Listening… (auto‑stop after 1.5s silence)");
-
-      const detectSilence = () => {
-        if (!analyserRef.current || !dataArrayRef.current || !isRecording) return;
-        analyserRef.current.getByteTimeDomainData(dataArrayRef.current);
-        let sum = 0;
-        for (let i = 0; i < dataArrayRef.current.length; i++) {
-          const val = (dataArrayRef.current[i] - 128) / 128;
-          sum += val * val;
-        }
-        const rms = Math.sqrt(sum / dataArrayRef.current.length);
-        const volume = Math.max(0, Math.min(1, rms * 2));
-
-        if (volume < 0.02) {
-          if (!silenceTimerRef.current) {
-            silenceTimerRef.current = setTimeout(() => {
-              if (recorderRef.current?.state === "recording") {
-                recorderRef.current.stop();
-                setIsRecording(false);
-              }
-              silenceTimerRef.current = null;
-            }, 1500);
-          }
-        } else {
-          if (silenceTimerRef.current) {
-            clearTimeout(silenceTimerRef.current);
-            silenceTimerRef.current = null;
-          }
-        }
-        if (isRecording) {
-          requestAnimationFrame(detectSilence);
-        }
-      };
-      detectSilence();
-    } catch (err: any) {
-      console.error("[mic] start error", err);
-      if (err?.name === "NotAllowedError" || err?.name === "PermissionDeniedError") {
-        toast.error("Microphone permission denied.");
-      } else if (err?.name === "NotFoundError") {
-        toast.error("No microphone found.");
-      } else {
-        toast.error(`Mic error: ${err?.message ?? err}`);
-      }
-    }
-  }, [isRecording, isTranscribing, isSpeaking]);
-
-  const stopRecording = useCallback(() => {
-    if (typeof window === "undefined") return;
-    const r = recorderRef.current;
-    if (r && r.state !== "inactive") {
-      try {
-        r.stop();
-      } catch (e) {
-        console.warn("[mic] stop error", e);
-      }
-    }
-    setIsRecording(false);
-    if (silenceTimerRef.current) {
-      clearTimeout(silenceTimerRef.current);
-      silenceTimerRef.current = null;
-    }
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((t) => t.stop());
-      streamRef.current = null;
-    }
-  }, []);
-
-  const transcribeAndSend = useCallback(
-    async (blob: Blob) => {
-      setIsTranscribing(true);
-      try {
-        const fd = new FormData();
-        const ext = blob.type.includes("mp4") ? "mp4" : blob.type.includes("ogg") ? "ogg" : "webm";
-        fd.append("file", blob, `recording.${ext}`);
-        const res = await fetch("/api/transcribe", { method: "POST", body: fd });
-        const json: any = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          throw new Error(json?.error?.message ?? json?.error ?? `HTTP ${res.status}`);
-        }
-        const text: string = json?.text ?? "";
-        if (!text.trim()) {
-          toast.error("Didn't catch that, Sir.");
-          return;
-        }
-        await sendMessage({ text });
-        setInput("");
-      } catch (err: any) {
-        console.error("[transcribe] error", err);
-        toast.error(`Transcription failed: ${err?.message ?? err}`);
-      } finally {
-        setIsTranscribing(false);
-      }
-    },
-    [sendMessage],
-  );
-
-  const toggleMic = useCallback(() => {
-    if (isRecording) stopRecording();
-    else startRecording();
-  }, [isRecording, startRecording, stopRecording]);
-
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      if (typeof window === "undefined") return;
-      try {
-        recorderRef.current?.state !== "inactive" && recorderRef.current?.stop();
-      } catch {}
-      streamRef.current?.getTracks().forEach((t) => t.stop());
-      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-      window.speechSynthesis?.cancel();
-    };
-  }, []);
 
   const busy = status === "submitted" || status === "streaming";
 
@@ -408,31 +216,6 @@ export function ChatWindow({
             {ttsEnabled ? <Volume2 size={16} /> : <VolumeX size={16} />}
           </button>
 
-          {/* Mic Button */}
-          <button
-            onClick={toggleMic}
-            disabled={isTranscribing || isSpeaking}
-            className={`p-3 rounded-lg border transition ${
-              isRecording
-                ? "bg-critical/20 border-critical/40 text-critical animate-critical-pulse"
-                : isTranscribing || isSpeaking
-                  ? "bg-muted/50 border-muted text-muted-foreground opacity-60"
-                  : "border-arc/30 hover:bg-arc/10 text-hud-dim"
-            }`}
-            aria-label="Voice input"
-            title={
-              isRecording
-                ? "Stop recording"
-                : isTranscribing
-                  ? "Transcribing…"
-                  : isSpeaking
-                    ? "JARVIS is speaking"
-                    : "Speak your message"
-            }
-          >
-            {isRecording ? <MicOff size={16} /> : <Mic size={16} />}
-          </button>
-
           <textarea
             ref={taRef}
             rows={1}
@@ -444,15 +227,7 @@ export function ChatWindow({
                 submit();
               }
             }}
-            placeholder={
-              isRecording
-                ? "Listening… (auto‑send after silence)"
-                : isTranscribing
-                  ? "Transcribing…"
-                  : isSpeaking
-                    ? "JARVIS is speaking…"
-                    : 'Speak or type, Sir. e.g. "Remind me to drink water every weekday at 10am"'
-            }
+            placeholder={'Speak or type, Sir. e.g. "Remind me to drink water every weekday at 10am"'}
             className="flex-1 resize-none bg-background/60 border border-arc/25 rounded-lg px-4 py-3 font-mono text-sm focus:border-arc focus:outline-none max-h-40"
           />
 
