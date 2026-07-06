@@ -120,9 +120,20 @@ async function recallMemory(userId: string, query: string, supabase: any, limit:
 }
 
 function getCacheKey(userId: string, messages: UIMessage[], mode: string, tabSlug?: string | null): string {
-  const lastUserMsg = messages.filter((m) => m.role === "user").pop();
-  const text = (lastUserMsg?.parts as any[])?.find((p) => p.type === "text")?.text || "";
-  const raw = `${userId}|${text}|${mode}|${tabSlug || "global"}`;
+  // Hash the last 3 messages (regardless of role) so cache keys reflect
+  // recent conversational context, not just the final user turn.
+  const tail = messages
+    .slice(-3)
+    .map((m) => {
+      const text =
+        (m.parts as any[])
+          ?.filter((p) => p?.type === "text")
+          ?.map((p: any) => p.text)
+          .join(" ") ?? "";
+      return `${m.role}:${text}`;
+    })
+    .join("|");
+  const raw = `${userId}|${mode}|${tabSlug || "global"}|${tail}`;
   return createHash("sha256").update(raw).digest("hex");
 }
 
@@ -148,7 +159,18 @@ async function storeCachedResponse(
   supabase?: any,
 ) {
   if (!supabase) return;
-  const expiresAt = new Date(Date.now() + 3600_000).toISOString();
+  // Do NOT cache responses that invoked tools — tool results are
+  // side-effectful, and replaying them would lie about state.
+  const hasTool = (responseParts as any[]).some(
+    (p) => typeof p?.type === "string" && p.type.startsWith("tool-"),
+  );
+  if (hasTool) return;
+  // Skip trivially short / empty assistant turns.
+  const textLen = (responseParts as any[])
+    .filter((p) => p?.type === "text")
+    .reduce((n: number, p: any) => n + (p.text?.length ?? 0), 0);
+  if (textLen < 20) return;
+  const expiresAt = new Date(Date.now() + 24 * 3600_000).toISOString(); // 24h TTL
   await supabase.from("chat_cache").upsert(
     {
       user_id: userId,
