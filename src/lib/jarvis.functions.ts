@@ -659,3 +659,277 @@ export const summarizeFileWithGemini = createServerFn({ method: "POST" })
       summary: `📄 **File: ${data.fileName}** (${Math.round(data.content.length / 1024)}KB)\n\n${truncated}`,
     };
   });
+// ============================================================
+// STOCK ANALYSIS ENGINE (appended to jarvis.functions.ts)
+// ============================================================
+
+// ---------- Analytics utilities ----------
+export type PricePoint = { t: number; p: number; v: number };
+
+export function sma(arr: number[], n: number): number {
+  if (arr.length < n) return arr[arr.length - 1] ?? 0;
+  const s = arr.slice(-n).reduce((a, b) => a + b, 0);
+  return s / n;
+}
+
+export function rsi(prices: number[], period = 14): number {
+  if (prices.length < period + 1) return 50;
+  let gains = 0,
+    losses = 0;
+  for (let i = prices.length - period; i < prices.length; i++) {
+    const ch = prices[i] - prices[i - 1];
+    if (ch >= 0) gains += ch;
+    else losses -= ch;
+  }
+  const rs = gains / Math.max(losses, 1e-9);
+  return 100 - 100 / (1 + rs);
+}
+
+export function macd(prices: number[]): { macd: number; signal: number; hist: number } {
+  const ema = (n: number) => {
+    const k = 2 / (n + 1);
+    let e = prices[0];
+    for (let i = 1; i < prices.length; i++) e = prices[i] * k + e * (1 - k);
+    return e;
+  };
+  const m = ema(12) - ema(26);
+  const signal = m * 0.9;
+  return { macd: m, signal, hist: m - signal };
+}
+
+export function stdev(arr: number[]): number {
+  const m = arr.reduce((a, b) => a + b, 0) / arr.length;
+  const v = arr.reduce((s, x) => s + (x - m) ** 2, 0) / arr.length;
+  return Math.sqrt(v);
+}
+
+export function returns(prices: number[]): number[] {
+  const r: number[] = [];
+  for (let i = 1; i < prices.length; i++) r.push((prices[i] - prices[i - 1]) / prices[i - 1]);
+  return r;
+}
+
+export function atr(prices: number[], period: number = 14): number {
+  if (prices.length < period + 1) return 0;
+  const tr: number[] = [];
+  for (let i = 1; i < prices.length; i++) {
+    tr.push(Math.abs(prices[i] - prices[i - 1]));
+  }
+  const recent = tr.slice(-period);
+  return recent.reduce((a, b) => a + b, 0) / recent.length;
+}
+
+function clamp(x: number, lo: number, hi: number) {
+  return Math.max(lo, Math.min(hi, x));
+}
+
+function safeCompoundedRate(ret: number, days: number): number {
+  if (days <= 0) return 0;
+  return Math.log1p(clamp(ret, -0.95, 10)) / days;
+}
+
+function trailingReturn(prices: number[], days: number, end = prices.length - 1): number {
+  const start = end - Math.round(days);
+  if (start < 0 || !prices[start]) return 0;
+  return (prices[end] - prices[start]) / prices[start];
+}
+
+function setupVector(prices: number[], end: number): number[] | null {
+  if (end < 35) return null;
+  const window = prices.slice(0, end + 1);
+  const last = prices[end];
+  const s20 = sma(window, 20) || last;
+  const s50 = sma(window, 50) || s20;
+  const s200 = sma(window, 200) || s50;
+  return [
+    trailingReturn(prices, 3, end) * 2.5,
+    trailingReturn(prices, 5, end) * 2,
+    trailingReturn(prices, 10, end) * 1.35,
+    trailingReturn(prices, 20, end),
+    ((last - s20) / s20) * 1.4,
+    (last - s50) / s50,
+    s50 > s200 ? 0.35 : s50 < s200 ? -0.35 : 0,
+  ];
+}
+
+function analogForecast(prices: number[], horizonDays: number): { expectedReturn: number; sample: number } | null {
+  const horizon = Math.max(1, Math.round(horizonDays));
+  const current = setupVector(prices, prices.length - 1);
+  if (!current || prices.length < horizon + 75) return null;
+  const analogs: Array<{ dist: number; ret: number }> = [];
+  for (let end = 45; end < prices.length - horizon - 1; end++) {
+    const vec = setupVector(prices, end);
+    if (!vec) continue;
+    let dist = 0;
+    for (let i = 0; i < current.length; i++) dist += Math.abs(current[i] - vec[i]);
+    const future = (prices[end + horizon] - prices[end]) / prices[end];
+    if (Number.isFinite(future)) analogs.push({ dist, ret: future });
+  }
+  if (analogs.length < 6) return null;
+  const nearest = analogs
+    .sort((a, b) => a.dist - b.dist)
+    .slice(0, Math.min(18, Math.max(8, Math.floor(analogs.length * 0.08))));
+  let weighted = 0,
+    total = 0;
+  for (const a of nearest) {
+    const w = 1 / Math.max(0.025, a.dist);
+    weighted += clamp(a.ret, -0.75, 2.5) * w;
+    total += w;
+  }
+  return total ? { expectedReturn: weighted / total, sample: nearest.length } : null;
+}
+
+export interface StockPrediction {
+  expectedReturn: number;
+  targetPrice: number;
+  low: number;
+  high: number;
+  confidence: number;
+  direction: "up" | "down" | "flat";
+  signals: { rsi: number; macdHist: number; trend: "up" | "down" | "flat"; sma50: number; sma200: number };
+}
+
+export function predictStock(
+  series: PricePoint[],
+  horizonDays: number,
+  sensitivity: "conservative" | "balanced" | "aggressive" = "balanced",
+): StockPrediction {
+  const prices = series.map((s) => s.p);
+  const last = prices[prices.length - 1];
+  const sma20 = sma(prices, 20);
+  const sma50 = sma(prices, 50);
+  const sma200 = sma(prices, 200);
+  const r = rsi(prices);
+  const m = macd(prices);
+  const dailyRets = returns(prices);
+  const dailyVol = stdev(dailyRets);
+
+  const longLookback = Math.min(252, dailyRets.length);
+  const longRets = dailyRets.slice(-longLookback);
+  const longMeanDaily = longRets.length ? longRets.reduce((a, b) => a + b, 0) / longRets.length : 0;
+  const annualDriftLong = clamp(Math.pow(1 + longMeanDaily, 252) - 1, -0.95, 3);
+
+  const shortLookback = Math.min(5, dailyRets.length);
+  const shortRets = dailyRets.slice(-shortLookback);
+  const shortMeanDaily = shortRets.length ? shortRets.reduce((a, b) => a + b, 0) / shortRets.length : 0;
+  const annualDriftShort = clamp(Math.pow(1 + shortMeanDaily, 252) - 1, -0.98, 8);
+  const annualDrift = annualDriftLong * 0.2 + annualDriftShort * 0.8;
+
+  const isShort = horizonDays <= 5;
+  const effectiveMomentumDays = isShort ? 3 : 5;
+  const effectiveMomentumWeight = isShort ? 1.8 : 1.2;
+
+  const mpDays = Math.min(Math.max(1, effectiveMomentumDays), prices.length - 1);
+  const momPast = prices[prices.length - 1 - mpDays];
+  const recentReturn = momPast > 0 ? (last - momPast) / momPast : 0;
+  const recentDailyRate = safeCompoundedRate(recentReturn, mpDays);
+  const momentumProjection = (Math.exp(recentDailyRate * horizonDays) - 1) * effectiveMomentumWeight;
+
+  const lookback = Math.min(5, prices.length - 1);
+  const recentHigh = Math.max(...prices.slice(-lookback));
+  const recentLow = Math.min(...prices.slice(-lookback));
+  const breakoutBonus = ((last - recentHigh) / recentHigh + (recentLow - last) / recentLow) * 0.5;
+  const breakoutBoost = breakoutBonus * clamp(1 - horizonDays / 10, 0, 1);
+
+  const trend = sma50 > sma200 ? 1 : sma50 < sma200 ? -1 : 0;
+  const momentum = (last - sma20) / sma20;
+  const rsiBias = (50 - r) / 100;
+  const technical = clamp(trend * 0.5 + momentum * 8 + rsiBias * 0.2 + Math.sign(m.hist) * 0.1, -1, 1);
+
+  const sensMult = sensitivity === "aggressive" ? 1.4 : sensitivity === "conservative" ? 0.6 : 1;
+  const signalReturn = technical * 0.75 * sensMult;
+
+  const currentAtr = atr(prices, 14);
+  const avgVol = stdev(dailyRets.slice(-252)) || dailyVol;
+  const volRatio = avgVol > 0 ? dailyVol / avgVol : 1;
+  const volAmplifier = 1 + 0.3 * (volRatio - 1);
+
+  const driftReturn = Math.sign(annualDrift) * (Math.pow(1 + Math.abs(annualDrift), horizonDays / 365) - 1);
+  let baseReturn = driftReturn + momentumProjection + breakoutBoost + signalReturn;
+  baseReturn = baseReturn * volAmplifier;
+
+  if (horizonDays <= 2 && currentAtr > 0) {
+    const atrMove = currentAtr / last;
+    const sign = Math.sign(baseReturn) || 1;
+    const atrAdjusted = sign * atrMove * 0.8;
+    baseReturn = 0.4 * baseReturn + 0.6 * atrAdjusted;
+    baseReturn = clamp(baseReturn, -2 * atrMove, 2 * atrMove);
+  }
+
+  const expectedReturn = clamp(baseReturn, -0.9, 5);
+  const targetPrice = last * (1 + expectedReturn);
+
+  const sigma = dailyVol * Math.sqrt(Math.max(1, horizonDays));
+  const atrFactor = horizonDays <= 3 && currentAtr > 0 ? currentAtr / last : sigma;
+  const low = last * (1 + expectedReturn - 1.64 * atrFactor);
+  const high = last * (1 + expectedReturn + 1.64 * atrFactor);
+
+  const agreement = 1 - Math.abs(technical - 0) / 2;
+  const confidence = clamp(0.45 + agreement * 0.3 + (1 - Math.min(atrFactor, 0.5)) * 0.2, 0.3, 0.92);
+
+  return {
+    expectedReturn,
+    targetPrice,
+    low: Math.max(0, low),
+    high,
+    confidence,
+    direction: expectedReturn > 0.005 ? "up" : expectedReturn < -0.005 ? "down" : "flat",
+    signals: {
+      rsi: r,
+      macdHist: m.hist,
+      trend: trend > 0 ? "up" : trend < 0 ? "down" : "flat",
+      sma50,
+      sma200,
+    },
+  };
+}
+
+// ---------- Finnhub server client ----------
+const FINNHUB_BASE = "https://finnhub.io/api/v1";
+
+async function fh<T>(path: string, params: Record<string, string | number> = {}): Promise<T> {
+  const key = process.env.FINNHUB_API_KEY;
+  if (!key) throw new Error("FINNHUB_API_KEY is not configured");
+  const url = new URL(FINNHUB_BASE + path);
+  Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, String(v)));
+  url.searchParams.set("token", key);
+  const res = await fetch(url.toString());
+  if (!res.ok) throw new Error(`Finnhub ${path} failed: ${res.status}`);
+  return res.json();
+}
+
+export async function fetchHistorical(symbol: string): Promise<PricePoint[]> {
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=2y&interval=1d`;
+  const res = await fetch(url, { headers: { "User-Agent": "JARVIS/1.0" } });
+  if (!res.ok) throw new Error(`Yahoo chart failed: ${res.status}`);
+  const json = await res.json();
+  const result = json?.chart?.result?.[0];
+  if (!result) throw new Error("No data");
+  const ts: number[] = result.timestamp;
+  const q = result.indicators?.quote?.[0] ?? {};
+  const out: PricePoint[] = [];
+  for (let i = 0; i < ts.length; i++) {
+    const c = q.close?.[i];
+    if (c == null || isNaN(c)) continue;
+    out.push({ t: ts[i] * 1000, p: c, v: q.volume?.[i] ?? 0 });
+  }
+  return out;
+}
+
+export async function getQuote(symbol: string) {
+  const quote = await fh<any>("/quote", { symbol });
+  return { price: quote.c, change: quote.d, changePercent: quote.dp, high: quote.h, low: quote.l, open: quote.o };
+}
+
+// ---------- Server functions (to be used by chat tools) ----------
+export async function analyzeStockTicker(ticker: string) {
+  const series = await fetchHistorical(ticker);
+  if (series.length < 30) throw new Error("Insufficient data");
+  const last = series[series.length - 1].p;
+  const pred = predictStock(series, 1, "balanced");
+  return {
+    symbol: ticker,
+    currentPrice: last,
+    prediction: pred,
+  };
+}
