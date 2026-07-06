@@ -230,14 +230,16 @@ export const Route = createFileRoute("/api/chat")({
             .order("updated_at", { ascending: false })
             .limit(5);
 
-          const factsBlock = (factRows ?? []).length
-            ? (factRows ?? [])
-                .map((f: any) => {
-                  const value = f.value.length > 60 ? f.value.slice(0, 60) + "…" : f.value;
-                  return `- [${f.category}] ${f.key}: ${value}`;
-                })
-                .join("\n")
-            : "(none yet)";
+          const rows = factRows ?? [];
+          let factsBlock = "(none yet)";
+          if (rows.length) {
+            factsBlock = rows
+              .map((f: any) => {
+                const value = f.value.length > 60 ? f.value.slice(0, 60) + "…" : f.value;
+                return `- [${f.category}] ${f.key}: ${value}`;
+              })
+              .join("\n");
+          }
 
           const last = messages[messages.length - 1];
           if (last?.role === "user") {
