@@ -161,9 +161,7 @@ async function storeCachedResponse(
   if (!supabase) return;
   // Do NOT cache responses that invoked tools — tool results are
   // side-effectful, and replaying them would lie about state.
-  const hasTool = (responseParts as any[]).some(
-    (p) => typeof p?.type === "string" && p.type.startsWith("tool-"),
-  );
+  const hasTool = (responseParts as any[]).some((p) => typeof p?.type === "string" && p.type.startsWith("tool-"));
   if (hasTool) return;
   // Skip trivially short / empty assistant turns.
   const textLen = (responseParts as any[])
@@ -2866,6 +2864,72 @@ export const Route = createFileRoute("/api/chat")({
                   m += 12;
                 }
                 return { ok: true, years: y, months: m, days: d };
+              },
+            }),
+
+            // ===== STOCK ANALYSIS TOOLS =====
+            get_stock_quote: tool({
+              description: "Get current stock price and change for a ticker.",
+              inputSchema: z.object({
+                symbol: z.string().toUpperCase(),
+              }),
+              execute: async ({ symbol }) => {
+                try {
+                  const { getQuote } = await import("@/lib/jarvis.functions");
+                  const data = await getQuote(symbol);
+                  return { ok: true, symbol, ...data };
+                } catch (e: any) {
+                  return { ok: false, error: e.message };
+                }
+              },
+            }),
+
+            analyze_stock: tool({
+              description: "Run a full stock analysis: direction, confidence, target price, expected return.",
+              inputSchema: z.object({
+                symbol: z.string().toUpperCase(),
+                horizon: z.enum(["1d", "1w", "1m", "6m", "1y"]).default("1d"),
+              }),
+              execute: async ({ symbol, horizon }) => {
+                try {
+                  const { analyzeStockTicker } = await import("@/lib/jarvis.functions");
+                  const horizonDays = { "1d": 1, "1w": 7, "1m": 30, "6m": 182, "1y": 365 }[horizon] || 1;
+                  const { fetchHistorical, predictStock } = await import("@/lib/jarvis.functions");
+                  const series = await fetchHistorical(symbol);
+                  const pred = predictStock(series, horizonDays, "balanced");
+                  return {
+                    ok: true,
+                    symbol,
+                    direction: pred.direction,
+                    confidence: pred.confidence,
+                    targetPrice: pred.targetPrice,
+                    expectedReturn: pred.expectedReturn,
+                    low: pred.low,
+                    high: pred.high,
+                    currentPrice: series[series.length - 1].p,
+                    signals: pred.signals,
+                  };
+                } catch (e: any) {
+                  return { ok: false, error: e.message };
+                }
+              },
+            }),
+
+            scan_top_picks: tool({
+              description: "Get the top 5 stocks from the leaderboard (requires predictions tracked).",
+              inputSchema: z.object({}),
+              execute: async () => {
+                try {
+                  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+                  const { data } = await supabaseAdmin
+                    .from("leaderboard_snapshot")
+                    .select("rows")
+                    .eq("horizon_days", 30)
+                    .maybeSingle();
+                  return { ok: true, rows: (data?.rows as any[])?.slice(0, 5) ?? [] };
+                } catch (e: any) {
+                  return { ok: false, error: e.message };
+                }
               },
             }),
           };
