@@ -1157,12 +1157,14 @@ function ImportPreviewModal({
 }
 
 // ------------------------------------------------------------
-// Helper: wrapHtml
+// Helper: wrapHtml — multi-file aware, CDN library injection, console bridge
 // ------------------------------------------------------------
-function wrapHtml(body: string, config: TabConfig): string {
+function wrapHtml(files: FilesShape, config: TabConfig): string {
   const theme = config.theme === "auto" ? "light dark" : config.theme;
   const padding = config.containerPadding || 16;
   const layoutClass = config.layout || "default";
+  const libs = (config.libraries || []).filter((u) => typeof u === "string" && u.trim());
+  const consoleOn = config.consoleEnabled !== false;
 
   let layoutStyles = "";
   if (layoutClass === "browser") {
@@ -1188,9 +1190,48 @@ function wrapHtml(body: string, config: TabConfig): string {
     layoutStyles = `body { padding: ${padding}px; }`;
   }
 
+  const libTags = libs
+    .map((u) => {
+      const clean = u.trim();
+      const isCss = /\.css(\?|$)/i.test(clean);
+      return isCss
+        ? `<link rel="stylesheet" href="${escapeHtml(clean)}">`
+        : `<script src="${escapeHtml(clean)}" crossorigin="anonymous"></script>`;
+    })
+    .join("\n  ");
+
+  const consoleBridge = consoleOn
+    ? `<script>
+(function(){
+  if (window.__jarvisConsoleBridged) return; window.__jarvisConsoleBridged = true;
+  var post = function(level, args){
+    try {
+      var out = Array.prototype.slice.call(args).map(function(a){
+        if (a instanceof Error) return a.stack || a.message;
+        if (typeof a === 'object') { try { return JSON.stringify(a); } catch(e){ return String(a); } }
+        return String(a);
+      }).join(' ');
+      parent.postMessage({ type: 'console-log', level: level, args: out }, '*');
+    } catch(e){}
+  };
+  ['log','info','warn','error'].forEach(function(lvl){
+    var orig = console[lvl].bind(console);
+    console[lvl] = function(){ post(lvl, arguments); orig.apply(null, arguments); };
+  });
+  window.addEventListener('error', function(e){ post('error', [e.message + ' @ ' + (e.filename||'') + ':' + (e.lineno||0)]); });
+  window.addEventListener('unhandledrejection', function(e){ post('error', ['Unhandled promise: ' + (e.reason && e.reason.message || e.reason)]); });
+})();
+<\/script>`
+    : "";
+
+  const host = typeof window !== "undefined" ? window.location.host : "preview";
+  const body = files.html || "";
+
   return `<!doctype html>
 <html>
 <head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+${consoleBridge}
+${libTags}
 <style>
   :root { color-scheme: ${theme}; }
   html,body {
@@ -1205,6 +1246,7 @@ function wrapHtml(body: string, config: TabConfig): string {
   a { color: #4dd0ff; }
   button, input, select, textarea { font: inherit; }
   * { box-sizing: border-box; }
+${files.css || ""}
 </style>
 </head>
 <body class="layout-${layoutClass}">
@@ -1212,13 +1254,19 @@ function wrapHtml(body: string, config: TabConfig): string {
     layoutClass === "browser"
       ? `
     <div class="browser-bar">
-      <div class="dots"><span style="background:#ff5f56"/><span style="background:#ffbd2e"/><span style="background:#27c93f"/></div>
-      <div class="url">${window.location.host}</div>
+      <div class="dots"><span style="background:#ff5f56"></span><span style="background:#ffbd2e"></span><span style="background:#27c93f"></span></div>
+      <div class="url">${escapeHtml(host)}</div>
     </div>
     <div class="browser-body">${body}</div>
   `
       : body
   }
+${files.js ? `<script>\ntry {\n${files.js}\n} catch(e){ console.error(e); }\n<\/script>` : ""}
 </body>
 </html>`;
 }
+
+function escapeHtml(s: string): string {
+  return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
+}
+
