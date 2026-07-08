@@ -1,9 +1,13 @@
 import { createFileRoute } from "@tanstack/react-router";
 import {
+  convertToModelMessages,
   createUIMessageStream,
   createUIMessageStreamResponse,
+  streamText,
   type UIMessage,
 } from "ai";
+import { createClient } from "@supabase/supabase-js";
+import { getModelForUser, getSystemPrompt } from "@/lib/ai-gateway.server";
 
 type Body = { messages?: UIMessage[]; threadId?: string; tabSlug?: string | null };
 
@@ -19,17 +23,10 @@ function serializeChatError(error: unknown, stage: string, extra: Record<string,
     statusCode: e?.statusCode ?? e?.status ?? cause?.statusCode ?? cause?.status,
     provider: e?.provider,
     modelId: e?.modelId,
-    version: e?.version,
     causeName: cause?.name,
     causeMessage: cause?.message,
     ...extra,
   };
-}
-
-function debugChatError(error: unknown, stage: string, extra: Record<string, unknown> = {}) {
-  const payload = serializeChatError(error, stage, extra);
-  console.error(`[JARVIS_CHAT_DEBUG]\n${JSON.stringify(payload, null, 2)}`, error);
-  return payload;
 }
 
 function chatErrorResponse(payload: ReturnType<typeof serializeChatError>, originalMessages: UIMessage[]) {
@@ -43,16 +40,9 @@ function chatErrorResponse(payload: ReturnType<typeof serializeChatError>, origi
       writer.write({ type: "text-delta", id, delta: message });
       writer.write({ type: "text-end", id });
     },
-    onError: (streamError) => {
-      const streamPayload = serializeChatError(streamError, "fallback-stream");
-      console.error(`[JARVIS_CHAT_DEBUG]\n${JSON.stringify(streamPayload, null, 2)}`, streamError);
-      return streamPayload.message;
-    },
   });
   return createUIMessageStreamResponse({ status: 200, stream });
 }
-
-// Chat/embedding/memory/cache helpers removed — AI is disabled to avoid Lovable credit usage.
 
 export const Route = createFileRoute("/api/chat")({
   server: {
@@ -62,36 +52,81 @@ export const Route = createFileRoute("/api/chat")({
         const token = auth.replace(/^Bearer\s+/i, "");
         if (!token) return new Response("Unauthorized", { status: 401 });
 
-        const { messages, threadId, tabSlug } = (await request.json()) as Body;
+        const { messages, threadId } = (await request.json()) as Body;
         if (!Array.isArray(messages) || !threadId) return new Response("Bad request", { status: 400 });
 
-        // ---- AI DISABLED (no Lovable credit usage) ----
-        // Chat model calls are turned off so this site consumes zero Lovable credits.
-        // Re-enable by removing this block.
-        {
-          const id = typeof crypto !== "undefined" && "randomUUID" in crypto
-            ? crypto.randomUUID()
-            : `ai-disabled-${Date.now()}`;
-          const message =
-            "AI responses are disabled on this site to avoid using Lovable credits. " +
-            "Voice input still works locally in your browser. " +
-            "To re-enable JARVIS chat, remove the AI-disabled block in src/routes/api/chat.ts.";
-          const stream = createUIMessageStream<UIMessage>({
+        const SUPABASE_URL = process.env.SUPABASE_URL!;
+        const SUPABASE_PUBLISHABLE_KEY = process.env.SUPABASE_PUBLISHABLE_KEY!;
+        const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
+          global: { headers: { Authorization: `Bearer ${token}` } },
+          auth: { persistSession: false, autoRefreshToken: false, storage: undefined },
+        });
+
+        const { data: claims, error: claimsErr } = await supabase.auth.getClaims(token);
+        if (claimsErr || !claims?.claims?.sub) return new Response("Unauthorized", { status: 401 });
+        const userId = claims.claims.sub as string;
+
+        try {
+          const { model, mode } = await getModelForUser(userId, supabase);
+          const system = getSystemPrompt(mode || "basic", "Sir", "");
+
+          const lastUser = [...messages].reverse().find((m) => m.role === "user");
+
+          const result = streamText({
+            model,
+            system,
+            messages: await convertToModelMessages(messages),
+          });
+
+          const response = result.toUIMessageStreamResponse({
             originalMessages: messages,
-            execute: ({ writer }) => {
-              writer.write({ type: "text-start", id });
-              writer.write({ type: "text-delta", id, delta: message });
-              writer.write({ type: "text-end", id });
+            onFinish: async ({ messages: finalMessages }) => {
+              try {
+                // Persist last user + assistant messages for this thread
+                const assistant = [...finalMessages].reverse().find((m) => m.role === "assistant");
+                const rows: any[] = [];
+                if (lastUser) {
+                  rows.push({
+                    thread_id: threadId,
+                    user_id: userId,
+                    role: "user",
+                    parts: lastUser.parts ?? [],
+                  });
+                }
+                if (assistant) {
+                  rows.push({
+                    thread_id: threadId,
+                    user_id: userId,
+                    role: "assistant",
+                    parts: assistant.parts ?? [],
+                  });
+                }
+                if (rows.length) {
+                  const { error } = await supabase.from("chat_messages").insert(rows);
+                  if (error) console.error("[chat] persist error", error);
+                }
+                await supabase
+                  .from("chat_threads")
+                  .update({ updated_at: new Date().toISOString() })
+                  .eq("id", threadId)
+                  .eq("user_id", userId);
+              } catch (e) {
+                console.error("[chat] onFinish", e);
+              }
             },
           });
-          return createUIMessageStreamResponse({ status: 200, stream });
-        }
 
-        // (chat handler body removed — AI disabled to avoid Lovable credit usage)
+          return response;
+        } catch (error) {
+          const payload = serializeChatError(error, "stream");
+          console.error(`[JARVIS_CHAT_DEBUG]\n${JSON.stringify(payload, null, 2)}`, error);
+          return chatErrorResponse(payload, messages);
+        }
       },
     },
   },
 });
+
 
 function buildBrowserTabHTML(opts: {
   homeUrl: string;
