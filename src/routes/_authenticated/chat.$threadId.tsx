@@ -34,14 +34,17 @@ function ChatPage() {
     setCreating(true);
     try {
       const t = await create({ data: {} });
-      qc.invalidateQueries({ queryKey: ["threads"] });
+      qc.setQueryData(["chat-messages", t.id], []);
+      await qc.invalidateQueries({ queryKey: ["threads"] });
       navigate({ to: "/chat/$threadId", params: { threadId: t.id } });
     } finally { setCreating(false); }
   }
 
   async function onDelete(id: string) {
     await remove({ data: { id } });
-    qc.invalidateQueries({ queryKey: ["threads"] });
+    qc.removeQueries({ queryKey: ["chat-messages", id] });
+    qc.removeQueries({ queryKey: ["chat-messages"] });
+    await qc.invalidateQueries({ queryKey: ["threads"] });
     if (id === threadId) {
       const remaining = threads.filter((t: any) => t.id !== id);
       if (remaining.length) navigate({ to: "/chat/$threadId", params: { threadId: remaining[0].id } });

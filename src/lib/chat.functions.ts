@@ -56,6 +56,13 @@ export const deleteThread = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => z.object({ id: z.string().uuid() }).parse(input))
   .handler(async ({ data, context }) => {
     const { supabase, userId } = context as any;
+    const { error: messagesError } = await supabase
+      .from("chat_messages")
+      .delete()
+      .eq("thread_id", data.id)
+      .eq("user_id", userId);
+    if (messagesError) throw messagesError;
+
     const { error } = await supabase.from("chat_threads").delete()
       .eq("id", data.id).eq("user_id", userId);
     if (error) throw error;
