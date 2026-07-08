@@ -15,6 +15,9 @@ import {
   VolumeX,
   Mic,
   MicOff,
+  Paperclip,
+  FileText,
+  X,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -54,11 +57,13 @@ export function ChatWindow({
 }) {
   const qc = useQueryClient();
   const [input, setInput] = useState("");
+  const [attachments, setAttachments] = useState<{ id: string; name: string; size: number; content: string; kind: "text" | "binary" }[]>([]);
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [micPermission, setMicPermission] = useState<PermissionState | "unknown" | "unsupported">("unknown");
   const [micDiagOpen, setMicDiagOpen] = useState(false);
   const taRef = useRef<HTMLTextAreaElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
@@ -345,9 +350,63 @@ export function ChatWindow({
 
   async function submit() {
     const text = input.trim();
-    if (!text || busy) return;
+    if ((!text && attachments.length === 0) || busy) return;
+    // Smuggle full file contents into the prompt as fenced blocks — the UI
+    // still renders them as compact chips, but the model receives everything.
+    const filePayload = attachments.length
+      ? attachments
+          .map((a) =>
+            a.kind === "text"
+              ? `\n\n<file name="${a.name}" bytes="${a.size}">\n\`\`\`\n${a.content}\n\`\`\`\n</file>`
+              : `\n\n<file name="${a.name}" bytes="${a.size}" encoding="base64">\n${a.content}\n</file>`,
+          )
+          .join("")
+      : "";
+    const fullText = (text || `Attached ${attachments.length} file(s).`) + filePayload;
     setInput("");
-    await sendMessage({ text });
+    setAttachments([]);
+    await sendMessage({ text: fullText });
+  }
+
+  const TEXT_EXT = /\.(txt|md|markdown|lua|js|jsx|ts|tsx|py|rb|go|rs|java|c|h|cpp|hpp|cs|php|sh|bash|zsh|yml|yaml|toml|ini|conf|json|xml|html|htm|css|scss|sass|sql|env|log|csv|tsv|swift|kt|dart|vue|svelte|astro|graphql|proto|dockerfile|makefile)$/i;
+
+  async function handleFiles(files: FileList | null) {
+    if (!files || files.length === 0) return;
+    const MAX_BYTES = 500_000;
+    const MAX_FILES = 6;
+    const additions: typeof attachments = [];
+    for (const file of Array.from(files).slice(0, MAX_FILES - attachments.length)) {
+      if (file.size > MAX_BYTES) {
+        toast.error(`${file.name}: too large (${(file.size / 1024).toFixed(0)}kb, max 500kb)`);
+        continue;
+      }
+      const isText = TEXT_EXT.test(file.name) || file.type.startsWith("text/") || file.type === "application/json";
+      try {
+        const content = isText
+          ? await file.text()
+          : await new Promise<string>((res, rej) => {
+              const r = new FileReader();
+              r.onload = () => res((r.result as string).split(",")[1] ?? "");
+              r.onerror = () => rej(r.error);
+              r.readAsDataURL(file);
+            });
+        additions.push({
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          name: file.name,
+          size: file.size,
+          content,
+          kind: isText ? "text" : "binary",
+        });
+      } catch (err: any) {
+        toast.error(`Failed to read ${file.name}: ${err?.message ?? err}`);
+      }
+    }
+    if (additions.length) setAttachments((prev) => [...prev, ...additions]);
+    if (fileRef.current) fileRef.current.value = "";
+  }
+
+  function removeAttachment(id: string) {
+    setAttachments((prev) => prev.filter((a) => a.id !== id));
   }
 
   return (
@@ -374,7 +433,43 @@ export function ChatWindow({
       </div>
 
       <div className="border-t border-arc/15 bg-background/40 backdrop-blur px-4 py-3">
+        {attachments.length > 0 && (
+          <div className="max-w-4xl mx-auto mb-2 flex flex-wrap gap-2">
+            {attachments.map((a) => (
+              <div key={a.id} className="group flex items-center gap-2 pl-2 pr-1 py-1 rounded-md bg-arc/10 border border-arc/25 text-xs">
+                <FileText size={12} className="text-arc" />
+                <span className="font-mono truncate max-w-[180px]" title={a.name}>{a.name}</span>
+                <span className="text-hud-dim text-[10px]">{(a.size / 1024).toFixed(1)}kb</span>
+                <button
+                  onClick={() => removeAttachment(a.id)}
+                  className="p-0.5 rounded hover:bg-critical/20 text-hud-dim hover:text-critical"
+                  aria-label={`Remove ${a.name}`}
+                >
+                  <X size={12} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        <input
+          ref={fileRef}
+          type="file"
+          multiple
+          className="hidden"
+          onChange={(e) => handleFiles(e.target.files)}
+        />
         <div className="flex items-end gap-2 max-w-4xl mx-auto">
+          {/* Attach files */}
+          <button
+            onClick={() => fileRef.current?.click()}
+            disabled={busy || attachments.length >= 6}
+            className="p-3 rounded-lg border border-arc/30 hover:bg-arc/10 text-hud-dim disabled:opacity-40 transition"
+            aria-label="Attach files"
+            title="Attach files (text files sent as code, others as base64)"
+          >
+            <Paperclip size={16} />
+          </button>
+
           {/* TTS Toggle */}
           <button
             onClick={toggleTts}
@@ -459,7 +554,7 @@ export function ChatWindow({
           ) : (
             <button
               onClick={submit}
-              disabled={!input.trim()}
+              disabled={!input.trim() && attachments.length === 0}
               className="p-3 rounded-lg bg-arc text-arc-foreground shadow-arc hover:opacity-90 disabled:opacity-40 transition"
               aria-label="Send"
             >

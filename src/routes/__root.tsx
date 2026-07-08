@@ -17,6 +17,8 @@ import { reportLovableError } from "../lib/lovable-error-reporting";
 import { installDebugConsole } from "../lib/debug-console";
 import { supabase } from "@/integrations/supabase/client";
 import { Toaster } from "@/components/ui/sonner";
+import { applyThemeOverrides, readThemeOverrides } from "@/lib/theme";
+import { useNotificationBridge } from "@/lib/browser-notifications";
 
 function NotFoundComponent() {
   return (
@@ -144,6 +146,7 @@ function RootComponent() {
 
   useEffect(() => {
     installDebugConsole();
+    applyThemeOverrides(readThemeOverrides());
     const { data: sub } = supabase.auth.onAuthStateChange((event) => {
       if (event !== "SIGNED_IN" && event !== "SIGNED_OUT" && event !== "USER_UPDATED") return;
       router.invalidate();
@@ -151,6 +154,8 @@ function RootComponent() {
     });
     return () => sub.subscription.unsubscribe();
   }, [router, queryClient]);
+
+  useNotificationBridge();
 
   return (
     <QueryClientProvider client={queryClient}>
