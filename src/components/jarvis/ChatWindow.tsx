@@ -350,9 +350,63 @@ export function ChatWindow({
 
   async function submit() {
     const text = input.trim();
-    if (!text || busy) return;
+    if ((!text && attachments.length === 0) || busy) return;
+    // Smuggle full file contents into the prompt as fenced blocks — the UI
+    // still renders them as compact chips, but the model receives everything.
+    const filePayload = attachments.length
+      ? attachments
+          .map((a) =>
+            a.kind === "text"
+              ? `\n\n<file name="${a.name}" bytes="${a.size}">\n\`\`\`\n${a.content}\n\`\`\`\n</file>`
+              : `\n\n<file name="${a.name}" bytes="${a.size}" encoding="base64">\n${a.content}\n</file>`,
+          )
+          .join("")
+      : "";
+    const fullText = (text || `Attached ${attachments.length} file(s).`) + filePayload;
     setInput("");
-    await sendMessage({ text });
+    setAttachments([]);
+    await sendMessage({ text: fullText });
+  }
+
+  const TEXT_EXT = /\.(txt|md|markdown|lua|js|jsx|ts|tsx|py|rb|go|rs|java|c|h|cpp|hpp|cs|php|sh|bash|zsh|yml|yaml|toml|ini|conf|json|xml|html|htm|css|scss|sass|sql|env|log|csv|tsv|swift|kt|dart|vue|svelte|astro|graphql|proto|dockerfile|makefile)$/i;
+
+  async function handleFiles(files: FileList | null) {
+    if (!files || files.length === 0) return;
+    const MAX_BYTES = 500_000;
+    const MAX_FILES = 6;
+    const additions: typeof attachments = [];
+    for (const file of Array.from(files).slice(0, MAX_FILES - attachments.length)) {
+      if (file.size > MAX_BYTES) {
+        toast.error(`${file.name}: too large (${(file.size / 1024).toFixed(0)}kb, max 500kb)`);
+        continue;
+      }
+      const isText = TEXT_EXT.test(file.name) || file.type.startsWith("text/") || file.type === "application/json";
+      try {
+        const content = isText
+          ? await file.text()
+          : await new Promise<string>((res, rej) => {
+              const r = new FileReader();
+              r.onload = () => res((r.result as string).split(",")[1] ?? "");
+              r.onerror = () => rej(r.error);
+              r.readAsDataURL(file);
+            });
+        additions.push({
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          name: file.name,
+          size: file.size,
+          content,
+          kind: isText ? "text" : "binary",
+        });
+      } catch (err: any) {
+        toast.error(`Failed to read ${file.name}: ${err?.message ?? err}`);
+      }
+    }
+    if (additions.length) setAttachments((prev) => [...prev, ...additions]);
+    if (fileRef.current) fileRef.current.value = "";
+  }
+
+  function removeAttachment(id: string) {
+    setAttachments((prev) => prev.filter((a) => a.id !== id));
   }
 
   return (
