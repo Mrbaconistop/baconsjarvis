@@ -1494,3 +1494,141 @@ function escapeHtml(s: string): string {
   return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 }
 
+// ------------------------------------------------------------
+// ConsolePanel — captures iframe console.* + errors
+// ------------------------------------------------------------
+function ConsolePanel({
+  logs,
+  onClear,
+  onClose,
+}: {
+  logs: ConsoleLog[];
+  onClear: () => void;
+  onClose: () => void;
+}) {
+  const endRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ block: "end" });
+  }, [logs]);
+  return (
+    <div className="mt-2 rounded-md border border-arc/25 bg-background/70 backdrop-blur overflow-hidden max-h-56 flex flex-col">
+      <div className="flex items-center gap-2 px-3 py-1.5 border-b border-arc/15 bg-background/60">
+        <Terminal size={12} className="text-arc" />
+        <div className="text-[10px] font-mono tracking-[0.25em] text-arc/80 flex-1">CONSOLE · {logs.length}</div>
+        <button onClick={onClear} className="text-[10px] font-mono text-hud-dim hover:text-foreground">CLEAR</button>
+        <button onClick={onClose} className="text-hud-dim hover:text-foreground"><X size={12} /></button>
+      </div>
+      <div className="flex-1 overflow-y-auto p-2 space-y-0.5 font-mono text-[11px]">
+        {logs.length === 0 ? (
+          <div className="text-hud-dim italic">No output yet — logs from your tab will appear here.</div>
+        ) : (
+          logs.map((l, i) => (
+            <div
+              key={i}
+              className={`whitespace-pre-wrap break-all border-l-2 pl-2 ${
+                l.level === "error"
+                  ? "border-critical text-critical"
+                  : l.level === "warn"
+                    ? "border-warning text-warning"
+                    : l.level === "info"
+                      ? "border-arc/50 text-arc/90"
+                      : "border-arc/15 text-foreground/85"
+              }`}
+            >
+              <span className="opacity-40 mr-1">[{new Date(l.ts).toLocaleTimeString([], { hour12: false })}]</span>
+              {l.text}
+            </div>
+          ))
+        )}
+        <div ref={endRef} />
+      </div>
+    </div>
+  );
+}
+
+// ------------------------------------------------------------
+// Starter templates
+// ------------------------------------------------------------
+type Template = { name: string; combined: string; files: FilesShape; libraries?: string[] };
+
+const TEMPLATES: Record<string, Template> = {
+  hello: {
+    name: "Hello counter",
+    files: {
+      html: `<div class="wrap">\n  <h1>Hello, JARVIS!</h1>\n  <p>Click below.</p>\n  <button id="btn">Clicked <span id="c">0</span> times</button>\n</div>`,
+      css: `.wrap{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;gap:12px}\nbutton{padding:10px 18px;border-radius:8px;background:#7c3aed;color:#fff;border:0;cursor:pointer;font-size:15px}`,
+      js: `let n=0;document.getElementById('btn').onclick=()=>document.getElementById('c').textContent=++n;`,
+    },
+    combined: `<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;gap:12px"><h1>Hello, JARVIS!</h1><button onclick="this.textContent='Clicked '+ (++window.__c||(window.__c=1))+' times'">Click</button></div>`,
+  },
+  fetch: {
+    name: "Fetch API demo",
+    files: {
+      html: `<div style="padding:20px;font-family:system-ui">\n  <h2>Random cat fact</h2>\n  <button id="go">Fetch</button>\n  <pre id="out" style="margin-top:12px;background:#111;padding:12px;border-radius:8px;color:#9cf"></pre>\n</div>`,
+      css: `button{padding:8px 14px;background:#4dd0ff;color:#012;border:0;border-radius:6px;cursor:pointer;font-weight:600}`,
+      js: `const out=document.getElementById('out');\ndocument.getElementById('go').onclick=async()=>{\n  out.textContent='Loading…';\n  try{const r=await fetch('https://catfact.ninja/fact');const j=await r.json();out.textContent=j.fact}\n  catch(e){out.textContent='Error: '+e.message}\n};`,
+    },
+    combined: "",
+  },
+  canvas: {
+    name: "Canvas bouncing ball",
+    files: {
+      html: `<canvas id="c" width="600" height="400" style="display:block;margin:auto;background:#0b1220;border-radius:12px"></canvas>`,
+      css: `body{display:flex;align-items:center;justify-content:center;height:100vh;margin:0}`,
+      js: `const c=document.getElementById('c'),g=c.getContext('2d');\nlet x=100,y=100,vx=3,vy=2;\nfunction f(){g.fillStyle='#0b1220';g.fillRect(0,0,c.width,c.height);\n  g.fillStyle='#4dd0ff';g.beginPath();g.arc(x,y,20,0,Math.PI*2);g.fill();\n  x+=vx;y+=vy;if(x<20||x>c.width-20)vx*=-1;if(y<20||y>c.height-20)vy*=-1;\n  requestAnimationFrame(f);}f();`,
+    },
+    combined: "",
+  },
+  chart: {
+    name: "Chart.js line chart",
+    files: {
+      html: `<div style="max-width:700px;margin:40px auto;padding:20px;background:#fff;border-radius:12px;color:#111">\n  <h2>Weekly demo</h2>\n  <canvas id="chart"></canvas>\n</div>`,
+      css: ``,
+      js: `new Chart(document.getElementById('chart'),{\n  type:'line',\n  data:{labels:['Mon','Tue','Wed','Thu','Fri','Sat','Sun'],\n    datasets:[{label:'Traffic',data:[12,19,7,15,22,8,14],borderColor:'#7c3aed',backgroundColor:'rgba(124,58,237,.15)',fill:true,tension:.35}]},\n  options:{responsive:true}\n});`,
+    },
+    libraries: ["https://cdn.jsdelivr.net/npm/chart.js"],
+    combined: "",
+  },
+  form: {
+    name: "Form → localStorage",
+    files: {
+      html: `<form id="f" style="max-width:400px;margin:40px auto;display:flex;flex-direction:column;gap:10px;padding:20px;background:#111;border-radius:10px">\n  <h3>Notes</h3>\n  <textarea id="t" rows="5" style="padding:8px;border-radius:6px;background:#222;color:#eee;border:1px solid #333"></textarea>\n  <button style="padding:8px;background:#4dd0ff;color:#012;border:0;border-radius:6px">Save</button>\n  <div id="status" style="color:#9cf;font-size:13px"></div>\n</form>`,
+      css: ``,
+      js: `const t=document.getElementById('t'),s=document.getElementById('status');\nt.value=localStorage.getItem('note')||'';\ndocument.getElementById('f').onsubmit=e=>{e.preventDefault();localStorage.setItem('note',t.value);s.textContent='Saved '+new Date().toLocaleTimeString();};`,
+    },
+    combined: "",
+  },
+  react: {
+    name: "React (UMD) todo",
+    files: {
+      html: `<div id="root" style="padding:24px;font-family:system-ui"></div>`,
+      css: `input{padding:6px;border-radius:4px;border:1px solid #333;background:#222;color:#eee}\nbutton{padding:6px 10px;border-radius:4px;border:0;background:#7c3aed;color:#fff;cursor:pointer;margin-left:6px}\nli{padding:4px 0}`,
+      js: `const {useState}=React;\nfunction App(){\n  const [items,setItems]=useState([]);\n  const [t,setT]=useState('');\n  return React.createElement('div',null,\n    React.createElement('h2',null,'Todos'),\n    React.createElement('input',{value:t,onChange:e=>setT(e.target.value)}),\n    React.createElement('button',{onClick:()=>{if(t){setItems([...items,t]);setT('')}}},'Add'),\n    React.createElement('ul',null,items.map((x,i)=>React.createElement('li',{key:i},x)))\n  );\n}\nReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App));`,
+    },
+    libraries: [
+      "https://unpkg.com/react@18/umd/react.production.min.js",
+      "https://unpkg.com/react-dom@18/umd/react-dom.production.min.js",
+    ],
+    combined: "",
+  },
+  tailwind: {
+    name: "Tailwind card",
+    files: {
+      html: `<div class="min-h-screen bg-slate-900 flex items-center justify-center p-8">\n  <div class="bg-slate-800 rounded-2xl p-8 shadow-2xl max-w-md">\n    <h1 class="text-3xl font-bold text-white">Tailwind ready</h1>\n    <p class="mt-3 text-slate-300">Utility classes work via the Play CDN.</p>\n    <button class="mt-6 px-5 py-2 bg-indigo-500 hover:bg-indigo-400 text-white rounded-lg">Go</button>\n  </div>\n</div>`,
+      css: ``,
+      js: ``,
+    },
+    libraries: ["https://cdn.tailwindcss.com"],
+    combined: "",
+  },
+};
+
+// Backfill legacy `combined` for templates that skipped it.
+for (const k of Object.keys(TEMPLATES)) {
+  const t = TEMPLATES[k];
+  if (!t.combined) {
+    t.combined = `${t.files.css ? `<style>\n${t.files.css}\n</style>\n` : ""}${t.files.html}${t.files.js ? `\n<script>\n${t.files.js}\n<\/script>` : ""}`;
+  }
+}
+
+
