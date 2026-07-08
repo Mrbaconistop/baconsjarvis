@@ -14,12 +14,21 @@ export type AppAction =
   | { type: "open_url"; url: string; new_tab?: boolean }
   | { type: "toast"; message: string; kind?: "info" | "success" | "error" | "warning" }
   | { type: "set_theme"; theme: "light" | "dark" | "system" }
+  | { type: "apply_theme_tokens"; tokens: Record<string, string>; merge?: boolean }
+  | { type: "reset_theme" }
   | { type: "scroll_to"; selector: string }
   | { type: "focus_chat" }
   | { type: "copy_to_clipboard"; text: string; label?: string }
   | { type: "invalidate_queries"; keys?: string[] }
   | { type: "start_timer"; seconds: number; label?: string; sound?: boolean }
-  | { type: "speak"; text: string; voice?: string };
+  | { type: "speak"; text: string; voice?: string }
+  | { type: "click"; selector: string }
+  | { type: "set_input_value"; selector: string; value: string }
+  | { type: "set_local_storage"; key: string; value: string }
+  | { type: "remove_local_storage"; key: string }
+  | { type: "set_document_title"; title: string }
+  | { type: "add_class"; selector: string; className: string }
+  | { type: "remove_class"; selector: string; className: string };
 
 type Handler<T> = (a: T) => void;
 

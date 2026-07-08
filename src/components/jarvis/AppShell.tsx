@@ -18,6 +18,7 @@ import {
   X,
   Sparkles,
 } from "lucide-react";
+import { applyThemeOverrides, readThemeOverrides, writeThemeOverrides, resetTheme } from "@/lib/theme";
 import { supabase } from "@/integrations/supabase/client";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
@@ -155,6 +156,53 @@ export function AppShell({ children }: { children: ReactNode }) {
               }
               speechSynthesis.speak(u);
             } catch {}
+            break;
+          }
+          case "apply_theme_tokens": {
+            const base = a.merge === false ? {} : readThemeOverrides();
+            const next = { ...base, ...a.tokens };
+            writeThemeOverrides(next);
+            applyThemeOverrides(next);
+            break;
+          }
+          case "reset_theme": {
+            resetTheme();
+            applyThemeOverrides({});
+            break;
+          }
+          case "click": {
+            const el = document.querySelector(a.selector) as HTMLElement | null;
+            el?.click();
+            break;
+          }
+          case "set_input_value": {
+            const el = document.querySelector(a.selector) as HTMLInputElement | HTMLTextAreaElement | null;
+            if (el) {
+              const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+              const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
+              setter?.call(el, a.value);
+              el.dispatchEvent(new Event("input", { bubbles: true }));
+              el.dispatchEvent(new Event("change", { bubbles: true }));
+            }
+            break;
+          }
+          case "set_local_storage":
+            try { localStorage.setItem(a.key, a.value); } catch {}
+            break;
+          case "remove_local_storage":
+            try { localStorage.removeItem(a.key); } catch {}
+            break;
+          case "set_document_title":
+            document.title = a.title;
+            break;
+          case "add_class": {
+            const el = document.querySelector(a.selector);
+            if (el) el.classList.add(a.className);
+            break;
+          }
+          case "remove_class": {
+            const el = document.querySelector(a.selector);
+            if (el) el.classList.remove(a.className);
             break;
           }
         }
