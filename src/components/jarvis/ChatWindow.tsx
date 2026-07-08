@@ -23,6 +23,8 @@ import rehypeKatex from "rehype-katex";
 import { useQueryClient } from "@tanstack/react-query";
 import { applyClientAction } from "@/lib/mapBus";
 import { toast } from "sonner";
+import { MicDiagnosticsDialog } from "./MicDiagnosticsDialog";
+import { HelpCircle } from "lucide-react";
 
 const TOOL_META: Record<string, { icon: any; label: string }> = {
   "tool-create_reminder": { icon: Bell, label: "Setting reminder" },
