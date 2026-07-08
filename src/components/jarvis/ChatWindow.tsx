@@ -363,7 +363,8 @@ export function ChatWindow({
           )
           .join("")
       : "";
-    const fullText = (text || `Attached ${attachments.length} file(s).`) + filePayload;
+    const libraryPayload = buildLibraryPromptPayload();
+    const fullText = (text || `Attached ${attachments.length} file(s).`) + filePayload + libraryPayload;
     setInput("");
     setAttachments([]);
     await sendMessage({ text: fullText });
