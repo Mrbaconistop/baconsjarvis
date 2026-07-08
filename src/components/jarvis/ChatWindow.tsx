@@ -222,7 +222,8 @@ export function ChatWindow({
 
     if (micPermission === "denied") {
       toast.error("Microphone is blocked for this site.", {
-        description: "Open the lock/site settings by the address bar, allow Microphone, then reload.",
+        description: "Unblock it in site settings, then reload. Tap the ? button for diagnostics.",
+        action: { label: "Diagnose", onClick: () => setMicDiagOpen(true) },
       });
       return false;
     }
