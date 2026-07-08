@@ -126,12 +126,18 @@ function CustomTabPage() {
 
   // --- State ---
   const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState("");
+  const [draft, setDraft] = useState(""); // legacy single-file HTML
+  const [files, setFiles] = useState<FilesShape>({ html: "", css: "", js: "" });
+  const [activeLang, setActiveLang] = useState<"html" | "css" | "js" | "libs">("html");
+  const [libDraft, setLibDraft] = useState("");
   const [label, setLabel] = useState("");
-  const [config, setConfig] = useState<TabConfig>({
-    layout: "default",
-    theme: "dark",
-    containerPadding: 16,
+  const [config, setConfig] = useState<TabConfig>(DEFAULT_CONFIG);
+
+  // Console panel
+  const [consoleLogs, setConsoleLogs] = useState<ConsoleLog[]>([]);
+  const [showConsole, setShowConsole] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    return window.localStorage.getItem("tab-console-open") === "1";
   });
 
   // Fullscreen (parent‑side)
@@ -158,14 +164,24 @@ function CustomTabPage() {
   // Auto‑save debounce
   const saveTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const multiFile = !!config.files;
+
   // --- Effects ---
   useEffect(() => {
     if (tab) {
       setDraft(tab.content_html || "");
       setLabel(tab.label || "");
-      setConfig(tab.config || { layout: "default", theme: "dark", containerPadding: 16 });
+      const merged = { ...DEFAULT_CONFIG, ...(tab.config || {}) } as TabConfig;
+      setConfig(merged);
+      if (merged.files) setFiles(merged.files);
     }
   }, [tab]);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("tab-console-open", showConsole ? "1" : "0");
+    }
+  }, [showConsole]);
 
   // Persist fullscreen state
   useEffect(() => {
