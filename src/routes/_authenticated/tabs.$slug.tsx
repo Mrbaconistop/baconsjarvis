@@ -686,53 +686,216 @@ function CustomTabPage() {
         <div className="flex-1 min-w-0">
           {editing ? (
             <div className="grid lg:grid-cols-2 gap-4 h-full">
-              <div className="flex flex-col gap-2">
-                <input
-                  value={label}
-                  onChange={(e) => setLabel(e.target.value)}
-                  className="bg-background/40 border border-arc/20 rounded-md px-3 py-2 text-sm font-mono focus:border-arc focus:outline-none"
-                  placeholder="Tab label"
-                />
-                <textarea
-                  value={draft}
-                  onChange={(e) => {
-                    setDraft(e.target.value);
-                    if (saveTimeout.current) clearTimeout(saveTimeout.current);
-                    saveTimeout.current = setTimeout(() => {
-                      if (tab) {
-                        doUpdate({
-                          data: { id: tab.id, content_html: e.target.value, label, config },
-                        }).catch(() => {});
+              <div className="flex flex-col gap-2 min-h-0">
+                <div className="flex items-center gap-2">
+                  <input
+                    value={label}
+                    onChange={(e) => setLabel(e.target.value)}
+                    className="flex-1 bg-background/40 border border-arc/20 rounded-md px-3 py-2 text-sm font-mono focus:border-arc focus:outline-none"
+                    placeholder="Tab label"
+                  />
+                  {!multiFile ? (
+                    <button
+                      onClick={() => {
+                        setFiles({ html: draft, css: "", js: "" });
+                        setConfig({ ...config, files: { html: draft, css: "", js: "" } });
+                        setActiveLang("html");
+                        toast.info("Split into HTML / CSS / JS files");
+                      }}
+                      className="text-[10px] font-mono px-2 py-1.5 rounded border border-arc/30 hover:bg-arc/10 whitespace-nowrap"
+                      title="Convert to multi-file coding mode"
+                    >
+                      SPLIT →
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => {
+                        const combined = combinedContentHtml();
+                        setDraft(combined);
+                        const { files: _drop, ...rest } = config;
+                        setConfig(rest);
+                        toast.info("Merged into single HTML file");
+                      }}
+                      className="text-[10px] font-mono px-2 py-1.5 rounded border border-arc/30 hover:bg-arc/10 whitespace-nowrap"
+                      title="Merge back to single file"
+                    >
+                      MERGE ←
+                    </button>
+                  )}
+                </div>
+
+                {multiFile && (
+                  <div className="flex gap-0.5 border-b border-arc/15">
+                    {([
+                      { id: "html", label: "index.html", Icon: FileCode },
+                      { id: "css", label: "style.css", Icon: Palette },
+                      { id: "js", label: "script.js", Icon: Braces },
+                      { id: "libs", label: `libs (${(config.libraries || []).length})`, Icon: Package },
+                    ] as const).map(({ id, label: l, Icon }) => (
+                      <button
+                        key={id}
+                        onClick={() => setActiveLang(id)}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-mono border-b-2 -mb-px transition ${
+                          activeLang === id
+                            ? "border-arc text-arc bg-arc/5"
+                            : "border-transparent text-hud-dim hover:text-foreground"
+                        }`}
+                      >
+                        <Icon size={11} /> {l}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {multiFile && activeLang === "libs" ? (
+                  <div className="flex-1 min-h-0 flex flex-col gap-2 bg-background/40 border border-arc/20 rounded-md p-3">
+                    <div className="text-[10px] text-hud-dim font-mono">
+                      CDN URLs — <code>.js</code> injected as &lt;script&gt;, <code>.css</code> as &lt;link&gt;.
+                    </div>
+                    <div className="flex gap-1">
+                      <input
+                        value={libDraft}
+                        onChange={(e) => setLibDraft(e.target.value)}
+                        placeholder="https://cdn.jsdelivr.net/npm/chart.js"
+                        className="flex-1 bg-background/60 border border-arc/20 rounded-md px-2 py-1.5 text-xs font-mono focus:border-arc focus:outline-none"
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && libDraft.trim()) {
+                            setConfig({ ...config, libraries: [...(config.libraries || []), libDraft.trim()] });
+                            setLibDraft("");
+                          }
+                        }}
+                      />
+                      <button
+                        onClick={() => {
+                          if (!libDraft.trim()) return;
+                          setConfig({ ...config, libraries: [...(config.libraries || []), libDraft.trim()] });
+                          setLibDraft("");
+                        }}
+                        className="text-xs px-3 py-1.5 rounded bg-arc text-arc-foreground shadow-arc"
+                      >
+                        Add
+                      </button>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5 mb-1">
+                      {[
+                        { l: "React 18", u: "https://unpkg.com/react@18/umd/react.production.min.js" },
+                        { l: "ReactDOM 18", u: "https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" },
+                        { l: "Tailwind Play", u: "https://cdn.tailwindcss.com" },
+                        { l: "Chart.js", u: "https://cdn.jsdelivr.net/npm/chart.js" },
+                        { l: "Three.js", u: "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js" },
+                        { l: "GSAP", u: "https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js" },
+                        { l: "D3", u: "https://cdn.jsdelivr.net/npm/d3@7" },
+                        { l: "Alpine", u: "https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" },
+                        { l: "htmx", u: "https://unpkg.com/htmx.org@1.9.10" },
+                      ].map((p) => (
+                        <button
+                          key={p.u}
+                          onClick={() => {
+                            if ((config.libraries || []).includes(p.u)) return;
+                            setConfig({ ...config, libraries: [...(config.libraries || []), p.u] });
+                          }}
+                          className="text-[10px] font-mono px-2 py-0.5 rounded border border-arc/25 hover:bg-arc/10"
+                        >
+                          + {p.l}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="flex-1 overflow-y-auto space-y-1">
+                      {(config.libraries || []).length === 0 ? (
+                        <div className="text-xs text-hud-dim italic">No libraries yet.</div>
+                      ) : (
+                        (config.libraries || []).map((u, i) => (
+                          <div key={i} className="flex items-center gap-2 bg-background/60 rounded px-2 py-1 text-[11px] font-mono">
+                            <span className="text-arc/60">{/\.css(\?|$)/i.test(u) ? "CSS" : "JS "}</span>
+                            <span className="flex-1 truncate" title={u}>{u}</span>
+                            <button
+                              onClick={() => {
+                                const next = [...(config.libraries || [])];
+                                next.splice(i, 1);
+                                setConfig({ ...config, libraries: next });
+                              }}
+                              className="text-hud-dim hover:text-critical"
+                            >
+                              <X size={12} />
+                            </button>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <textarea
+                    value={multiFile ? files[activeLang as "html" | "css" | "js"] : draft}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      if (multiFile) {
+                        const k = activeLang as "html" | "css" | "js";
+                        const nextFiles = { ...files, [k]: v };
+                        setFiles(nextFiles);
+                        if (config.autoSave !== false && tab) {
+                          if (saveTimeout.current) clearTimeout(saveTimeout.current);
+                          saveTimeout.current = setTimeout(() => {
+                            const nextConfig: TabConfig = { ...config, files: nextFiles };
+                            const nextContent = `${nextFiles.css ? `<style>\n${nextFiles.css}\n</style>\n` : ""}${nextFiles.html}${nextFiles.js ? `\n<script>\n${nextFiles.js}\n<\/script>` : ""}`;
+                            doUpdate({ data: { id: tab.id, content_html: nextContent, label, config: nextConfig } }).catch(() => {});
+                          }, 600);
+                        }
+                      } else {
+                        setDraft(v);
+                        if (config.autoSave !== false && tab) {
+                          if (saveTimeout.current) clearTimeout(saveTimeout.current);
+                          saveTimeout.current = setTimeout(() => {
+                            doUpdate({ data: { id: tab.id, content_html: v, label, config } }).catch(() => {});
+                          }, 600);
+                        }
                       }
-                    }, 500);
-                  }}
-                  spellCheck={false}
-                  className="flex-1 min-h-[300px] bg-background/40 border border-arc/20 rounded-md p-3 text-xs font-mono focus:border-arc focus:outline-none resize-none"
-                  placeholder="<!-- Write HTML/CSS/JS here. It renders in a sandboxed iframe. -->"
-                />
-                <div className="text-[10px] text-hud-dim flex gap-3">
+                    }}
+                    spellCheck={false}
+                    style={{ fontSize: `${config.editorFontSize || 12}px`, lineHeight: 1.55 }}
+                    className="flex-1 min-h-[300px] bg-background/40 border border-arc/20 rounded-md p-3 font-mono focus:border-arc focus:outline-none resize-none"
+                    placeholder={
+                      multiFile
+                        ? activeLang === "html"
+                          ? "<!-- HTML body — CSS/JS live in the other tabs -->"
+                          : activeLang === "css"
+                            ? "/* Full stylesheet */"
+                            : "// JavaScript — runs after DOM is ready"
+                        : "<!-- Write HTML/CSS/JS here. It renders in a sandboxed iframe. -->"
+                    }
+                  />
+                )}
+
+                <div className="text-[10px] text-hud-dim flex flex-wrap gap-3">
                   <span>Ctrl+S → Save</span>
-                  <span>Ctrl+E → Toggle edit</span>
+                  <span>Ctrl+E → Toggle</span>
                   <span>Ctrl+Shift+F → Fullscreen</span>
+                  <span>Ctrl+Shift+R → Reload</span>
+                  {config.autoSave !== false && <span className="text-arc/70">● Autosave on</span>}
                 </div>
               </div>
-              <div className="rounded-md overflow-hidden border border-arc/20 bg-white">
+
+              <div className="rounded-md overflow-hidden border border-arc/20 bg-white flex flex-col min-h-[300px]">
                 <iframe
                   title="preview"
-                  srcDoc={wrapHtml(draft, config)}
-                  sandbox="allow-scripts allow-same-origin allow-fullscreen"
-                  className="w-full h-full min-h-[300px]"
+                  srcDoc={srcDoc}
+                  sandbox="allow-scripts allow-same-origin allow-fullscreen allow-forms allow-popups"
+                  className="w-full flex-1"
                 />
               </div>
             </div>
-          ) : tab.content_html?.trim() ? (
-            <iframe
-              ref={iframeRef}
-              title={tab.label}
-              srcDoc={srcDoc}
-              sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-fullscreen"
-              className="w-full h-full min-h-[400px] rounded-2xl border border-arc/20 bg-white shadow-arc"
-            />
+          ) : tab.content_html?.trim() || multiFile ? (
+            <div className="flex flex-col h-full min-h-[400px]">
+              <iframe
+                ref={iframeRef}
+                title={tab.label}
+                srcDoc={srcDoc}
+                sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-fullscreen"
+                className="w-full flex-1 min-h-[300px] rounded-2xl border border-arc/20 bg-white shadow-arc"
+              />
+              {showConsole && (
+                <ConsolePanel logs={consoleLogs} onClear={() => setConsoleLogs([])} onClose={() => setShowConsole(false)} />
+              )}
+            </div>
           ) : (
             <div className="glass hud-corners rounded-xl p-8 text-center">
               <Sparkles className="mx-auto text-arc" size={20} />
@@ -742,6 +905,7 @@ function CustomTabPage() {
             </div>
           )}
         </div>
+
 
         {assistantOpen && (
           <aside className="hidden lg:flex w-[380px] shrink-0 flex-col rounded-2xl border border-arc/25 bg-background/40 backdrop-blur overflow-hidden shadow-arc">
