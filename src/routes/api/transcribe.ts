@@ -63,8 +63,16 @@ export const Route = createFileRoute("/api/transcribe")({
         // --- Build request to Groq ---
         const groqForm = new FormData();
         groqForm.append("file", file, `recording.${ext}`);
-        groqForm.append("model", "whisper-large-v3-turbo"); // you can also use "whisper-large-v3"
+        // whisper-large-v3 = highest accuracy (turbo trades accuracy for speed)
+        groqForm.append("model", "whisper-large-v3");
+        groqForm.append("language", "en");
+        groqForm.append("temperature", "0");
+        groqForm.append(
+          "prompt",
+          "English only. Transcribe verbatim in English. Ignore non-English speech."
+        );
         groqForm.append("response_format", "json");
+
 
         const url = "https://api.groq.com/openai/v1/audio/transcriptions";
         console.log(`[Transcribe] Sending request to Groq: ${url}`);
