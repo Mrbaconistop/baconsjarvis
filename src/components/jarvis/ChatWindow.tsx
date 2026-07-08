@@ -1,8 +1,21 @@
-import { useEffect, useMemo, useRef, useState, memo } from "react";
+import { useEffect, useMemo, useRef, useState, memo, useCallback } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, type UIMessage } from "ai";
 import { supabase } from "@/integrations/supabase/client";
-import { Send, Square, Bell, Vault, ListChecks, CheckCircle2, Wrench, MapPin, Mic, MicOff } from "lucide-react";
+import {
+  Send,
+  Square,
+  Bell,
+  Vault,
+  ListChecks,
+  CheckCircle2,
+  Wrench,
+  MapPin,
+  Volume2,
+  VolumeX,
+  Mic,
+  MicOff,
+} from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
@@ -43,109 +56,67 @@ export function ChatWindow({
   const [isTranscribing, setIsTranscribing] = useState(false);
   const taRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const recorderRef = useRef<MediaRecorder | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
-  const streamRef = useRef<MediaStream | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  function pickMimeType(): string | null {
-    const candidates = ["audio/webm", "audio/mp4", "audio/ogg"];
-    for (const t of candidates) {
-      if (typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported(t)) return t;
-    }
-    return null;
-  }
+  // ---- TTS state (client‑only) ----
+  const [ttsEnabled, setTtsEnabled] = useState(true);
+  const [isSpeaking, setIsSpeaking] = useState(false);
 
-  async function startRecording() {
-    if (isRecording || isTranscribing) return;
-    try {
-      const mimeType = pickMimeType();
-      if (!mimeType) {
-        toast.error("This browser can't record a supported audio format.");
-        return;
-      }
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      streamRef.current = stream;
-      const recorder = new MediaRecorder(stream, { mimeType });
-      chunksRef.current = [];
-      recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) chunksRef.current.push(e.data);
-      };
-      recorder.onstop = async () => {
-        streamRef.current?.getTracks().forEach((t) => t.stop());
-        streamRef.current = null;
-        const blob = new Blob(chunksRef.current, { type: recorder.mimeType });
-        if (blob.size < 1024) {
-          toast.error("That recording was empty — please try again.");
-          return;
-        }
-        await transcribe(blob);
-      };
-      recorder.start();
-      recorderRef.current = recorder;
-      setIsRecording(true);
-      toast.info("Listening, Sir…");
-    } catch (err: any) {
-      console.error("[mic] start error", err);
-      if (err?.name === "NotAllowedError" || err?.name === "PermissionDeniedError") {
-        toast.error("Microphone permission denied.");
-      } else if (err?.name === "NotFoundError") {
-        toast.error("No microphone found.");
-      } else {
-        toast.error(`Mic error: ${err?.message ?? err}`);
-      }
-    }
-  }
-
-  function stopRecording() {
-    const r = recorderRef.current;
-    if (r && r.state !== "inactive") {
-      try {
-        r.stop();
-      } catch (e) {
-        console.warn("[mic] stop error", e);
-      }
-    }
-    setIsRecording(false);
-  }
-
-  async function transcribe(blob: Blob) {
-    setIsTranscribing(true);
-    try {
-      const fd = new FormData();
-      const ext = blob.type.includes("mp4") ? "mp4" : blob.type.includes("ogg") ? "ogg" : "webm";
-      fd.append("file", blob, `recording.${ext}`);
-      const res = await fetch("/api/transcribe", { method: "POST", body: fd });
-      const json: any = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(json?.error?.message ?? json?.error ?? `HTTP ${res.status}`);
-      }
-      const text: string = json?.text ?? "";
-      if (!text.trim()) {
-        toast.error("Didn't catch that, Sir.");
-        return;
-      }
-      setInput((prev) => (prev ? prev + " " + text : text));
-      taRef.current?.focus();
-    } catch (err: any) {
-      console.error("[transcribe] error", err);
-      toast.error(`Transcription failed: ${err?.message ?? err}`);
-    } finally {
-      setIsTranscribing(false);
-    }
-  }
-
-  function toggleMic() {
-    if (isRecording) stopRecording();
-    else startRecording();
-  }
-
+  // Load preference on client only
   useEffect(() => {
-    return () => {
+    if (typeof window === "undefined") return;
+    const saved = localStorage.getItem("jarvis-tts-enabled");
+    if (saved !== null) setTtsEnabled(saved === "true");
+  }, []);
+
+  const speakWithElevenLabs = useCallback(
+    async (text: string) => {
+      if (typeof window === "undefined") return;
+      if (!ttsEnabled || !text?.trim() || isRecording || isTranscribing) return;
       try {
-        recorderRef.current?.state !== "inactive" && recorderRef.current?.stop();
-      } catch {}
-      streamRef.current?.getTracks().forEach((t) => t.stop());
-    };
+        setIsSpeaking(true);
+        // Use Lovable's ElevenLabs proxy (assumes you have the connector linked)
+        const response = await fetch("/api/elevenlabs/text-to-speech", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            text: text,
+            voice_id: "pNInz6obpgDQGcFmaJgB", // Adam – change if you prefer
+            model_id: "eleven_monolingual_v1",
+            voice_settings: { stability: 0.5, similarity_boost: 0.5 },
+          }),
+        });
+        if (!response.ok) throw new Error("ElevenLabs API error");
+        const audioBlob = await response.blob();
+        const url = URL.createObjectURL(audioBlob);
+        if (audioRef.current) {
+          audioRef.current.src = url;
+          await audioRef.current.play();
+          audioRef.current.onended = () => {
+            setIsSpeaking(false);
+            URL.revokeObjectURL(url);
+          };
+        }
+      } catch (err) {
+        console.error("[ElevenLabs TTS] error", err);
+        setIsSpeaking(false);
+      }
+    },
+    [ttsEnabled, isRecording, isTranscribing],
+  );
+
+  const toggleTts = useCallback(() => {
+    setTtsEnabled((prev) => {
+      const next = !prev;
+      if (typeof window !== "undefined") {
+        localStorage.setItem("jarvis-tts-enabled", String(next));
+        if (!next && audioRef.current) {
+          audioRef.current.pause();
+          audioRef.current.src = "";
+        }
+      }
+      return next;
+    });
   }, []);
 
   // ---- Transport ----
@@ -177,6 +148,153 @@ export function ChatWindow({
     },
   });
 
+  // ---- Auto‑speak assistant messages ----
+  useEffect(() => {
+    const last = messages[messages.length - 1];
+    if (last?.role === "assistant") {
+      const text = (last.parts || [])
+        .filter((p: any) => p.type === "text")
+        .map((p: any) => p.text)
+        .join(" ")
+        .trim();
+      if (text) {
+        const timer = setTimeout(() => speakWithElevenLabs(text), 400);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [messages, speakWithElevenLabs]);
+
+  // ---- Handle explicit speak_text tool calls ----
+  useEffect(() => {
+    const last = messages[messages.length - 1];
+    if (last?.role === "assistant") {
+      for (const part of last.parts || []) {
+        if (part.type === "tool-response" && part.result?.client_action?.type === "speak") {
+          speakWithElevenLabs(part.result.client_action.text);
+        }
+      }
+    }
+  }, [messages, speakWithElevenLabs]);
+
+  // ---- Voice input (your existing STT) ----
+  // (kept as is from your original – I'm preserving it)
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const streamRef = useRef<MediaStream | null>(null);
+
+  function pickMimeType(): string | null {
+    if (typeof window === "undefined") return null;
+    const candidates = ["audio/webm", "audio/mp4", "audio/ogg"];
+    for (const t of candidates) {
+      if (typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported(t)) return t;
+    }
+    return null;
+  }
+
+  async function startRecording() {
+    if (isRecording || isTranscribing || isSpeaking) return;
+    try {
+      const mimeType = pickMimeType();
+      if (!mimeType) {
+        toast.error("This browser can't record a supported audio format.");
+        return;
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+      const recorder = new MediaRecorder(stream, { mimeType });
+      chunksRef.current = [];
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) chunksRef.current.push(e.data);
+      };
+      recorder.onstop = async () => {
+        streamRef.current?.getTracks().forEach((t) => t.stop());
+        streamRef.current = null;
+        const blob = new Blob(chunksRef.current, { type: recorder.mimeType });
+        if (blob.size < 1024) {
+          toast.error("Recording too short — please try again.");
+          return;
+        }
+        await transcribeAndSend(blob);
+      };
+      recorder.start();
+      recorderRef.current = recorder;
+      setIsRecording(true);
+      toast.info("Listening, Sir…");
+    } catch (err: any) {
+      console.error("[mic] start error", err);
+      if (err?.name === "NotAllowedError" || err?.name === "PermissionDeniedError") {
+        toast.error("Microphone permission denied.");
+      } else if (err?.name === "NotFoundError") {
+        toast.error("No microphone found.");
+      } else {
+        toast.error(`Mic error: ${err?.message ?? err}`);
+      }
+    }
+  }
+
+  function stopRecording() {
+    const r = recorderRef.current;
+    if (r && r.state !== "inactive") {
+      try {
+        r.stop();
+      } catch (e) {
+        console.warn("[mic] stop error", e);
+      }
+    }
+    setIsRecording(false);
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+    }
+  }
+
+  async function transcribeAndSend(blob: Blob) {
+    setIsTranscribing(true);
+    try {
+      const fd = new FormData();
+      const ext = blob.type.includes("mp4") ? "mp4" : blob.type.includes("ogg") ? "ogg" : "webm";
+      fd.append("file", blob, `recording.${ext}`);
+      const res = await fetch("/api/transcribe", { method: "POST", body: fd });
+      const json: any = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(json?.error?.message ?? json?.error ?? `HTTP ${res.status}`);
+      }
+      const text: string = json?.text ?? "";
+      if (!text.trim()) {
+        toast.error("Didn't catch that, Sir.");
+        return;
+      }
+      await sendMessage({ text });
+      setInput("");
+    } catch (err: any) {
+      console.error("[transcribe] error", err);
+      toast.error(`Transcription failed: ${err?.message ?? err}`);
+    } finally {
+      setIsTranscribing(false);
+    }
+  }
+
+  function toggleMic() {
+    if (isRecording) stopRecording();
+    else startRecording();
+  }
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (typeof window === "undefined") return;
+      try {
+        recorderRef.current?.state !== "inactive" && recorderRef.current?.stop();
+      } catch {}
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.src = "";
+      }
+    };
+  }, []);
+
+  // ---- Chat UI ----
   const busy = status === "submitted" || status === "streaming";
 
   const dispatchedRef = useRef<Set<string>>(new Set());
@@ -198,6 +316,7 @@ export function ChatWindow({
   useEffect(() => {
     taRef.current?.focus();
   }, [threadId, busy]);
+
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages, status]);
@@ -234,18 +353,39 @@ export function ChatWindow({
 
       <div className="border-t border-arc/15 bg-background/40 backdrop-blur px-4 py-3">
         <div className="flex items-end gap-2 max-w-4xl mx-auto">
+          {/* TTS Toggle */}
+          <button
+            onClick={toggleTts}
+            className={`p-3 rounded-lg border transition ${
+              ttsEnabled ? "border-arc/30 bg-arc/10 text-arc" : "border-muted/30 bg-muted/20 text-muted-foreground"
+            }`}
+            aria-label="Toggle TTS"
+            title={ttsEnabled ? "Disable voice output" : "Enable voice output"}
+          >
+            {ttsEnabled ? <Volume2 size={16} /> : <VolumeX size={16} />}
+          </button>
+
+          {/* Mic Button */}
           <button
             onClick={toggleMic}
-            disabled={isTranscribing}
+            disabled={isTranscribing || isSpeaking}
             className={`p-3 rounded-lg border transition ${
               isRecording
                 ? "bg-critical/20 border-critical/40 text-critical animate-critical-pulse"
-                : isTranscribing
+                : isTranscribing || isSpeaking
                   ? "bg-muted/50 border-muted text-muted-foreground opacity-60"
                   : "border-arc/30 hover:bg-arc/10 text-hud-dim"
             }`}
             aria-label="Voice input"
-            title={isRecording ? "Stop recording" : isTranscribing ? "Transcribing…" : "Speak your message"}
+            title={
+              isRecording
+                ? "Stop recording"
+                : isTranscribing
+                  ? "Transcribing…"
+                  : isSpeaking
+                    ? "JARVIS is speaking"
+                    : "Speak your message"
+            }
           >
             {isRecording ? <MicOff size={16} /> : <Mic size={16} />}
           </button>
@@ -263,10 +403,12 @@ export function ChatWindow({
             }}
             placeholder={
               isRecording
-                ? "Listening… tap mic to stop"
+                ? "Listening…"
                 : isTranscribing
                   ? "Transcribing…"
-                  : 'Speak or type, Sir. e.g. "Remind me to drink water every weekday at 10am"'
+                  : isSpeaking
+                    ? "JARVIS is speaking…"
+                    : 'Speak or type, Sir. e.g. "Remind me to drink water every weekday at 10am"'
             }
             className="flex-1 resize-none bg-background/60 border border-arc/25 rounded-lg px-4 py-3 font-mono text-sm focus:border-arc focus:outline-none max-h-40"
           />
@@ -291,11 +433,14 @@ export function ChatWindow({
           )}
         </div>
       </div>
+
+      {/* Hidden audio element for ElevenLabs */}
+      <audio ref={audioRef} className="hidden" />
     </div>
   );
 }
 
-// Memoized MessageBubble
+// Memoized MessageBubble (unchanged – keep as is)
 const MessageBubble = memo(function MessageBubble({ msg }: { msg: UIMessage }) {
   const isUser = msg.role === "user";
   return (
