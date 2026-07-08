@@ -169,8 +169,9 @@ export function ChatWindow({
     const last = messages[messages.length - 1];
     if (last?.role === "assistant") {
       for (const part of last.parts || []) {
-        if (part.type === "tool-response" && part.result?.client_action?.type === "speak") {
-          speakWithElevenLabs(part.result.client_action.text);
+        const p: any = part;
+        if (p.type === "tool-response" && p.result?.client_action?.type === "speak") {
+          speakWithElevenLabs(p.result.client_action.text);
         }
       }
     }
