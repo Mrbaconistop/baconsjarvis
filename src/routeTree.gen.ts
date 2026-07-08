@@ -29,6 +29,7 @@ import { Route as AuthenticatedBackendRouteImport } from './routes/_authenticate
 import { Route as AuthenticatedChatIndexRouteImport } from './routes/_authenticated/chat.index'
 import { Route as AuthenticatedTabsSlugRouteImport } from './routes/_authenticated/tabs.$slug'
 import { Route as AuthenticatedChatThreadIdRouteImport } from './routes/_authenticated/chat.$threadId'
+import { Route as ApiPublicHooksWatcherTickRouteImport } from './routes/api/public/hooks/watcher-tick'
 import { Route as ApiPublicHooksIngestCashappRouteImport } from './routes/api/public/hooks/ingest-cashapp'
 import { Route as ApiPublicHooksDailyDiscordRouteImport } from './routes/api/public/hooks/daily-discord'
 
@@ -132,6 +133,12 @@ const AuthenticatedChatThreadIdRoute =
     path: '/chat/$threadId',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const ApiPublicHooksWatcherTickRoute =
+  ApiPublicHooksWatcherTickRouteImport.update({
+    id: '/api/public/hooks/watcher-tick',
+    path: '/api/public/hooks/watcher-tick',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiPublicHooksIngestCashappRoute =
   ApiPublicHooksIngestCashappRouteImport.update({
     id: '/api/public/hooks/ingest-cashapp',
@@ -167,6 +174,7 @@ export interface FileRoutesByFullPath {
   '/chat/': typeof AuthenticatedChatIndexRoute
   '/api/public/hooks/daily-discord': typeof ApiPublicHooksDailyDiscordRoute
   '/api/public/hooks/ingest-cashapp': typeof ApiPublicHooksIngestCashappRoute
+  '/api/public/hooks/watcher-tick': typeof ApiPublicHooksWatcherTickRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -190,6 +198,7 @@ export interface FileRoutesByTo {
   '/chat': typeof AuthenticatedChatIndexRoute
   '/api/public/hooks/daily-discord': typeof ApiPublicHooksDailyDiscordRoute
   '/api/public/hooks/ingest-cashapp': typeof ApiPublicHooksIngestCashappRoute
+  '/api/public/hooks/watcher-tick': typeof ApiPublicHooksWatcherTickRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -215,6 +224,7 @@ export interface FileRoutesById {
   '/_authenticated/chat/': typeof AuthenticatedChatIndexRoute
   '/api/public/hooks/daily-discord': typeof ApiPublicHooksDailyDiscordRoute
   '/api/public/hooks/ingest-cashapp': typeof ApiPublicHooksIngestCashappRoute
+  '/api/public/hooks/watcher-tick': typeof ApiPublicHooksWatcherTickRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -240,6 +250,7 @@ export interface FileRouteTypes {
     | '/chat/'
     | '/api/public/hooks/daily-discord'
     | '/api/public/hooks/ingest-cashapp'
+    | '/api/public/hooks/watcher-tick'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -263,6 +274,7 @@ export interface FileRouteTypes {
     | '/chat'
     | '/api/public/hooks/daily-discord'
     | '/api/public/hooks/ingest-cashapp'
+    | '/api/public/hooks/watcher-tick'
   id:
     | '__root__'
     | '/'
@@ -287,6 +299,7 @@ export interface FileRouteTypes {
     | '/_authenticated/chat/'
     | '/api/public/hooks/daily-discord'
     | '/api/public/hooks/ingest-cashapp'
+    | '/api/public/hooks/watcher-tick'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -298,6 +311,7 @@ export interface RootRouteChildren {
   ApiTranscribeRoute: typeof ApiTranscribeRoute
   ApiPublicHooksDailyDiscordRoute: typeof ApiPublicHooksDailyDiscordRoute
   ApiPublicHooksIngestCashappRoute: typeof ApiPublicHooksIngestCashappRoute
+  ApiPublicHooksWatcherTickRoute: typeof ApiPublicHooksWatcherTickRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -442,6 +456,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedChatThreadIdRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/api/public/hooks/watcher-tick': {
+      id: '/api/public/hooks/watcher-tick'
+      path: '/api/public/hooks/watcher-tick'
+      fullPath: '/api/public/hooks/watcher-tick'
+      preLoaderRoute: typeof ApiPublicHooksWatcherTickRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/public/hooks/ingest-cashapp': {
       id: '/api/public/hooks/ingest-cashapp'
       path: '/api/public/hooks/ingest-cashapp'
@@ -505,6 +526,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiTranscribeRoute: ApiTranscribeRoute,
   ApiPublicHooksDailyDiscordRoute: ApiPublicHooksDailyDiscordRoute,
   ApiPublicHooksIngestCashappRoute: ApiPublicHooksIngestCashappRoute,
+  ApiPublicHooksWatcherTickRoute: ApiPublicHooksWatcherTickRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
