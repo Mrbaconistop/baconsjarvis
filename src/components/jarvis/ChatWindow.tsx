@@ -449,6 +449,17 @@ export function ChatWindow({
             {isRecording ? <MicOff size={16} /> : <Mic size={16} />}
           </button>
 
+          {/* Mic diagnostics */}
+          <button
+            onClick={() => setMicDiagOpen(true)}
+            className="p-2 rounded-lg border border-arc/20 text-hud-dim hover:bg-arc/10 hover:text-arc transition"
+            aria-label="Microphone diagnostics"
+            title="Microphone diagnostics"
+          >
+            <HelpCircle size={14} />
+          </button>
+          <MicDiagnosticsDialog open={micDiagOpen} onClose={() => setMicDiagOpen(false)} />
+
           <textarea
             ref={taRef}
             rows={1}
