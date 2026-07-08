@@ -82,7 +82,7 @@ function AnalyzerPage() {
   const calibrationOn = search.cal ?? true;
 
   const updateParams = (patch: Partial<TuneParams>) => {
-    navigate({ search: (prev) => ({ ...prev, ...patch }), replace: true });
+    navigate({ search: ((prev: any) => ({ ...prev, ...patch })), replace: true });
   };
 
   const [tuneProgress, setTuneProgress] = useState<{ done: number; total: number } | null>(null);
@@ -91,7 +91,7 @@ function AnalyzerPage() {
   const load = async (s: string) => {
     setLoading(true); setError(null);
     const r = await snapFn({ data: { symbol: s } });
-    if (r.ok) { setSnap(r); setSymbol(r.symbol); navigate({ search: (p) => ({ ...p, symbol: r.symbol }), replace: true }); }
+    if (r.ok) { setSnap(r); setSymbol(r.symbol); navigate({ search: ((p: any) => ({ ...p, symbol: r.symbol })), replace: true }); }
     else setError(r.error);
     setLoading(false);
   };
@@ -306,7 +306,7 @@ function AnalyzerPage() {
                 actions={
                   <div className="flex gap-1">
                     {(["candlestick", "indicator", "pattern", "ml"] as const).map((m) => (
-                      <Button key={m} size="sm" variant={mode === m ? "default" : "ghost"} onClick={() => navigate({ search: (p) => ({ ...p, mode: m }), replace: true })} className="h-7 text-xs capitalize">{m}</Button>
+                      <Button key={m} size="sm" variant={mode === m ? "default" : "ghost"} onClick={() => navigate({ search: ((p: any) => ({ ...p, mode: m })), replace: true })} className="h-7 text-xs capitalize">{m}</Button>
                     ))}
                   </div>
                 }
@@ -346,7 +346,7 @@ function AnalyzerPage() {
                 actions={
                   <label className="flex items-center gap-2 text-xs text-muted-foreground">
                     Calibration
-                    <Switch checked={calibrationOn} onCheckedChange={(v) => navigate({ search: (p) => ({ ...p, cal: v }), replace: true })} />
+                    <Switch checked={calibrationOn} onCheckedChange={(v) => navigate({ search: ((p: any) => ({ ...p, cal: v })), replace: true })} />
                   </label>
                 }
               >
@@ -414,7 +414,7 @@ function AnalyzerPage() {
               actions={
                 <div className="flex items-center gap-3">
                   <span className="text-xs text-muted-foreground">Hold {holdBars}d</span>
-                  <Slider value={[holdBars]} min={1} max={20} step={1} onValueChange={(v) => navigate({ search: (p) => ({ ...p, hold: v[0] }), replace: true })} className="w-32" />
+                  <Slider value={[holdBars]} min={1} max={20} step={1} onValueChange={(v) => navigate({ search: ((p: any) => ({ ...p, hold: v[0] })), replace: true })} className="w-32" />
                 </div>
               }
             >
