@@ -17,6 +17,8 @@ import { reportLovableError } from "../lib/lovable-error-reporting";
 import { installDebugConsole } from "../lib/debug-console";
 import { supabase } from "@/integrations/supabase/client";
 import { Toaster } from "@/components/ui/sonner";
+import { applyThemeOverrides, readThemeOverrides } from "@/lib/theme";
+import { useNotificationBridge } from "@/lib/browser-notifications";
 
 function NotFoundComponent() {
   return (
