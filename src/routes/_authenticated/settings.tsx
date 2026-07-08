@@ -317,6 +317,7 @@ function SettingsPage() {
             Nothing is linked automatically. Connect each channel here whenever you're ready.
           </p>
         </section>
+        </>)}
       </div>
     </div>
   );
