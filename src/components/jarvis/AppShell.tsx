@@ -16,8 +16,8 @@ import {
   GraduationCap,
   Menu,
   X,
-  Sparkles,
-} from "lucide-react";
+import { applyThemeOverrides, readThemeOverrides, writeThemeOverrides, clearThemeOverrides } from "@/lib/theme";
+import { Sparkles } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
