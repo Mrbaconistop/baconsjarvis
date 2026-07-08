@@ -29,6 +29,12 @@ import {
   Code2,
   FilePlus,
   GitPullRequest,
+  Terminal,
+  Package,
+  Copy,
+  FileCode,
+  Braces,
+  Palette,
 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -36,10 +42,27 @@ import { supabase } from "@/integrations/supabase/client";
 // ------------------------------------------------------------
 // Types
 // ------------------------------------------------------------
+type FilesShape = { html: string; css: string; js: string };
+
 type TabConfig = {
   layout: "default" | "browser" | "chat" | "minimal";
   theme: "dark" | "light" | "auto";
   containerPadding: number;
+  files?: FilesShape; // when defined → multi-file mode
+  libraries?: string[]; // CDN URLs (.js or .css auto-detected)
+  autoSave?: boolean;
+  consoleEnabled?: boolean;
+  editorFontSize?: number;
+};
+
+const DEFAULT_CONFIG: TabConfig = {
+  layout: "default",
+  theme: "dark",
+  containerPadding: 16,
+  libraries: [],
+  autoSave: true,
+  consoleEnabled: true,
+  editorFontSize: 12,
 };
 
 type Snapshot = {
@@ -53,6 +76,8 @@ type Snapshot = {
   updated_at: string;
   timestamp: number;
 };
+
+type ConsoleLog = { level: "log" | "info" | "warn" | "error"; text: string; ts: number };
 
 // ------------------------------------------------------------
 // Route
