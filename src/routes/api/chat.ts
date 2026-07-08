@@ -195,6 +195,28 @@ export const Route = createFileRoute("/api/chat")({
         const { messages, threadId, tabSlug } = (await request.json()) as Body;
         if (!Array.isArray(messages) || !threadId) return new Response("Bad request", { status: 400 });
 
+        // ---- AI DISABLED (no Lovable credit usage) ----
+        // Chat model calls are turned off so this site consumes zero Lovable credits.
+        // Re-enable by removing this block.
+        {
+          const id = typeof crypto !== "undefined" && "randomUUID" in crypto
+            ? crypto.randomUUID()
+            : `ai-disabled-${Date.now()}`;
+          const message =
+            "AI responses are disabled on this site to avoid using Lovable credits. " +
+            "Voice input still works locally in your browser. " +
+            "To re-enable JARVIS chat, remove the AI-disabled block in src/routes/api/chat.ts.";
+          const stream = createUIMessageStream<UIMessage>({
+            originalMessages: messages,
+            execute: ({ writer }) => {
+              writer.write({ type: "text-start", id });
+              writer.write({ type: "text-delta", id, delta: message });
+              writer.write({ type: "text-end", id });
+            },
+          });
+          return createUIMessageStreamResponse({ status: 200, stream });
+        }
+
         try {
           const supabase = userClient(token);
           const { data: userData } = await supabase.auth.getUser();
