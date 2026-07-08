@@ -13,6 +13,7 @@ import { Twitter, Linkedin, Instagram, Facebook, Mail, Calendar, CheckCircle2, C
 import { lovable } from "@/integrations/lovable";
 import { toast } from "sonner";
 import { useState, useEffect } from "react";
+import { DiagnosticsTab } from "@/components/jarvis/DiagnosticsTab";
 
 export const Route = createFileRoute("/_authenticated/settings")({
   head: () => ({ meta: [{ title: "Settings — JARVIS" }] }),
