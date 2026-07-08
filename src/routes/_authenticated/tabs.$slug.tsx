@@ -666,14 +666,56 @@ function CustomTabPage() {
             >
               <Code2 size={12} /> Format
             </button>
-            <button
-              onClick={insertTemplate}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-arc/30 text-xs hover:bg-arc/10"
+            <select
+              onChange={(e) => {
+                if (e.target.value) {
+                  insertTemplate(e.target.value);
+                  e.target.value = "";
+                }
+              }}
+              defaultValue=""
+              className="bg-background/40 border border-arc/30 rounded-md px-2 py-1.5 text-xs hover:bg-arc/10 focus:border-arc focus:outline-none"
+              title="Insert template"
             >
-              <FilePlus size={12} /> Template
+              <option value="" disabled>+ Template</option>
+              {Object.entries(TEMPLATES).map(([k, v]) => (
+                <option key={k} value={k}>{v.name}</option>
+              ))}
+            </select>
+          </>
+        )}
+
+        {(tab.content_html?.trim() || multiFile) && !editing && (
+          <>
+            <button
+              onClick={() => setShowConsole((v) => !v)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md border text-xs ${
+                showConsole ? "border-arc bg-arc/15 text-arc" : "border-arc/30 hover:bg-arc/10"
+              }`}
+              title="Toggle console panel"
+            >
+              <Terminal size={12} /> Console
+              {consoleLogs.some((l) => l.level === "error") && (
+                <span className="ml-1 size-1.5 rounded-full bg-critical animate-pulse" />
+              )}
+            </button>
+            <button
+              onClick={copyToClipboard}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-arc/30 text-xs hover:bg-arc/10"
+              title="Copy source"
+            >
+              <Copy size={12} /> Copy
+            </button>
+            <button
+              onClick={downloadStandalone}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-arc/30 text-xs hover:bg-arc/10"
+              title="Download standalone HTML"
+            >
+              <Download size={12} /> .html
             </button>
           </>
         )}
+
 
         <button
           onClick={() => setIsFullscreen(!isFullscreen)}
