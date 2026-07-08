@@ -433,7 +433,43 @@ export function ChatWindow({
       </div>
 
       <div className="border-t border-arc/15 bg-background/40 backdrop-blur px-4 py-3">
+        {attachments.length > 0 && (
+          <div className="max-w-4xl mx-auto mb-2 flex flex-wrap gap-2">
+            {attachments.map((a) => (
+              <div key={a.id} className="group flex items-center gap-2 pl-2 pr-1 py-1 rounded-md bg-arc/10 border border-arc/25 text-xs">
+                <FileText size={12} className="text-arc" />
+                <span className="font-mono truncate max-w-[180px]" title={a.name}>{a.name}</span>
+                <span className="text-hud-dim text-[10px]">{(a.size / 1024).toFixed(1)}kb</span>
+                <button
+                  onClick={() => removeAttachment(a.id)}
+                  className="p-0.5 rounded hover:bg-critical/20 text-hud-dim hover:text-critical"
+                  aria-label={`Remove ${a.name}`}
+                >
+                  <X size={12} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        <input
+          ref={fileRef}
+          type="file"
+          multiple
+          className="hidden"
+          onChange={(e) => handleFiles(e.target.files)}
+        />
         <div className="flex items-end gap-2 max-w-4xl mx-auto">
+          {/* Attach files */}
+          <button
+            onClick={() => fileRef.current?.click()}
+            disabled={busy || attachments.length >= 6}
+            className="p-3 rounded-lg border border-arc/30 hover:bg-arc/10 text-hud-dim disabled:opacity-40 transition"
+            aria-label="Attach files"
+            title="Attach files (text files sent as code, others as base64)"
+          >
+            <Paperclip size={16} />
+          </button>
+
           {/* TTS Toggle */}
           <button
             onClick={toggleTts}
