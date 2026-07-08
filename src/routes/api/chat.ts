@@ -323,6 +323,7 @@ export const Route = createFileRoute("/api/chat")({
 
           // ---- Permanent keyword memory recall (Postgres FTS, $0) ----
           let recallBlock = "";
+          let recalledCount = 0;
           if (lastUserText.trim().length >= 3) {
             const { data: recalled } = await supabase.rpc("recall_chat_memory", {
               _user_id: userId,
@@ -330,6 +331,7 @@ export const Route = createFileRoute("/api/chat")({
               _limit: 5,
             });
             if (recalled?.length) {
+              recalledCount = recalled.length;
               recallBlock =
                 "\n\n## Relevant memory from past conversations\n" +
                 (recalled as any[])
@@ -341,6 +343,19 @@ export const Route = createFileRoute("/api/chat")({
                   .join("\n");
             }
           }
+
+          // ---- Diagnostics: log the routing decision (best-effort) ----
+          void supabase.from("router_traces").insert({
+            user_id: userId,
+            intent: routedIntent,
+            provider: routedProvider,
+            model_id: routedModelId,
+            has_image: hasImage,
+            user_text_snippet: lastUserText.slice(0, 200),
+            prefs: routerPrefs as any,
+            recalled_count: recalledCount,
+            thread_id: threadId ?? null,
+          }).then(({ error }: any) => { if (error) console.warn("[router_traces] insert failed", error.message); });
 
           const cacheKey = getCacheKey(userId, messages, mode, boundTabSlug);
           const cachedParts = await getCachedResponse(userId, cacheKey, supabase);
