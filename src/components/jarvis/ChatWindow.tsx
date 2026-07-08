@@ -57,11 +57,13 @@ export function ChatWindow({
 }) {
   const qc = useQueryClient();
   const [input, setInput] = useState("");
+  const [attachments, setAttachments] = useState<{ id: string; name: string; size: number; content: string; kind: "text" | "binary" }[]>([]);
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [micPermission, setMicPermission] = useState<PermissionState | "unknown" | "unsupported">("unknown");
   const [micDiagOpen, setMicDiagOpen] = useState(false);
   const taRef = useRef<HTMLTextAreaElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
