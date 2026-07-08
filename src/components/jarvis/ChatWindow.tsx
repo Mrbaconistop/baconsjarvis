@@ -54,6 +54,7 @@ export function ChatWindow({
   const [input, setInput] = useState("");
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
+  const [micPermission, setMicPermission] = useState<PermissionState | "unknown" | "unsupported">("unknown");
   const taRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -183,6 +184,49 @@ export function ChatWindow({
   const chunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setMicPermission("unsupported");
+      return;
+    }
+    if (!navigator.permissions?.query) return;
+
+    let status: PermissionStatus | null = null;
+    let mounted = true;
+    navigator.permissions
+      .query({ name: "microphone" as PermissionName })
+      .then((result) => {
+        if (!mounted) return;
+        status = result;
+        setMicPermission(result.state);
+        result.onchange = () => setMicPermission(result.state);
+      })
+      .catch(() => setMicPermission("unknown"));
+
+    return () => {
+      mounted = false;
+      if (status) status.onchange = null;
+    };
+  }, []);
+
+  function checkMicPermissionBeforeRecording() {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setMicPermission("unsupported");
+      toast.error("Voice input isn't supported in this browser.");
+      return false;
+    }
+
+    if (micPermission === "denied") {
+      toast.error("Microphone is blocked for this site.", {
+        description: "Open the lock/site settings by the address bar, allow Microphone, then reload.",
+      });
+      return false;
+    }
+
+    return true;
+  }
+
   function pickMimeType(): string | null {
     if (typeof window === "undefined") return null;
     const candidates = ["audio/webm", "audio/mp4", "audio/ogg"];
@@ -195,6 +239,7 @@ export function ChatWindow({
   async function startRecording() {
     if (isRecording || isTranscribing || isSpeaking) return;
     try {
+      if (!checkMicPermissionBeforeRecording()) return;
       const mimeType = pickMimeType();
       if (!mimeType) {
         toast.error("This browser can't record a supported audio format.");
@@ -224,9 +269,16 @@ export function ChatWindow({
     } catch (err: any) {
       console.error("[mic] start error", err);
       if (err?.name === "NotAllowedError" || err?.name === "PermissionDeniedError") {
-        toast.error("Microphone permission denied.");
+        setMicPermission("denied");
+        toast.error("Microphone permission denied.", {
+          description: "Open the lock/site settings by the address bar, allow Microphone, then reload.",
+        });
       } else if (err?.name === "NotFoundError") {
         toast.error("No microphone found.");
+      } else if (err?.name === "NotReadableError") {
+        toast.error("Microphone is busy.", {
+          description: "Close apps using the mic, then try again.",
+        });
       } else {
         toast.error(`Mic error: ${err?.message ?? err}`);
       }
@@ -385,6 +437,8 @@ export function ChatWindow({
                   ? "Transcribing…"
                   : isSpeaking
                     ? "JARVIS is speaking"
+                    : micPermission === "denied"
+                      ? "Microphone blocked in site settings"
                     : "Speak your message"
             }
           >
