@@ -15,6 +15,7 @@ import { toast } from "sonner";
 import { useState, useEffect } from "react";
 import { DiagnosticsTab } from "@/components/jarvis/DiagnosticsTab";
 import { ThemeCustomizer } from "@/components/jarvis/ThemeCustomizer";
+import { LibraryManager } from "@/components/jarvis/LibraryManager";
 
 export const Route = createFileRoute("/_authenticated/settings")({
   head: () => ({ meta: [{ title: "Settings — JARVIS" }] }),
