@@ -306,6 +306,17 @@ function CustomTabPage() {
           }
         }
       }
+
+      // Console bridge from iframe
+      if (type === "console-log" && event.data.args !== undefined) {
+        setConsoleLogs((prev) => {
+          const next = [
+            ...prev,
+            { level: event.data.level || "log", text: String(event.data.args), ts: Date.now() },
+          ];
+          return next.slice(-300);
+        });
+      }
     };
 
     window.addEventListener("message", handler);
@@ -313,35 +324,46 @@ function CustomTabPage() {
   }, [askAssistant]);
 
   // ---- Helpers ----
-  const srcDoc = useMemo(() => {
-    return wrapHtml(draft, config);
-  }, [draft, config]);
+  const effectiveFiles: FilesShape = multiFile ? files : { html: draft, css: "", js: "" };
+  const srcDoc = useMemo(() => wrapHtml(effectiveFiles, config), [effectiveFiles.html, effectiveFiles.css, effectiveFiles.js, config]);
+
+  function combinedContentHtml(): string {
+    if (!multiFile) return draft;
+    // Persist a self-contained snapshot to content_html too, so imports/exports
+    // and legacy consumers still see something usable.
+    const { html, css, js } = files;
+    return `${css ? `<style>\n${css}\n</style>\n` : ""}${html}${js ? `\n<script>\n${js}\n<\/script>` : ""}`;
+  }
 
   async function save() {
     if (!tab) return;
+    const nextConfig: TabConfig = multiFile ? { ...config, files } : config;
+    const nextContent = combinedContentHtml();
     await doUpdate({
       data: {
         id: tab.id,
-        content_html: draft,
+        content_html: nextContent,
         label,
-        config,
+        config: nextConfig,
       },
     });
     toast.success("Tab saved");
     setEditing(false);
+    setConsoleLogs([]);
     saveSnapshot({
       id: tab.id,
       slug: tab.slug,
       label,
       icon: tab.icon || "Sparkles",
       description: tab.description || null,
-      content_html: draft,
-      config,
+      content_html: nextContent,
+      config: nextConfig,
       updated_at: new Date().toISOString(),
     });
     qc.invalidateQueries({ queryKey: ["custom-tab", slug] });
     qc.invalidateQueries({ queryKey: ["custom-tabs-nav"] });
   }
+
 
   async function remove() {
     if (!tab) return;
