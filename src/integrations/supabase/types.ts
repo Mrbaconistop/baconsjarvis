@@ -319,24 +319,6 @@ export type Database = {
         }
         Relationships: []
       }
-      leaderboard_snapshot: {
-        Row: {
-          horizon_days: number
-          rows: Json
-          updated_at: string
-        }
-        Insert: {
-          horizon_days: number
-          rows: Json
-          updated_at?: string
-        }
-        Update: {
-          horizon_days?: number
-          rows?: Json
-          updated_at?: string
-        }
-        Relationships: []
-      }
       learning_sessions: {
         Row: {
           content: string | null
@@ -508,90 +490,6 @@ export type Database = {
           title?: string
           type?: Database["public"]["Enums"]["notification_type"]
           user_id?: string
-        }
-        Relationships: []
-      }
-      pattern_reliabilities: {
-        Row: {
-          avg_completion_days: number
-          avg_return_pct: number
-          id: string
-          last_updated: string
-          pattern_name: string
-          success_rate: number
-          successes: number
-          ticker: string
-          total_occurrences: number
-        }
-        Insert: {
-          avg_completion_days?: number
-          avg_return_pct?: number
-          id?: string
-          last_updated?: string
-          pattern_name: string
-          success_rate?: number
-          successes?: number
-          ticker: string
-          total_occurrences?: number
-        }
-        Update: {
-          avg_completion_days?: number
-          avg_return_pct?: number
-          id?: string
-          last_updated?: string
-          pattern_name?: string
-          success_rate?: number
-          successes?: number
-          ticker?: string
-          total_occurrences?: number
-        }
-        Relationships: []
-      }
-      predictions_tracking: {
-        Row: {
-          confluence_score: number
-          created_at: string
-          entry_price: number
-          id: string
-          initial_confidence: number
-          outcome: string | null
-          outcome_date: string | null
-          pattern_name: string
-          prediction_date: string
-          stop_loss: number | null
-          target_price: number
-          ticker: string
-          volume_spike: boolean
-        }
-        Insert: {
-          confluence_score?: number
-          created_at?: string
-          entry_price: number
-          id?: string
-          initial_confidence: number
-          outcome?: string | null
-          outcome_date?: string | null
-          pattern_name: string
-          prediction_date?: string
-          stop_loss?: number | null
-          target_price: number
-          ticker: string
-          volume_spike?: boolean
-        }
-        Update: {
-          confluence_score?: number
-          created_at?: string
-          entry_price?: number
-          id?: string
-          initial_confidence?: number
-          outcome?: string | null
-          outcome_date?: string | null
-          pattern_name?: string
-          prediction_date?: string
-          stop_loss?: number | null
-          target_price?: number
-          ticker?: string
-          volume_spike?: boolean
         }
         Relationships: []
       }
