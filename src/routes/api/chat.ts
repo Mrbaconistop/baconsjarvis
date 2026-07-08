@@ -12,6 +12,7 @@ import { z } from "zod";
 import { createClient } from "@supabase/supabase-js";
 import { createHash } from "crypto";
 import { getSystemPrompt, getModelForUser } from "@/lib/ai-gateway.server";
+import { pickModel as pickRoutedModel, type RouterPrefs } from "@/lib/model-router.server";
 import {
   getWeather,
   getWeatherForecast,
@@ -280,7 +281,66 @@ export const Route = createFileRoute("/api/chat")({
             }
           }
 
-          const { model: chatModel, mode, submode } = await getModelForUser(userId, supabase);
+          const userSelected = await getModelForUser(userId, supabase);
+          const { mode, submode } = userSelected;
+
+          // ---- Smart Router (DeepSeek-first, Groq/Gemini fallback) ----
+          const lastUserMsg = [...messages].reverse().find((m) => m.role === "user");
+          const lastUserText =
+            ((lastUserMsg?.parts as any[]) ?? []).filter((p: any) => p?.type === "text").map((p: any) => p.text).join(" ") || "";
+          const hasImage = ((lastUserMsg?.parts as any[]) ?? []).some((p: any) => p?.type === "image" || p?.type === "file");
+
+          // Load router prefs from user_facts (category='router')
+          const { data: routerRows } = await supabase
+            .from("user_facts").select("key,value").eq("user_id", userId).eq("category", "router");
+          const routerPrefs: RouterPrefs = {};
+          for (const r of routerRows ?? []) {
+            if (r.key === "prefer_groq_casual") routerPrefs.preferGroqForCasual = r.value === "true";
+            if (r.key === "force_provider" && (r.value === "deepseek" || r.value === "groq" || r.value === "gemini")) {
+              routerPrefs.forceProvider = r.value;
+            }
+          }
+
+          // If user explicitly picked a provider in Settings (LLM config), honor it
+          const forcedFromUser = (userSelected as any)?.provider;
+          let chatModel: any;
+          let routedProvider: string;
+          let routedModelId: string;
+          let routedIntent: string;
+          if (forcedFromUser && forcedFromUser !== "system") {
+            chatModel = (userSelected as any).model;
+            routedProvider = forcedFromUser;
+            routedModelId = (userSelected as any).modelId ?? "";
+            routedIntent = "user_override";
+          } else {
+            const routed = pickRoutedModel(lastUserText, hasImage, routerPrefs);
+            chatModel = routed.model;
+            routedProvider = routed.provider;
+            routedModelId = routed.modelId;
+            routedIntent = routed.intent;
+          }
+          console.log(`[ROUTER] provider=${routedProvider} model=${routedModelId} intent=${routedIntent}`);
+
+          // ---- Permanent keyword memory recall (Postgres FTS, $0) ----
+          let recallBlock = "";
+          if (lastUserText.trim().length >= 3) {
+            const { data: recalled } = await supabase.rpc("recall_chat_memory", {
+              _user_id: userId,
+              _query: lastUserText.slice(0, 500),
+              _limit: 5,
+            });
+            if (recalled?.length) {
+              recallBlock =
+                "\n\n## Relevant memory from past conversations\n" +
+                (recalled as any[])
+                  .map((m: any) => {
+                    const when = new Date(m.created_at).toISOString().slice(0, 10);
+                    const snippet = (m.message ?? "").slice(0, 240).replace(/\s+/g, " ").trim();
+                    return `- (${when}, ${m.role}) ${snippet}`;
+                  })
+                  .join("\n");
+            }
+          }
 
           const cacheKey = getCacheKey(userId, messages, mode, boundTabSlug);
           const cachedParts = await getCachedResponse(userId, cacheKey, supabase);
