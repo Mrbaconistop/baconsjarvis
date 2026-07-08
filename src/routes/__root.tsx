@@ -146,6 +146,7 @@ function RootComponent() {
 
   useEffect(() => {
     installDebugConsole();
+    applyThemeOverrides(readThemeOverrides());
     const { data: sub } = supabase.auth.onAuthStateChange((event) => {
       if (event !== "SIGNED_IN" && event !== "SIGNED_OUT" && event !== "USER_UPDATED") return;
       router.invalidate();
@@ -153,6 +154,8 @@ function RootComponent() {
     });
     return () => sub.subscription.unsubscribe();
   }, [router, queryClient]);
+
+  useNotificationBridge();
 
   return (
     <QueryClientProvider client={queryClient}>
