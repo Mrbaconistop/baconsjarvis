@@ -28,6 +28,7 @@ import { applyClientAction } from "@/lib/mapBus";
 import { toast } from "sonner";
 import { MicDiagnosticsDialog } from "./MicDiagnosticsDialog";
 import { HelpCircle } from "lucide-react";
+import { buildLibraryPromptPayload } from "@/lib/libraries";
 
 const TOOL_META: Record<string, { icon: any; label: string }> = {
   "tool-create_reminder": { icon: Bell, label: "Setting reminder" },
@@ -362,7 +363,8 @@ export function ChatWindow({
           )
           .join("")
       : "";
-    const fullText = (text || `Attached ${attachments.length} file(s).`) + filePayload;
+    const libraryPayload = buildLibraryPromptPayload();
+    const fullText = (text || `Attached ${attachments.length} file(s).`) + filePayload + libraryPayload;
     setInput("");
     setAttachments([]);
     await sendMessage({ text: fullText });
