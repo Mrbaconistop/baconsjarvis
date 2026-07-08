@@ -403,23 +403,41 @@ function CustomTabPage() {
     toast.info("Code formatted");
   }
 
-  function insertTemplate() {
-    const template = `<!-- Paste your HTML/JS here -->
-<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;background:#0b1220;color:#e6f2ff;font-family:system-ui;">
-  <h1>Hello, JARVIS!</h1>
-  <p>This tab was built from a template.</p>
-  <button onclick="alert('Clicked!')" style="padding:8px 16px;background:#7c3aed;border:none;border-radius:8px;color:white;cursor:pointer;">Click me</button>
-  <div id="counter" style="margin-top:20px;font-size:24px;">0</div>
-</div>
-<script>
-  let count = 0;
-  document.querySelector('button')?.addEventListener('click', () => {
-    document.getElementById('counter').textContent = ++count;
-  });
-<\/script>`;
-    setDraft(template);
-    toast.info("Template inserted");
+  function insertTemplate(kind: string = "hello") {
+    const T = TEMPLATES[kind] || TEMPLATES.hello;
+    if (multiFile) {
+      setFiles(T.files);
+      setConfig({ ...config, files: T.files, libraries: T.libraries ?? config.libraries });
+      setActiveLang("html");
+    } else {
+      setDraft(T.combined);
+    }
+    toast.info(`Template inserted: ${T.name}`);
   }
+
+  async function copyToClipboard() {
+    try {
+      const text = multiFile ? combinedContentHtml() : draft;
+      await navigator.clipboard.writeText(text);
+      toast.success("Copied to clipboard");
+    } catch (e: any) {
+      toast.error(e?.message || "Copy failed");
+    }
+  }
+
+  function downloadStandalone() {
+    if (!tab) return;
+    const html = srcDoc;
+    const blob = new Blob([html], { type: "text/html" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${tab.slug}.html`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success("Downloaded standalone HTML");
+  }
+
 
   // ---- Versioning ----
   function saveSnapshot(t: any) {
