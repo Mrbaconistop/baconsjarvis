@@ -4,9 +4,6 @@ import { generateText } from "ai";
 import { z } from "zod";
 import { getModelForUser, JARVIS_SYSTEM_PROMPT } from "./ai-gateway.server";
 
-// ============================================================
-// HELPERS
-// ============================================================
 async function loadContext(supabase: any, userId: string) {
   const { data: profile } = await supabase.from("profiles").select("address_as, name").eq("id", userId).maybeSingle();
   const { data: nextEvent } = await supabase
@@ -24,16 +21,16 @@ async function loadContext(supabase: any, userId: string) {
   };
 }
 
-// ============================================================
-// ORIGINAL SERVER FUNCTIONS (full, unchanged)
-// ============================================================
+/* ---------- Run a natural-language command ---------- */
 export const runCommand = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: unknown) => z.object({ text: z.string().min(1).max(800) }).parse(input))
   .handler(async ({ data, context }) => {
     const { supabase, userId } = context as any;
     const ctx = await loadContext(supabase, userId);
+
     const { model } = await getModelForUser(userId, supabase);
+
     const planSchema = z.object({
       intent: z.enum(["create_reminder", "summarise", "draft_reply", "answer"]),
       reply: z.string(),
@@ -46,18 +43,30 @@ export const runCommand = createServerFn({ method: "POST" })
         .nullable()
         .optional(),
     });
+
     const { text } = await generateText({
       model,
-      system: `${JARVIS_SYSTEM_PROMPT}\n\nAddress the user as "${ctx.addressAs}". Today is ${new Date().toISOString()}.\n${ctx.nextEvent ? `Sir's next commitment: "${ctx.nextEvent.title}" at ${ctx.nextEvent.datetime}.` : ""}\n\nYou receive a command. Return JSON only matching this shape (no markdown, no commentary):\n{"intent":"create_reminder"|"summarise"|"draft_reply"|"answer","reply":"<short JARVIS-voiced response>","reminder":{"title":"...","datetime_iso":"ISO 8601","priority":"normal"} | null}\n\nIf the command sets a reminder, populate "reminder" with a resolved absolute ISO datetime.\nOtherwise set "reminder" to null. "reply" is always present.`,
+      system: `${JARVIS_SYSTEM_PROMPT}
+
+Address the user as "${ctx.addressAs}". Today is ${new Date().toISOString()}.
+${ctx.nextEvent ? `Sir's next commitment: "${ctx.nextEvent.title}" at ${ctx.nextEvent.datetime}.` : ""}
+
+You receive a command. Return JSON only matching this shape (no markdown, no commentary):
+{"intent":"create_reminder"|"summarise"|"draft_reply"|"answer","reply":"<short JARVIS-voiced response>","reminder":{"title":"...","datetime_iso":"ISO 8601","priority":"normal"} | null}
+
+If the command sets a reminder, populate "reminder" with a resolved absolute ISO datetime.
+Otherwise set "reminder" to null. "reply" is always present.`,
       prompt: data.text,
     });
+
     let parsed: z.infer<typeof planSchema>;
     try {
       const jsonMatch = text.match(/\{[\s\S]*\}/);
       parsed = planSchema.parse(JSON.parse(jsonMatch ? jsonMatch[0] : text));
     } catch {
-      return { reply: text.slice(0, 400), created: null };
+      return { reply: text.slice(0, 400), created: null as null | { id: string } };
     }
+
     let created: { id: string } | null = null;
     if (parsed.intent === "create_reminder" && parsed.reminder) {
       const dt = new Date(parsed.reminder.datetime_iso);
@@ -76,9 +85,11 @@ export const runCommand = createServerFn({ method: "POST" })
         created = row ?? null;
       }
     }
+
     return { reply: parsed.reply, created };
   });
 
+/* ---------- Draft a reply to a social feed item ---------- */
 export const draftReply = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: unknown) =>
@@ -96,15 +107,22 @@ export const draftReply = createServerFn({ method: "POST" })
       .single();
     if (!feed) throw new Error("Not found");
     const ctx = await loadContext(supabase, userId);
+
     const { model } = await getModelForUser(userId, supabase);
+
     const { text } = await generateText({
       model,
-      system: `${JARVIS_SYSTEM_PROMPT}\n\nYou are drafting a reply on ${ctx.addressAs}'s behalf for ${feed.platform}.\nReply tone: ${data.tone}. Stay professional, brand-safe, and in character. Do not address yourself; this is the user's voice now, refined.\nReturn only the reply text. No quotes, no preamble.`,
+      system: `${JARVIS_SYSTEM_PROMPT}
+
+You are drafting a reply on ${ctx.addressAs}'s behalf for ${feed.platform}.
+Reply tone: ${data.tone}. Stay professional, brand-safe, and in character. Do not address yourself; this is the user's voice now, refined.
+Return only the reply text. No quotes, no preamble.`,
       prompt: `Original from ${feed.author_name} (${feed.author_handle ?? ""}):\n"""${feed.content}"""`,
     });
     return { draft: text.trim() };
   });
 
+/* ---------- Morning briefing ---------- */
 export const morningBriefing = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
@@ -128,28 +146,43 @@ export const morningBriefing = createServerFn({ method: "POST" })
         .lte("datetime", new Date(Date.now() + 36 * 3600_000).toISOString())
         .order("datetime", { ascending: true }),
     ]);
+
     const { model } = await getModelForUser(userId, supabase);
+
     const { text } = await generateText({
       model,
-      system: `${JARVIS_SYSTEM_PROMPT}\n\nAddress the user as "${ctx.addressAs}". Produce a morning briefing in exactly this structure:\n\nLine 1: One-sentence salutation referencing the time of day.\nThen 3 bullet points (prefix "• "), one each for: (a) the most important upcoming commitment, (b) the most urgent social signal that needs the user's voice, (c) anything else notable.\nEnd with one short anticipatory line offering the next action.\nTotal under 120 words.`,
-      prompt: `Upcoming commitments (next 36h):\n${(upcoming ?? []).map((r: any) => `- ${r.title} @ ${r.datetime} [${r.priority}]`).join("\n") || "(none)"}\n\nSocial signals (last 24h):\n${(feeds ?? []).map((f: any) => `- [${f.platform}/${f.priority}/${f.sentiment_label}] ${f.author_name}: ${f.content}`).join("\n") || "(none)"}`,
+      system: `${JARVIS_SYSTEM_PROMPT}
+
+Address the user as "${ctx.addressAs}". Produce a morning briefing in exactly this structure:
+
+Line 1: One-sentence salutation referencing the time of day.
+Then 3 bullet points (prefix "• "), one each for: (a) the most important upcoming commitment, (b) the most urgent social signal that needs the user's voice, (c) anything else notable.
+End with one short anticipatory line offering the next action.
+Total under 120 words.`,
+      prompt: `Upcoming commitments (next 36h):
+${(upcoming ?? []).map((r: any) => `- ${r.title} @ ${r.datetime} [${r.priority}]`).join("\n") || "(none)"}
+
+Social signals (last 24h):
+${(feeds ?? []).map((f: any) => `- [${f.platform}/${f.priority}/${f.sentiment_label}] ${f.author_name}: ${f.content}`).join("\n") || "(none)"}`,
     });
-    await supabase
-      .from("notifications")
-      .insert({
-        user_id: userId,
-        type: "briefing",
-        priority: "normal",
-        title: "Morning briefing",
-        message: text.trim(),
-        action_payload: [{ type: "dismiss", label: "Acknowledged" }],
-      });
+
+    await supabase.from("notifications").insert({
+      user_id: userId,
+      type: "briefing",
+      priority: "normal",
+      title: "Morning briefing",
+      message: text.trim(),
+      action_payload: [{ type: "dismiss", label: "Acknowledged" }],
+    });
+
     return { briefing: text.trim() };
   });
 
 // ============================================================
-// WEATHER FUNCTIONS (unchanged)
+// 🌤️ WEATHER FUNCTIONS
 // ============================================================
+
+/* ---------- Get the user's saved weather location ---------- */
 export const getWeatherLocation = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
@@ -161,40 +194,50 @@ export const getWeatherLocation = createServerFn({ method: "GET" })
       .eq("category", "preference")
       .eq("key", "weather_place_id")
       .maybeSingle();
+
     if (!data) return null;
+
     const { data: place } = await supabase
       .from("map_places")
       .select("id, label, address, lat, lng")
       .eq("id", data.value)
       .eq("user_id", userId)
       .maybeSingle();
+
     return place || null;
   });
 
+/* ---------- Set the user's weather location ---------- */
 export const setWeatherLocation = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: unknown) => z.object({ placeId: z.string().uuid() }).parse(input))
   .handler(async ({ data, context }) => {
     const { supabase, userId } = context as any;
-    const { error } = await supabase
-      .from("user_facts")
-      .upsert(
-        { user_id: userId, category: "preference", key: "weather_place_id", value: data.placeId },
-        { onConflict: "user_id,category,key" },
-      );
+    const { error } = await supabase.from("user_facts").upsert(
+      {
+        user_id: userId,
+        category: "preference",
+        key: "weather_place_id",
+        value: data.placeId,
+      },
+      { onConflict: "user_id,category,key" },
+    );
     if (error) throw error;
     return { ok: true };
   });
 
+/* ---------- Fetch current weather ---------- */
 export const getWeather = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
     const { supabase, userId } = context as any;
     const API_KEY = process.env.OPENWEATHER_API_KEY;
     if (!API_KEY) throw new Error("OpenWeatherMap API key is missing");
-    let lat: number | null = null,
-      lon: number | null = null,
-      cityName = "London";
+
+    let lat: number | null = null;
+    let lon: number | null = null;
+    let cityName = "London";
+
     const { data: pref } = await supabase
       .from("user_facts")
       .select("value")
@@ -202,6 +245,7 @@ export const getWeather = createServerFn({ method: "GET" })
       .eq("category", "preference")
       .eq("key", "weather_place_id")
       .maybeSingle();
+
     if (pref) {
       const { data: place } = await supabase
         .from("map_places")
@@ -215,10 +259,15 @@ export const getWeather = createServerFn({ method: "GET" })
         cityName = place.label;
       }
     }
+
     const url = `https://api.openweathermap.org/data/2.5/weather?lat=${lat || 51.5074}&lon=${lon || -0.1278}&appid=${API_KEY}&units=metric`;
     const response = await fetch(url);
-    if (!response.ok) throw new Error(`Weather API error: ${response.status}`);
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Weather API error: ${response.status} ${errorText}`);
+    }
     const data = await response.json();
+
     return {
       temperature: data.main.temp,
       description: data.weather[0].description,
@@ -231,15 +280,18 @@ export const getWeather = createServerFn({ method: "GET" })
     };
   });
 
+/* ---------- Get 5‑day weather forecast ---------- */
 export const getWeatherForecast = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
     const { supabase, userId } = context as any;
     const API_KEY = process.env.OPENWEATHER_API_KEY;
     if (!API_KEY) throw new Error("OpenWeatherMap API key is missing");
-    let lat: number | null = null,
-      lon: number | null = null,
-      cityName = "London";
+
+    let lat: number | null = null;
+    let lon: number | null = null;
+    let cityName = "London";
+
     const { data: pref } = await supabase
       .from("user_facts")
       .select("value")
@@ -247,6 +299,7 @@ export const getWeatherForecast = createServerFn({ method: "GET" })
       .eq("category", "preference")
       .eq("key", "weather_place_id")
       .maybeSingle();
+
     if (pref) {
       const { data: place } = await supabase
         .from("map_places")
@@ -260,12 +313,18 @@ export const getWeatherForecast = createServerFn({ method: "GET" })
         cityName = place.label;
       }
     }
+
     const url = `https://api.openweathermap.org/data/2.5/forecast?lat=${lat || 51.5074}&lon=${lon || -0.1278}&appid=${API_KEY}&units=metric`;
     const response = await fetch(url);
-    if (!response.ok) throw new Error(`Forecast API error: ${response.status}`);
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Forecast API error: ${response.status} ${errorText}`);
+    }
     const data = await response.json();
+
     const dailyForecasts: any[] = [];
     const seenDays = new Set();
+
     for (const item of data.list) {
       const date = new Date(item.dt * 1000);
       const dayKey = date.toISOString().split("T")[0];
@@ -284,18 +343,26 @@ export const getWeatherForecast = createServerFn({ method: "GET" })
         });
       }
     }
-    return { city: cityName, country: data.city.country, forecasts: dailyForecasts };
+
+    return {
+      city: cityName,
+      country: data.city.country,
+      forecasts: dailyForecasts,
+    };
   });
 
+/* ---------- Generate a natural‑language weather description ---------- */
 export const getWeatherNarrative = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
     const { supabase, userId } = context as any;
     const API_KEY = process.env.OPENWEATHER_API_KEY;
     if (!API_KEY) throw new Error("OpenWeatherMap API key is missing");
-    let lat: number | null = null,
-      lon: number | null = null,
-      cityName = "London";
+
+    let lat: number | null = null;
+    let lon: number | null = null;
+    let cityName = "London";
+
     const { data: pref } = await supabase
       .from("user_facts")
       .select("value")
@@ -303,6 +370,7 @@ export const getWeatherNarrative = createServerFn({ method: "GET" })
       .eq("category", "preference")
       .eq("key", "weather_place_id")
       .maybeSingle();
+
     if (pref) {
       const { data: place } = await supabase
         .from("map_places")
@@ -316,39 +384,70 @@ export const getWeatherNarrative = createServerFn({ method: "GET" })
         cityName = place.label;
       }
     }
+
     const url = `https://api.openweathermap.org/data/2.5/weather?lat=${lat || 51.5074}&lon=${lon || -0.1278}&appid=${API_KEY}&units=metric`;
     const response = await fetch(url);
-    if (!response.ok) throw new Error(`Weather API error: ${response.status}`);
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Weather API error: ${response.status} ${errorText}`);
+    }
     const data = await response.json();
+
     const temp = Math.round(data.main.temp);
     const feelsLike = Math.round(data.main.feels_like);
     const description = data.weather[0].description;
     const humidity = data.main.humidity;
     const windSpeed = Math.round(data.wind.speed * 3.6);
+
     let narrative = "";
-    if (temp >= 28) narrative = "It's a hot day, Sir. ";
-    else if (temp >= 22) narrative = "It's a warm, pleasant day. ";
-    else if (temp >= 15) narrative = "It's a mild, comfortable day. ";
-    else if (temp >= 10) narrative = "It's a cool day – perfect for a walk. ";
-    else if (temp >= 5) narrative = "It's chilly out there, Sir. ";
-    else narrative = "It's cold – better wrap up warm. ";
+
+    if (temp >= 28) {
+      narrative = "It's a hot day, Sir. ";
+    } else if (temp >= 22) {
+      narrative = "It's a warm, pleasant day. ";
+    } else if (temp >= 15) {
+      narrative = "It's a mild, comfortable day. ";
+    } else if (temp >= 10) {
+      narrative = "It's a cool day – perfect for a walk. ";
+    } else if (temp >= 5) {
+      narrative = "It's chilly out there, Sir. ";
+    } else {
+      narrative = "It's cold – better wrap up warm. ";
+    }
+
     const condition = description.toLowerCase();
-    if (condition.includes("clear") || condition.includes("sunny")) narrative += "The sky is clear and bright. ";
-    else if (condition.includes("cloud")) narrative += "It's mostly cloudy. ";
-    else if (condition.includes("rain") || condition.includes("drizzle") || condition.includes("shower"))
+    if (condition.includes("clear") || condition.includes("sunny")) {
+      narrative += "The sky is clear and bright. ";
+    } else if (condition.includes("cloud")) {
+      narrative += "It's mostly cloudy. ";
+    } else if (condition.includes("rain") || condition.includes("drizzle") || condition.includes("shower")) {
       narrative += "There's some rain – you might need an umbrella. ";
-    else if (condition.includes("thunder") || condition.includes("storm"))
+    } else if (condition.includes("thunder") || condition.includes("storm")) {
       narrative += "There's a storm brewing – stay safe, Sir. ";
-    else if (condition.includes("snow")) narrative += "It's snowing! Quite a sight. ";
-    else if (condition.includes("fog") || condition.includes("mist")) narrative += "It's foggy – drive carefully. ";
-    if (temp >= 15 && temp <= 28 && !condition.includes("rain") && !condition.includes("storm"))
+    } else if (condition.includes("snow")) {
+      narrative += "It's snowing! Quite a sight. ";
+    } else if (condition.includes("fog") || condition.includes("mist")) {
+      narrative += "It's foggy – drive carefully. ";
+    }
+
+    if (temp >= 15 && temp <= 28 && !condition.includes("rain") && !condition.includes("storm")) {
       narrative += "It's a nice day for a walk or some fresh air.";
-    else if (condition.includes("sunny") && temp > 20 && temp < 30) narrative += "Great weather for outdoor plans.";
-    else if (condition.includes("clear") && temp < 15) narrative += "A light jacket would be a good idea.";
-    else if (condition.includes("rain")) narrative += "Grab an umbrella if you're heading out.";
-    else if (temp > 30) narrative += "Stay hydrated and avoid the midday sun.";
-    else if (temp < 5) narrative += "Wrap up warm if you're going outside.";
-    if (!narrative.endsWith(".") && !narrative.endsWith("!")) narrative += ".";
+    } else if (condition.includes("sunny") && temp > 20 && temp < 30) {
+      narrative += "Great weather for outdoor plans.";
+    } else if (condition.includes("clear") && temp < 15) {
+      narrative += "A light jacket would be a good idea.";
+    } else if (condition.includes("rain")) {
+      narrative += "Grab an umbrella if you're heading out.";
+    } else if (temp > 30) {
+      narrative += "Stay hydrated and avoid the midday sun.";
+    } else if (temp < 5) {
+      narrative += "Wrap up warm if you're going outside.";
+    }
+
+    if (!narrative.endsWith(".") && !narrative.endsWith("!")) {
+      narrative += ".";
+    }
+
     return {
       temperature: temp,
       feelsLike: feelsLike,
@@ -363,8 +462,9 @@ export const getWeatherNarrative = createServerFn({ method: "GET" })
   });
 
 // ============================================================
-// PORTFOLIO FUNCTIONS (unchanged)
+// PORTFOLIO FUNCTIONS
 // ============================================================
+
 export const getCashBalance = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
@@ -420,6 +520,7 @@ export const addTransaction = createServerFn({ method: "POST" })
     const { supabase, userId } = context as any;
     const { type, ticker, shares, price_per_share, note } = data;
     const totalCents = Math.round(shares * price_per_share * 100);
+
     const { data: cashData } = await supabase
       .from("cash_balances")
       .select("amount_cents")
@@ -428,12 +529,14 @@ export const addTransaction = createServerFn({ method: "POST" })
     const currentCash = cashData?.amount_cents ?? 0;
     const newCash = type === "buy" ? currentCash - totalCents : currentCash + totalCents;
     await supabase.from("cash_balances").upsert({ user_id: userId, amount_cents: newCash }, { onConflict: "user_id" });
+
     const { data: existing } = await supabase
       .from("stock_holdings")
       .select("*")
       .eq("user_id", userId)
       .eq("ticker", ticker)
       .maybeSingle();
+
     if (type === "buy") {
       if (existing) {
         const newShares = existing.shares + shares;
@@ -445,35 +548,46 @@ export const addTransaction = createServerFn({ method: "POST" })
           .update({ shares: newShares, avg_cost_cents: newAvgCost })
           .eq("id", existing.id);
       } else {
-        await supabase
-          .from("stock_holdings")
-          .insert({ user_id: userId, ticker, shares, avg_cost_cents: Math.round(price_per_share * 100) });
+        await supabase.from("stock_holdings").insert({
+          user_id: userId,
+          ticker,
+          shares,
+          avg_cost_cents: Math.round(price_per_share * 100),
+        });
       }
     } else {
       if (!existing) throw new Error(`No shares of ${ticker} to sell.`);
       const newShares = existing.shares - shares;
       if (newShares < 0) throw new Error(`You don't have ${shares} shares of ${ticker} to sell.`);
-      if (newShares === 0) await supabase.from("stock_holdings").delete().eq("id", existing.id);
-      else await supabase.from("stock_holdings").update({ shares: newShares }).eq("id", existing.id);
+      if (newShares === 0) {
+        await supabase.from("stock_holdings").delete().eq("id", existing.id);
+      } else {
+        await supabase.from("stock_holdings").update({ shares: newShares }).eq("id", existing.id);
+      }
     }
-    await supabase
-      .from("transactions")
-      .insert({
-        user_id: userId,
-        amount_cents: totalCents,
-        category: "investment",
-        merchant: ticker,
-        note: `${type} ${shares} shares @ $${price_per_share.toFixed(2)}${note ? ` - ${note}` : ""}`,
-        source: "manual",
-        occurred_at: new Date().toISOString(),
-      });
+
+    await supabase.from("transactions").insert({
+      user_id: userId,
+      amount_cents: totalCents,
+      category: "investment",
+      merchant: ticker,
+      note: `${type} ${shares} shares @ $${price_per_share.toFixed(2)}${note ? ` - ${note}` : ""}`,
+      source: "manual",
+      occurred_at: new Date().toISOString(),
+    });
+
     return { ok: true };
   });
 
 export const updateLastPrice = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: unknown) =>
-    z.object({ ticker: z.string().min(1).max(10).toUpperCase(), last_price: z.number().positive() }).parse(input),
+    z
+      .object({
+        ticker: z.string().min(1).max(10).toUpperCase(),
+        last_price: z.number().positive(),
+      })
+      .parse(input),
   )
   .handler(async ({ data, context }) => {
     const { supabase, userId } = context as any;
@@ -487,32 +601,69 @@ export const updateLastPrice = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
+// ============================================================
+// AI CODE ASSISTANT (used by the editor)
+// ============================================================
 export const askCodeAssistant = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: unknown) =>
-    z.object({ code: z.string(), prompt: z.string(), language: z.string().optional() }).parse(input),
+    z
+      .object({
+        code: z.string(),
+        prompt: z.string(),
+        language: z.string().optional(),
+      })
+      .parse(input),
   )
   .handler(async ({ data, context }) => {
     const { supabase, userId } = context as any;
     const { model } = await getModelForUser(userId, supabase);
-    const systemPrompt = `You are JARVIS, an expert programmer. The user has asked you to help with code in a code editor.\n\nCurrent code:\n\`\`\`${data.language || "plaintext"}\n${data.code}\n\`\`\`\n\nUser's request: ${data.prompt}\n\nProvide a clear, helpful response. If suggesting code changes, show the full updated code or explain the changes clearly.`;
-    const { text } = await generateText({ model, system: systemPrompt, prompt: data.prompt });
+    const systemPrompt = `
+You are JARVIS, an expert programmer. The user has asked you to help with code in a code editor.
+
+Current code:
+\`\`\`${data.language || "plaintext"}
+${data.code}
+\`\`\`
+
+User's request: ${data.prompt}
+
+Provide a clear, helpful response. If suggesting code changes, show the full updated code or explain the changes clearly.
+`;
+    const { text } = await generateText({
+      model,
+      system: systemPrompt,
+      prompt: data.prompt,
+    });
     return { response: text };
   });
 
+// ============================================================
+// FILE SUMMARIZER – returns raw content (safe, never crashes)
+// ============================================================
 export const summarizeFileWithGemini = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: unknown) =>
-    z.object({ fileName: z.string(), content: z.string(), maxLength: z.number().optional().default(200) }).parse(input),
+    z
+      .object({
+        fileName: z.string(),
+        content: z.string(),
+        maxLength: z.number().optional().default(200),
+      })
+      .parse(input),
   )
-  .handler(async ({ data }) => {
+  .handler(async ({ data, context }) => {
+    // Return the raw content directly – no AI calls, no errors
     const truncated = data.content.length > 8000 ? data.content.slice(0, 8000) + "\n... (truncated)" : data.content;
-    return { summary: `📄 **File: ${data.fileName}** (${Math.round(data.content.length / 1024)}KB)\n\n${truncated}` };
+    return {
+      summary: `📄 **File: ${data.fileName}** (${Math.round(data.content.length / 1024)}KB)\n\n${truncated}`,
+    };
   });
+// ============================================================
+// STOCK ANALYSIS ENGINE (appended to jarvis.functions.ts)
+// ============================================================
 
-// ============================================================
-// STOCK ANALYSIS ENGINE (full, original)
-// ============================================================
+// ---------- Analytics utilities ----------
 export type PricePoint = { t: number; p: number; v: number };
 
 export function sma(arr: number[], n: number): number {
@@ -547,7 +698,6 @@ export function macd(prices: number[]): { macd: number; signal: number; hist: nu
 }
 
 export function stdev(arr: number[]): number {
-  if (!arr.length) return 0;
   const m = arr.reduce((a, b) => a + b, 0) / arr.length;
   const v = arr.reduce((s, x) => s + (x - m) ** 2, 0) / arr.length;
   return Math.sqrt(v);
@@ -562,7 +712,9 @@ export function returns(prices: number[]): number[] {
 export function atr(prices: number[], period: number = 14): number {
   if (prices.length < period + 1) return 0;
   const tr: number[] = [];
-  for (let i = 1; i < prices.length; i++) tr.push(Math.abs(prices[i] - prices[i - 1]));
+  for (let i = 1; i < prices.length; i++) {
+    tr.push(Math.abs(prices[i] - prices[i - 1]));
+  }
   const recent = tr.slice(-period);
   return recent.reduce((a, b) => a + b, 0) / recent.length;
 }
@@ -570,15 +722,18 @@ export function atr(prices: number[], period: number = 14): number {
 function clamp(x: number, lo: number, hi: number) {
   return Math.max(lo, Math.min(hi, x));
 }
+
 function safeCompoundedRate(ret: number, days: number): number {
   if (days <= 0) return 0;
   return Math.log1p(clamp(ret, -0.95, 10)) / days;
 }
+
 function trailingReturn(prices: number[], days: number, end = prices.length - 1): number {
   const start = end - Math.round(days);
   if (start < 0 || !prices[start]) return 0;
   return (prices[end] - prices[start]) / prices[start];
 }
+
 function setupVector(prices: number[], end: number): number[] | null {
   if (end < 35) return null;
   const window = prices.slice(0, end + 1);
@@ -596,6 +751,7 @@ function setupVector(prices: number[], end: number): number[] | null {
     s50 > s200 ? 0.35 : s50 < s200 ? -0.35 : 0,
   ];
 }
+
 function analogForecast(prices: number[], horizonDays: number): { expectedReturn: number; sample: number } | null {
   const horizon = Math.max(1, Math.round(horizonDays));
   const current = setupVector(prices, prices.length - 1);
@@ -718,12 +874,19 @@ export function predictStock(
     high,
     confidence,
     direction: expectedReturn > 0.005 ? "up" : expectedReturn < -0.005 ? "down" : "flat",
-    signals: { rsi: r, macdHist: m.hist, trend: trend > 0 ? "up" : trend < 0 ? "down" : "flat", sma50, sma200 },
+    signals: {
+      rsi: r,
+      macdHist: m.hist,
+      trend: trend > 0 ? "up" : trend < 0 ? "down" : "flat",
+      sma50,
+      sma200,
+    },
   };
 }
 
-// Finnhub client (from original)
+// ---------- Finnhub server client ----------
 const FINNHUB_BASE = "https://finnhub.io/api/v1";
+
 async function fh<T>(path: string, params: Record<string, string | number> = {}): Promise<T> {
   const key = process.env.FINNHUB_API_KEY;
   if (!key) throw new Error("FINNHUB_API_KEY is not configured");
@@ -758,12 +921,17 @@ export async function getQuote(symbol: string) {
   return { price: quote.c, change: quote.d, changePercent: quote.dp, high: quote.h, low: quote.l, open: quote.o };
 }
 
+// ---------- Server functions (to be used by chat tools) ----------
 export async function analyzeStockTicker(ticker: string) {
   const series = await fetchHistorical(ticker);
   if (series.length < 30) throw new Error("Insufficient data");
   const last = series[series.length - 1].p;
   const pred = predictStock(series, 1, "balanced");
-  return { symbol: ticker, currentPrice: last, prediction: pred };
+  return {
+    symbol: ticker,
+    currentPrice: last,
+    prediction: pred,
+  };
 }
 
 export const searchStocks = createServerFn({ method: "POST" })
@@ -812,7 +980,7 @@ export const getStockSnapshot = createServerFn({ method: "POST" })
   });
 
 // ============================================================
-// NEW: Analyzer user config
+// NEW: ANALYZER USER CONFIG
 // ============================================================
 export const getAnalyzerConfig = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
@@ -862,7 +1030,7 @@ export const setAnalyzerConfig = createServerFn({ method: "POST" })
   });
 
 // ============================================================
-// NEW: Stock Alerts
+// NEW: STOCK ALERTS (user_facts category "alert_rules")
 // ============================================================
 export const addStockAlert = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
@@ -963,7 +1131,7 @@ export const removeStockAlert = createServerFn({ method: "POST" })
   });
 
 // ============================================================
-// NEW: Watchlist
+// NEW: WATCHLIST
 // ============================================================
 export const addToWatchlist = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
@@ -1039,7 +1207,7 @@ export const getWatchlist = createServerFn({ method: "GET" })
   });
 
 // ============================================================
-// NEW: Trading Journal
+// NEW: TRADING JOURNAL
 // ============================================================
 export const logTrade = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
@@ -1108,7 +1276,7 @@ export const getTradeHistory = createServerFn({ method: "GET" })
   });
 
 // ============================================================
-// NEW: Portfolio Risk & Rebalance
+// NEW: PORTFOLIO RISK & REBALANCE
 // ============================================================
 export const portfolioRisk = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
@@ -1117,16 +1285,15 @@ export const portfolioRisk = createServerFn({ method: "GET" })
     const { data: holdings } = await supabase.from("stock_holdings").select("*").eq("user_id", userId);
     if (!holdings || holdings.length === 0) return { error: "No holdings" };
     const tickers = holdings.map((h: any) => h.ticker);
-    const prices: number[] = [];
     const weights: number[] = [];
     let totalValue = 0;
     for (const h of holdings) {
       const price = h.last_price_cents ? h.last_price_cents / 100 : h.avg_cost_cents / 100;
       const value = h.shares * price;
       totalValue += value;
-      prices.push(price);
       weights.push(value);
     }
+    // fetch historical returns for each ticker (simplified: use last 252 days)
     const returnsMatrix: number[][] = [];
     for (const t of tickers) {
       try {
@@ -1137,6 +1304,7 @@ export const portfolioRisk = createServerFn({ method: "GET" })
         returnsMatrix.push([]);
       }
     }
+    // compute portfolio daily returns
     const portReturns: number[] = [];
     const n = Math.max(0, ...returnsMatrix.map((r) => r.length));
     for (let i = 0; i < n; i++) {
@@ -1208,7 +1376,7 @@ export const rebalanceSuggestions = createServerFn({ method: "POST" })
   });
 
 // ============================================================
-// NEW: Compare Stocks, Sector, News
+// NEW: COMPARE STOCKS, SECTOR, NEWS
 // ============================================================
 export const compareStocks = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
@@ -1226,6 +1394,7 @@ export const compareStocks = createServerFn({ method: "POST" })
 export const sectorPerformance = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async () => {
+    // Use a set of sector ETFs as proxy (SPDR sectors)
     const sectorMap: Record<string, string> = {
       XLE: "Energy",
       XLF: "Financials",
