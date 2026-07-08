@@ -71,6 +71,7 @@ export type Database = {
       chat_messages: {
         Row: {
           created_at: string
+          fts: unknown
           id: string
           parts: Json
           role: string
@@ -79,6 +80,7 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          fts?: unknown
           id?: string
           parts: Json
           role: string
@@ -87,6 +89,7 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          fts?: unknown
           id?: string
           parts?: Json
           role?: string
@@ -931,6 +934,16 @@ export type Database = {
           message: string
           role: string
           similarity: number
+        }[]
+      }
+      recall_chat_memory: {
+        Args: { _limit?: number; _query: string; _user_id: string }
+        Returns: {
+          created_at: string
+          id: string
+          message: string
+          rank: number
+          role: string
         }[]
       }
     }
