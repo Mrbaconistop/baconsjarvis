@@ -98,15 +98,15 @@ export function resolveChatModel(opts?: { provider?: ProviderId; apiKey?: string
   // "system" means use the built-in default provider.
   const effectiveProvider: Exclude<ProviderId, "system"> =
     raw === "system" || !["groq", "deepseek", "lmstudio", "gemini"].includes(raw)
-      ? "groq"
+      ? "deepseek"
       : (raw as Exclude<ProviderId, "system">);
 
   // ---------- GEMINI ----------
   if (effectiveProvider === "gemini") {
     const key = providedApiKey ?? process.env.GOOGLE_GENERATIVE_AI_API_KEY;
     if (!key) {
-      console.warn("[AI] Gemini API key missing – falling back to Groq");
-      return resolveChatModel({ provider: "groq", apiKey: providedApiKey });
+      console.warn("[AI] Gemini API key missing – falling back to DeepSeek");
+      return resolveChatModel({ provider: "deepseek", apiKey: providedApiKey });
     }
     const gemini = createGeminiProvider(key);
     const modelId = process.env.GEMINI_MODEL ?? "gemini-2.5-flash";
