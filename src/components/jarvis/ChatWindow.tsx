@@ -181,22 +181,23 @@ export function ChatWindow({
     }
   }, [messages, speakWithElevenLabs]);
 
-  // ---- Voice input (your existing STT) ----
-  // (kept as is from your original – I'm preserving it)
-  const recorderRef = useRef<MediaRecorder | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
-  const streamRef = useRef<MediaStream | null>(null);
+  // ---- Voice input via browser Web Speech API (no server, no credits) ----
+  const recognitionRef = useRef<any>(null);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    if (!navigator.mediaDevices?.getUserMedia) {
+    const SR: any =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SR) {
       setMicPermission("unsupported");
       return;
     }
-    if (!navigator.permissions?.query) return;
-
-    let status: PermissionStatus | null = null;
+    if (!navigator.permissions?.query) {
+      setMicPermission("unknown");
+      return;
+    }
     let mounted = true;
+    let status: PermissionStatus | null = null;
     navigator.permissions
       .query({ name: "microphone" as PermissionName })
       .then((result) => {
@@ -206,135 +207,100 @@ export function ChatWindow({
         result.onchange = () => setMicPermission(result.state);
       })
       .catch(() => setMicPermission("unknown"));
-
     return () => {
       mounted = false;
       if (status) status.onchange = null;
     };
   }, []);
 
-  function checkMicPermissionBeforeRecording() {
-    if (!navigator.mediaDevices?.getUserMedia) {
-      setMicPermission("unsupported");
-      toast.error("Voice input isn't supported in this browser.");
-      return false;
+  function startRecording() {
+    if (isRecording || isTranscribing || isSpeaking) return;
+    const SR: any =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SR) {
+      toast.error("Voice input isn't supported in this browser.", {
+        description: "Chrome, Edge, or Safari support the Web Speech API.",
+      });
+      return;
     }
-
     if (micPermission === "denied") {
       toast.error("Microphone is blocked for this site.", {
         description: "Unblock it in site settings, then reload. Tap the ? button for diagnostics.",
         action: { label: "Diagnose", onClick: () => setMicDiagOpen(true) },
       });
-      return false;
+      return;
     }
 
-    return true;
-  }
-
-  function pickMimeType(): string | null {
-    if (typeof window === "undefined") return null;
-    const candidates = ["audio/webm", "audio/mp4", "audio/ogg"];
-    for (const t of candidates) {
-      if (typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported(t)) return t;
-    }
-    return null;
-  }
-
-  async function startRecording() {
-    if (isRecording || isTranscribing || isSpeaking) return;
     try {
-      if (!checkMicPermissionBeforeRecording()) return;
-      const mimeType = pickMimeType();
-      if (!mimeType) {
-        toast.error("This browser can't record a supported audio format.");
-        return;
-      }
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      streamRef.current = stream;
-      const recorder = new MediaRecorder(stream, { mimeType });
-      chunksRef.current = [];
-      recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) chunksRef.current.push(e.data);
-      };
-      recorder.onstop = async () => {
-        streamRef.current?.getTracks().forEach((t) => t.stop());
-        streamRef.current = null;
-        const blob = new Blob(chunksRef.current, { type: recorder.mimeType });
-        if (blob.size < 1024) {
-          toast.error("Recording too short — please try again.");
-          return;
+      const recognition = new SR();
+      recognition.lang = "en-US";
+      recognition.interimResults = false;
+      recognition.maxAlternatives = 1;
+      recognition.continuous = false;
+
+      let finalText = "";
+      recognition.onresult = (event: any) => {
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const r = event.results[i];
+          if (r.isFinal) finalText += r[0].transcript;
         }
-        await transcribeAndSend(blob);
       };
-      recorder.start();
-      recorderRef.current = recorder;
+      recognition.onerror = (event: any) => {
+        console.error("[speech] error", event);
+        if (event.error === "not-allowed" || event.error === "service-not-allowed") {
+          setMicPermission("denied");
+          toast.error("Microphone permission denied.");
+        } else if (event.error === "no-speech") {
+          toast.error("Didn't catch that, Sir.");
+        } else if (event.error === "audio-capture") {
+          toast.error("No microphone found.");
+        } else {
+          toast.error(`Voice error: ${event.error}`);
+        }
+        setIsRecording(false);
+      };
+      recognition.onend = async () => {
+        setIsRecording(false);
+        const text = finalText.trim();
+        if (!text) return;
+        try {
+          await sendMessage({ text });
+          setInput("");
+        } catch (err: any) {
+          console.error("[speech] send error", err);
+          toast.error(`Send failed: ${err?.message ?? err}`);
+        }
+      };
+
+      recognition.start();
+      recognitionRef.current = recognition;
       setIsRecording(true);
       toast.info("Listening, Sir…");
     } catch (err: any) {
-      console.error("[mic] start error", err);
-      if (err?.name === "NotAllowedError" || err?.name === "PermissionDeniedError") {
-        setMicPermission("denied");
-        toast.error("Microphone permission denied.", {
-          description: "Open the lock/site settings by the address bar, allow Microphone, then reload.",
-        });
-      } else if (err?.name === "NotFoundError") {
-        toast.error("No microphone found.");
-      } else if (err?.name === "NotReadableError") {
-        toast.error("Microphone is busy.", {
-          description: "Close apps using the mic, then try again.",
-        });
-      } else {
-        toast.error(`Mic error: ${err?.message ?? err}`);
-      }
+      console.error("[speech] start error", err);
+      toast.error(`Mic error: ${err?.message ?? err}`);
+      setIsRecording(false);
     }
   }
 
   function stopRecording() {
-    const r = recorderRef.current;
-    if (r && r.state !== "inactive") {
+    const r = recognitionRef.current;
+    if (r) {
       try {
         r.stop();
       } catch (e) {
-        console.warn("[mic] stop error", e);
+        console.warn("[speech] stop error", e);
       }
     }
     setIsRecording(false);
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((t) => t.stop());
-      streamRef.current = null;
-    }
-  }
-
-  async function transcribeAndSend(blob: Blob) {
-    setIsTranscribing(true);
-    try {
-      const fd = new FormData();
-      const ext = blob.type.includes("mp4") ? "mp4" : blob.type.includes("ogg") ? "ogg" : "webm";
-      fd.append("file", blob, `recording.${ext}`);
-      const res = await fetch("/api/transcribe", { method: "POST", body: fd });
-      const json: any = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(json?.error?.message ?? json?.error ?? `HTTP ${res.status}`);
-      }
-      const text: string = json?.text ?? "";
-      if (!text.trim()) {
-        toast.error("Didn't catch that, Sir.");
-        return;
-      }
-      await sendMessage({ text });
-      setInput("");
-    } catch (err: any) {
-      console.error("[transcribe] error", err);
-      toast.error(`Transcription failed: ${err?.message ?? err}`);
-    } finally {
-      setIsTranscribing(false);
-    }
   }
 
   function toggleMic() {
     if (isRecording) stopRecording();
     else startRecording();
   }
+
+
 
   // Cleanup on unmount
   useEffect(() => {
