@@ -10,10 +10,11 @@ export const Route = createFileRoute("/_authenticated/chat/")({
     const { data: existing } = await supabase
       .from("chat_threads").select("id")
       .eq("user_id", session.user.id)
+      .is("tab_slug", null)
       .order("updated_at", { ascending: false }).limit(1).maybeSingle();
     if (existing) throw redirect({ to: "/chat/$threadId", params: { threadId: existing.id } });
     const { data: created, error } = await supabase
-      .from("chat_threads").insert({ user_id: session.user.id, title: "New conversation" })
+      .from("chat_threads").insert({ user_id: session.user.id, title: "New conversation", tab_slug: null })
       .select("id").single();
     if (error || !created) throw new Error(error?.message ?? "Could not start chat");
     throw redirect({ to: "/chat/$threadId", params: { threadId: created.id } });

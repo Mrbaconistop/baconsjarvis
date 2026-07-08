@@ -67,32 +67,55 @@ export const Route = createFileRoute("/api/chat")({
         const userId = claims.claims.sub as string;
 
         try {
+          const { data: thread, error: threadError } = await supabase
+            .from("chat_threads")
+            .select("id")
+            .eq("id", threadId)
+            .eq("user_id", userId)
+            .maybeSingle();
+          if (threadError) throw threadError;
+          if (!thread) return new Response("Thread not found", { status: 404 });
+
+          const latestUser = [...messages].reverse().find((m) => m.role === "user");
+          if (!latestUser) return new Response("No user message", { status: 400 });
+
+          const { data: storedRows, error: storedError } = await supabase
+            .from("chat_messages")
+            .select("id, role, parts, created_at")
+            .eq("thread_id", threadId)
+            .eq("user_id", userId)
+            .order("created_at", { ascending: true });
+          if (storedError) throw storedError;
+
+          const storedMessages: UIMessage[] = (storedRows ?? []).map((row: any) => ({
+            id: row.id,
+            role: row.role,
+            parts: Array.isArray(row.parts) ? row.parts : [],
+          }));
+          const safeMessages: UIMessage[] = [...storedMessages, latestUser];
+
           const { model, mode } = await getModelForUser(userId, supabase);
           const system = getSystemPrompt(mode || "basic", "Sir", "");
-
-          const lastUser = [...messages].reverse().find((m) => m.role === "user");
 
           const result = streamText({
             model,
             system,
-            messages: await convertToModelMessages(messages),
+            messages: await convertToModelMessages(safeMessages),
           });
 
           const response = result.toUIMessageStreamResponse({
-            originalMessages: messages,
+            originalMessages: safeMessages,
             onFinish: async ({ messages: finalMessages }) => {
               try {
                 // Persist last user + assistant messages for this thread
                 const assistant = [...finalMessages].reverse().find((m) => m.role === "assistant");
                 const rows: any[] = [];
-                if (lastUser) {
-                  rows.push({
-                    thread_id: threadId,
-                    user_id: userId,
-                    role: "user",
-                    parts: lastUser.parts ?? [],
-                  });
-                }
+                rows.push({
+                  thread_id: threadId,
+                  user_id: userId,
+                  role: "user",
+                  parts: latestUser.parts ?? [],
+                });
                 if (assistant) {
                   rows.push({
                     thread_id: threadId,
@@ -120,7 +143,7 @@ export const Route = createFileRoute("/api/chat")({
         } catch (error) {
           const payload = serializeChatError(error, "stream");
           console.error(`[JARVIS_CHAT_DEBUG]\n${JSON.stringify(payload, null, 2)}`, error);
-          return chatErrorResponse(payload, messages);
+          return chatErrorResponse(payload, []);
         }
       },
     },

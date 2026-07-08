@@ -1052,12 +1052,15 @@ function TabAssistant({ tabSlug, tabLabel }: { tabSlug: string; tabLabel: string
 
   async function newThread() {
     const t = await create({ data: { tabSlug, title: `${tabLabel} chat` } });
-    qc.invalidateQueries({ queryKey: ["tab-threads", tabSlug] });
+    qc.setQueryData(["tab-messages", t.id], []);
+    await qc.invalidateQueries({ queryKey: ["tab-threads", tabSlug] });
     setActiveId(t.id);
   }
   async function onDelete(id: string) {
     await remove({ data: { id } });
-    qc.invalidateQueries({ queryKey: ["tab-threads", tabSlug] });
+    qc.removeQueries({ queryKey: ["tab-messages", id] });
+    qc.removeQueries({ queryKey: ["tab-messages"] });
+    await qc.invalidateQueries({ queryKey: ["tab-threads", tabSlug] });
     if (id === activeId) setActiveId(null);
   }
 
