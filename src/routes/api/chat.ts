@@ -3059,14 +3059,27 @@ TOKEN ECONOMY (STRICT): Answer in the fewest words possible. No preamble, no res
             const MAX_TURNS = 12;
             const trimmedMessages = messages.length > MAX_TURNS ? messages.slice(-MAX_TURNS) : messages;
 
+            // Give code answers room to breathe; keep casual replies tight.
+            const isCodeIntent = mode === "coding" || routedIntent === "code";
+            const outputCap = isCodeIntent ? 4096 : mode === "thinking" ? 2048 : 1024;
+
+            // If the router flagged this as code but the user isn't in coding mode,
+            // splice in the coding prompt as an extra system directive so Roblox/Lua
+            // answers get the same expertise regardless of the UI toggle.
+            let effectiveSystem = systemPrompt;
+            if (isCodeIntent && mode !== "coding") {
+              const { CODING_PROMPT_EXPORT } = await import("@/lib/ai-gateway.server");
+              effectiveSystem = `${CODING_PROMPT_EXPORT}\n\n---\n\n${systemPrompt}`;
+            }
+
             const result = streamText({
               model: chatModel,
-              system: systemPrompt,
+              system: effectiveSystem,
               messages: await convertToModelMessages(trimmedMessages),
               tools,
               stopWhen: stepCountIs(50),
-              temperature: 0.5,
-              maxOutputTokens: mode === "thinking" ? 2048 : 1024,
+              temperature: isCodeIntent ? 0.2 : 0.5,
+              maxOutputTokens: outputCap,
               ...(Object.keys(providerOptions).length ? { providerOptions } : {}),
               onError: ({ error }) => {
                 debugChatError(error, "stream-runtime", {
