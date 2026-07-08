@@ -83,7 +83,7 @@ function ChatPage() {
           {isLoading ? (
             <div className="p-8 text-hud-dim text-sm font-mono">Loading…</div>
           ) : (
-            <ChatWindow threadId={threadId} initial={initial as any} />
+            <ChatWindow key={threadId} threadId={threadId} initial={initial as any} />
           )}
         </div>
       </div>
