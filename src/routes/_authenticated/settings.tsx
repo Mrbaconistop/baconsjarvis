@@ -155,6 +155,7 @@ function SettingsPage() {
       </div>
       <div className="flex-1 overflow-y-auto px-8 py-6 space-y-6 max-w-4xl">
         {tab === "diagnostics" ? <DiagnosticsTab /> : (<>
+        <ThemeCustomizer />
         <section className="glass-strong hud-corners rounded-xl p-5">
           <div className="font-mono text-[10px] tracking-[0.3em] text-arc mb-4">PROFILE</div>
           <div className="grid grid-cols-2 gap-4 text-sm">
