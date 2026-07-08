@@ -23,6 +23,8 @@ import rehypeKatex from "rehype-katex";
 import { useQueryClient } from "@tanstack/react-query";
 import { applyClientAction } from "@/lib/mapBus";
 import { toast } from "sonner";
+import { MicDiagnosticsDialog } from "./MicDiagnosticsDialog";
+import { HelpCircle } from "lucide-react";
 
 const TOOL_META: Record<string, { icon: any; label: string }> = {
   "tool-create_reminder": { icon: Bell, label: "Setting reminder" },
@@ -55,6 +57,7 @@ export function ChatWindow({
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [micPermission, setMicPermission] = useState<PermissionState | "unknown" | "unsupported">("unknown");
+  const [micDiagOpen, setMicDiagOpen] = useState(false);
   const taRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -219,7 +222,8 @@ export function ChatWindow({
 
     if (micPermission === "denied") {
       toast.error("Microphone is blocked for this site.", {
-        description: "Open the lock/site settings by the address bar, allow Microphone, then reload.",
+        description: "Unblock it in site settings, then reload. Tap the ? button for diagnostics.",
+        action: { label: "Diagnose", onClick: () => setMicDiagOpen(true) },
       });
       return false;
     }
@@ -444,6 +448,17 @@ export function ChatWindow({
           >
             {isRecording ? <MicOff size={16} /> : <Mic size={16} />}
           </button>
+
+          {/* Mic diagnostics */}
+          <button
+            onClick={() => setMicDiagOpen(true)}
+            className="p-2 rounded-lg border border-arc/20 text-hud-dim hover:bg-arc/10 hover:text-arc transition"
+            aria-label="Microphone diagnostics"
+            title="Microphone diagnostics"
+          >
+            <HelpCircle size={14} />
+          </button>
+          <MicDiagnosticsDialog open={micDiagOpen} onClose={() => setMicDiagOpen(false)} />
 
           <textarea
             ref={taRef}
