@@ -933,3 +933,49 @@ export async function analyzeStockTicker(ticker: string) {
     prediction: pred,
   };
 }
+
+export const searchStocks = createServerFn({ method: "POST" })
+  .inputValidator((data: unknown) => z.object({ q: z.string() }).parse(data))
+  .handler(async ({ data }) => {
+    try {
+      const res = await fh<any>("/search", { q: data.q });
+      const results = (res?.result ?? [])
+        .filter((r: any) => r.symbol && !r.symbol.includes("."))
+        .slice(0, 8)
+        .map((r: any) => ({ symbol: r.symbol, description: r.description, type: r.type }));
+      return { ok: true as const, results };
+    } catch (e: any) {
+      return { ok: false as const, error: e?.message ?? "search failed" };
+    }
+  });
+
+export const getStockSnapshot = createServerFn({ method: "POST" })
+  .inputValidator((data: unknown) => z.object({ symbol: z.string() }).parse(data))
+  .handler(async ({ data }) => {
+    try {
+      const symbol = data.symbol.toUpperCase();
+      const [quote, profile] = await Promise.all([
+        fh<any>("/quote", { symbol }),
+        fh<any>("/stock/profile2", { symbol }).catch(() => ({})),
+      ]);
+      return {
+        ok: true as const,
+        symbol,
+        price: quote.c,
+        change: quote.d,
+        changePercent: quote.dp,
+        high: quote.h,
+        low: quote.l,
+        open: quote.o,
+        prevClose: quote.pc,
+        name: profile?.name ?? symbol,
+        industry: profile?.finnhubIndustry ?? "—",
+        marketCap: profile?.marketCapitalization ? profile.marketCapitalization * 1e6 : null,
+        exchange: profile?.exchange ?? "—",
+        currency: profile?.currency ?? "USD",
+      };
+    } catch (e: any) {
+      return { ok: false as const, error: e?.message ?? "snapshot failed" };
+    }
+  });
+
