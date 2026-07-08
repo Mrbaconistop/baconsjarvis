@@ -57,6 +57,7 @@ export function ChatWindow({
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [micPermission, setMicPermission] = useState<PermissionState | "unknown" | "unsupported">("unknown");
+  const [micDiagOpen, setMicDiagOpen] = useState(false);
   const taRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
