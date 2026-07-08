@@ -1,28 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
 import {
-  convertToModelMessages,
   createUIMessageStream,
   createUIMessageStreamResponse,
-  streamText,
-  tool,
-  stepCountIs,
   type UIMessage,
 } from "ai";
-import { z } from "zod";
-import { createClient } from "@supabase/supabase-js";
-import { createHash } from "crypto";
-import { getSystemPrompt, getModelForUser } from "@/lib/ai-gateway.server";
-import { pickModel as pickRoutedModel, type RouterPrefs } from "@/lib/model-router.server";
-import {
-  getWeather,
-  getWeatherForecast,
-  getWeatherNarrative,
-  getStockSnapshot,
-  searchStocks,
-} from "@/lib/jarvis.functions";
-import { getProfile, getLLMConfig, updateLLMConfig } from "@/lib/profile.functions";
-import { listAccounts } from "@/lib/profile.functions";
-import { getBackendOverview } from "@/lib/backend.functions";
 
 type Body = { messages?: UIMessage[]; threadId?: string; tabSlug?: string | null };
 
