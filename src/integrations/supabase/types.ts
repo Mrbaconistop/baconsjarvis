@@ -685,6 +685,48 @@ export type Database = {
         }
         Relationships: []
       }
+      router_traces: {
+        Row: {
+          created_at: string
+          has_image: boolean
+          id: string
+          intent: string
+          model_id: string
+          prefs: Json
+          provider: string
+          recalled_count: number
+          thread_id: string | null
+          user_id: string
+          user_text_snippet: string | null
+        }
+        Insert: {
+          created_at?: string
+          has_image?: boolean
+          id?: string
+          intent: string
+          model_id: string
+          prefs?: Json
+          provider: string
+          recalled_count?: number
+          thread_id?: string | null
+          user_id: string
+          user_text_snippet?: string | null
+        }
+        Update: {
+          created_at?: string
+          has_image?: boolean
+          id?: string
+          intent?: string
+          model_id?: string
+          prefs?: Json
+          provider?: string
+          recalled_count?: number
+          thread_id?: string | null
+          user_id?: string
+          user_text_snippet?: string | null
+        }
+        Relationships: []
+      }
       social_feeds: {
         Row: {
           author_avatar: string | null
@@ -911,6 +953,36 @@ export type Database = {
           tags?: string[]
           updated_at?: string
           user_id?: string
+        }
+        Relationships: []
+      }
+      watcher_runs: {
+        Row: {
+          duration_ms: number | null
+          error: string | null
+          id: string
+          meta: Json
+          ok: boolean
+          ran_at: string
+          watcher: string
+        }
+        Insert: {
+          duration_ms?: number | null
+          error?: string | null
+          id?: string
+          meta?: Json
+          ok: boolean
+          ran_at?: string
+          watcher: string
+        }
+        Update: {
+          duration_ms?: number | null
+          error?: string | null
+          id?: string
+          meta?: Json
+          ok?: boolean
+          ran_at?: string
+          watcher?: string
         }
         Relationships: []
       }

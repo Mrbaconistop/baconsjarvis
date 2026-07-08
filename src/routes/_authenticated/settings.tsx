@@ -13,6 +13,7 @@ import { Twitter, Linkedin, Instagram, Facebook, Mail, Calendar, CheckCircle2, C
 import { lovable } from "@/integrations/lovable";
 import { toast } from "sonner";
 import { useState, useEffect } from "react";
+import { DiagnosticsTab } from "@/components/jarvis/DiagnosticsTab";
 
 export const Route = createFileRoute("/_authenticated/settings")({
   head: () => ({ meta: [{ title: "Settings — JARVIS" }] }),
@@ -127,6 +128,8 @@ function SettingsPage() {
     }
   }
 
+  const [tab, setTab] = useState<"general" | "diagnostics">("general");
+
   return (
     <div className="flex flex-col h-screen">
       <PageHeader
@@ -134,7 +137,23 @@ function SettingsPage() {
         title="Configuration"
         subtitle="How JARVIS knows you and the channels you've connected."
       />
-      <div className="flex-1 overflow-y-auto px-8 py-6 space-y-6 max-w-3xl">
+      <div className="px-8 pt-4 flex gap-1 border-b border-arc/10">
+        {(["general", "diagnostics"] as const).map((t) => (
+          <button
+            key={t}
+            onClick={() => setTab(t)}
+            className={`px-4 py-2 text-xs font-mono uppercase tracking-[0.2em] rounded-t transition ${
+              tab === t
+                ? "bg-arc/10 text-arc border-b-2 border-arc"
+                : "text-hud-dim hover:text-foreground"
+            }`}
+          >
+            {t}
+          </button>
+        ))}
+      </div>
+      <div className="flex-1 overflow-y-auto px-8 py-6 space-y-6 max-w-4xl">
+        {tab === "diagnostics" ? <DiagnosticsTab /> : (<>
         <section className="glass-strong hud-corners rounded-xl p-5">
           <div className="font-mono text-[10px] tracking-[0.3em] text-arc mb-4">PROFILE</div>
           <div className="grid grid-cols-2 gap-4 text-sm">
@@ -298,6 +317,7 @@ function SettingsPage() {
             Nothing is linked automatically. Connect each channel here whenever you're ready.
           </p>
         </section>
+        </>)}
       </div>
     </div>
   );
