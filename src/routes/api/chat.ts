@@ -3043,7 +3043,9 @@ UTILITY BELT — reach for these instead of doing it in your head:
 - Code memory: remember_code to store snippets, recall_memory with language filter to retrieve them.
 - Built-in browser: create_browser_tab to give the user a full web browser inside a custom tab.
 
-When the user says "take me to X" or "open X", actually navigate — don't just describe the link.`;
+When the user says "take me to X" or "open X", actually navigate — don't just describe the link.
+
+TOKEN ECONOMY (STRICT): Answer in the fewest words possible. No preamble, no restating the question, no filler like "Certainly, Sir" or "I'll help you with that". Skip closing pleasantries. Use short sentences and compact lists. Only elaborate when the user explicitly asks for detail. Do NOT invoke tools unless the user's request clearly requires one — never call system_status, recall_memory, or list_* tools for casual chat.`;
 
           try {
             const providerName = String((chatModel as any)?.provider ?? "").toLowerCase();
@@ -3052,12 +3054,19 @@ When the user says "take me to X" or "open X", actually navigate — don't just 
               providerOptions.anthropic = { cacheControl: { type: "ephemeral" } };
             }
 
+            // ---- Token trim: only send the last N turns to the model ----
+            // Full history stays in DB; older context is available via recall_memory / recall_chat_memory.
+            const MAX_TURNS = 12;
+            const trimmedMessages = messages.length > MAX_TURNS ? messages.slice(-MAX_TURNS) : messages;
+
             const result = streamText({
               model: chatModel,
               system: systemPrompt,
-              messages: await convertToModelMessages(messages),
+              messages: await convertToModelMessages(trimmedMessages),
               tools,
               stopWhen: stepCountIs(50),
+              temperature: 0.5,
+              maxOutputTokens: mode === "thinking" ? 2048 : 1024,
               ...(Object.keys(providerOptions).length ? { providerOptions } : {}),
               onError: ({ error }) => {
                 debugChatError(error, "stream-runtime", {
