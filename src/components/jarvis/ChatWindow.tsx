@@ -210,26 +210,18 @@ export function ChatWindow({
     };
   }, []);
 
-  async function checkMicPermissionBeforeRecording() {
+  function checkMicPermissionBeforeRecording() {
     if (!navigator.mediaDevices?.getUserMedia) {
       setMicPermission("unsupported");
       toast.error("Voice input isn't supported in this browser.");
       return false;
     }
 
-    try {
-      if (navigator.permissions?.query) {
-        const status = await navigator.permissions.query({ name: "microphone" as PermissionName });
-        setMicPermission(status.state);
-        if (status.state === "denied") {
-          toast.error("Microphone is blocked for this site.", {
-            description: "Open the lock/site settings by the address bar, allow Microphone, then reload.",
-          });
-          return false;
-        }
-      }
-    } catch {
-      setMicPermission("unknown");
+    if (micPermission === "denied") {
+      toast.error("Microphone is blocked for this site.", {
+        description: "Open the lock/site settings by the address bar, allow Microphone, then reload.",
+      });
+      return false;
     }
 
     return true;
@@ -247,7 +239,7 @@ export function ChatWindow({
   async function startRecording() {
     if (isRecording || isTranscribing || isSpeaking) return;
     try {
-      if (!(await checkMicPermissionBeforeRecording())) return;
+      if (!checkMicPermissionBeforeRecording()) return;
       const mimeType = pickMimeType();
       if (!mimeType) {
         toast.error("This browser can't record a supported audio format.");
