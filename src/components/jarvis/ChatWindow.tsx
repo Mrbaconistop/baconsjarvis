@@ -307,9 +307,8 @@ export function ChatWindow({
     return () => {
       if (typeof window === "undefined") return;
       try {
-        recorderRef.current?.state !== "inactive" && recorderRef.current?.stop();
+        recognitionRef.current?.stop?.();
       } catch {}
-      streamRef.current?.getTracks().forEach((t) => t.stop());
       if (audioRef.current) {
         audioRef.current.pause();
         audioRef.current.src = "";
