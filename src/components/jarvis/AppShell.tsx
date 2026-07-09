@@ -32,7 +32,7 @@ const NAV = [
   { to: "/chat", label: "Chat", icon: MessageSquare, tag: "01" },
   { to: "/time", label: "Time & Tasks", icon: Clock, tag: "02" },
   { to: "/vault", label: "Vault", icon: KeyRound, tag: "03" },
-  { to: "/spending", label: "Portfolio", icon: DollarSign, tag: "04" },
+  
   { to: "/analyzer", label: "Analyzer", icon: Activity, tag: "13" },
   { to: "/briefing", label: "Briefing", icon: Bell, tag: "05" },
   { to: "/map", label: "Map", icon: MapIcon, tag: "09" },
