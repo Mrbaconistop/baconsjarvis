@@ -345,8 +345,20 @@ export function ChatWindow({
     taRef.current?.focus();
   }, [threadId, busy]);
 
+  const rafRef = useRef<number | null>(null);
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+    const el = scrollRef.current;
+    if (!el) return;
+    // Only auto-scroll if user is already near the bottom (within 120px).
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+    if (!nearBottom) return;
+    if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
+    rafRef.current = requestAnimationFrame(() => {
+      el.scrollTop = el.scrollHeight; // instant, no smooth jank during streaming
+    });
+    return () => {
+      if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
+    };
   }, [messages, status]);
 
   async function submit() {
