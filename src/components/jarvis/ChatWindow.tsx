@@ -345,8 +345,20 @@ export function ChatWindow({
     taRef.current?.focus();
   }, [threadId, busy]);
 
+  const rafRef = useRef<number | null>(null);
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+    const el = scrollRef.current;
+    if (!el) return;
+    // Only auto-scroll if user is already near the bottom (within 120px).
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+    if (!nearBottom) return;
+    if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
+    rafRef.current = requestAnimationFrame(() => {
+      el.scrollTop = el.scrollHeight; // instant, no smooth jank during streaming
+    });
+    return () => {
+      if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
+    };
   }, [messages, status]);
 
   async function submit() {
@@ -572,74 +584,103 @@ export function ChatWindow({
   );
 }
 
-// Memoized MessageBubble (unchanged – keep as is)
-const MessageBubble = memo(function MessageBubble({ msg }: { msg: UIMessage }) {
-  const isUser = msg.role === "user";
+// Memoized markdown block — avoids re-parsing prior assistant messages
+// on every streamed token of the current one.
+const MD_REMARK = [remarkGfm, remarkMath];
+const MD_REHYPE = [rehypeKatex];
+const MarkdownBlock = memo(function MarkdownBlock({ text }: { text: string }) {
   return (
-    <div className={`flex gap-3 max-w-4xl mx-auto ${isUser ? "justify-end" : "justify-start"}`}>
-      {!isUser && (
-        <div className="size-7 rounded-full bg-arc/15 border border-arc/30 flex items-center justify-center text-arc font-mono text-[9px] shrink-0 mt-1">
-          J
-        </div>
-      )}
-      <div className={`min-w-0 ${isUser ? "max-w-[80%]" : "max-w-[85%]"}`}>
-        {msg.parts.map((part: any, i) => {
-          if (part.type === "text") {
-            return isUser ? (
-              <div
-                key={i}
-                className="bg-arc text-arc-foreground rounded-2xl rounded-tr-sm px-4 py-2.5 text-sm whitespace-pre-wrap"
-              >
-                {part.text}
-              </div>
-            ) : (
-              <div
-                key={i}
-                className="prose prose-invert prose-sm max-w-none text-foreground prose-p:my-2 prose-headings:text-arc prose-strong:text-foreground prose-code:text-arc prose-code:bg-arc/10 prose-code:px-1 prose-code:rounded"
-              >
-                <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>
-                  {part.text}
-                </ReactMarkdown>
-              </div>
-            );
-          }
-          if (typeof part.type === "string" && part.type.startsWith("tool-")) {
-            const meta = TOOL_META[part.type] ?? { icon: Wrench, label: part.type.replace("tool-", "") };
-            const Icon = meta.icon;
-            const state = part.state as string | undefined;
-            return (
-              <details key={i} className="my-2 rounded-md border border-arc/20 bg-arc/5 text-xs">
-                <summary className="cursor-pointer px-3 py-2 flex items-center gap-2 font-mono text-arc">
-                  <Icon size={12} />
-                  <span>{meta.label}</span>
-                  <span className="opacity-50">· {state ?? "…"}</span>
-                </summary>
-                <div className="px-3 pb-3 space-y-2 font-mono text-[11px] text-hud-dim">
-                  {part.input && (
-                    <div>
-                      <div className="opacity-60 mb-1">input</div>
-                      <pre className="whitespace-pre-wrap">{JSON.stringify(part.input, null, 2)}</pre>
-                    </div>
-                  )}
-                  {part.output != null && (
-                    <div>
-                      <div className="opacity-60 mb-1">result</div>
-                      <pre className="whitespace-pre-wrap">{JSON.stringify(part.output, null, 2)}</pre>
-                    </div>
-                  )}
-                  {part.errorText && <div className="text-critical">{part.errorText}</div>}
-                </div>
-              </details>
-            );
-          }
-          return null;
-        })}
-      </div>
-      {isUser && (
-        <div className="size-7 rounded-full bg-background border border-arc/30 flex items-center justify-center text-hud-dim font-mono text-[9px] shrink-0 mt-1">
-          SIR
-        </div>
-      )}
-    </div>
+    <ReactMarkdown remarkPlugins={MD_REMARK} rehypePlugins={MD_REHYPE}>
+      {text}
+    </ReactMarkdown>
   );
 });
+
+// Compare msg by id + parts length + last-part text length so we skip
+// re-rendering settled messages while streaming a new one.
+const MessageBubble = memo(
+  function MessageBubble({ msg }: { msg: UIMessage }) {
+    const isUser = msg.role === "user";
+    return (
+      <div className={`flex gap-3 max-w-4xl mx-auto ${isUser ? "justify-end" : "justify-start"}`}>
+        {!isUser && (
+          <div className="size-7 rounded-full bg-arc/15 border border-arc/30 flex items-center justify-center text-arc font-mono text-[9px] shrink-0 mt-1">
+            J
+          </div>
+        )}
+        <div className={`min-w-0 ${isUser ? "max-w-[80%]" : "max-w-[85%]"}`}>
+          {msg.parts.map((part: any, i) => {
+            if (part.type === "text") {
+              return isUser ? (
+                <div
+                  key={i}
+                  className="bg-arc text-arc-foreground rounded-2xl rounded-tr-sm px-4 py-2.5 text-sm whitespace-pre-wrap"
+                >
+                  {part.text}
+                </div>
+              ) : (
+                <div
+                  key={i}
+                  className="prose prose-invert prose-sm max-w-none text-foreground prose-p:my-2 prose-headings:text-arc prose-strong:text-foreground prose-code:text-arc prose-code:bg-arc/10 prose-code:px-1 prose-code:rounded"
+                >
+                  <MarkdownBlock text={part.text} />
+                </div>
+              );
+            }
+            if (typeof part.type === "string" && part.type.startsWith("tool-")) {
+              const meta = TOOL_META[part.type] ?? { icon: Wrench, label: part.type.replace("tool-", "") };
+              const Icon = meta.icon;
+              const state = part.state as string | undefined;
+              return (
+                <details key={i} className="my-2 rounded-md border border-arc/20 bg-arc/5 text-xs">
+                  <summary className="cursor-pointer px-3 py-2 flex items-center gap-2 font-mono text-arc">
+                    <Icon size={12} />
+                    <span>{meta.label}</span>
+                    <span className="opacity-50">· {state ?? "…"}</span>
+                  </summary>
+                  <div className="px-3 pb-3 space-y-2 font-mono text-[11px] text-hud-dim">
+                    {part.input && (
+                      <div>
+                        <div className="opacity-60 mb-1">input</div>
+                        <pre className="whitespace-pre-wrap">{JSON.stringify(part.input, null, 2)}</pre>
+                      </div>
+                    )}
+                    {part.output != null && (
+                      <div>
+                        <div className="opacity-60 mb-1">result</div>
+                        <pre className="whitespace-pre-wrap">{JSON.stringify(part.output, null, 2)}</pre>
+                      </div>
+                    )}
+                    {part.errorText && <div className="text-critical">{part.errorText}</div>}
+                  </div>
+                </details>
+              );
+            }
+            return null;
+          })}
+        </div>
+        {isUser && (
+          <div className="size-7 rounded-full bg-background border border-arc/30 flex items-center justify-center text-hud-dim font-mono text-[9px] shrink-0 mt-1">
+            SIR
+          </div>
+        )}
+      </div>
+    );
+  },
+  (prev, next) => {
+    if (prev.msg === next.msg) return true;
+    if (prev.msg.id !== next.msg.id) return false;
+    if (prev.msg.parts.length !== next.msg.parts.length) return false;
+    // Cheap deep-ish check: compare each part's key fields.
+    for (let i = 0; i < prev.msg.parts.length; i++) {
+      const a: any = prev.msg.parts[i];
+      const b: any = next.msg.parts[i];
+      if (a === b) continue;
+      if (a?.type !== b?.type) return false;
+      if (a?.text !== b?.text) return false;
+      if (a?.state !== b?.state) return false;
+      if (a?.output !== b?.output) return false;
+    }
+    return true;
+  },
+);
