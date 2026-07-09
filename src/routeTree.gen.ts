@@ -18,7 +18,6 @@ import { Route as ApiChatRouteImport } from './routes/api/chat'
 import { Route as AuthenticatedWorldRouteImport } from './routes/_authenticated/world'
 import { Route as AuthenticatedVaultRouteImport } from './routes/_authenticated/vault'
 import { Route as AuthenticatedTimeRouteImport } from './routes/_authenticated/time'
-import { Route as AuthenticatedSpendingRouteImport } from './routes/_authenticated/spending'
 import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
 import { Route as AuthenticatedPulseRouteImport } from './routes/_authenticated/pulse'
 import { Route as AuthenticatedMapRouteImport } from './routes/_authenticated/map'
@@ -76,11 +75,6 @@ const AuthenticatedVaultRoute = AuthenticatedVaultRouteImport.update({
 const AuthenticatedTimeRoute = AuthenticatedTimeRouteImport.update({
   id: '/time',
   path: '/time',
-  getParentRoute: () => AuthenticatedRouteRoute,
-} as any)
-const AuthenticatedSpendingRoute = AuthenticatedSpendingRouteImport.update({
-  id: '/spending',
-  path: '/spending',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
 const AuthenticatedSettingsRoute = AuthenticatedSettingsRouteImport.update({
@@ -170,7 +164,6 @@ export interface FileRoutesByFullPath {
   '/map': typeof AuthenticatedMapRoute
   '/pulse': typeof AuthenticatedPulseRoute
   '/settings': typeof AuthenticatedSettingsRoute
-  '/spending': typeof AuthenticatedSpendingRoute
   '/time': typeof AuthenticatedTimeRoute
   '/vault': typeof AuthenticatedVaultRoute
   '/world': typeof AuthenticatedWorldRoute
@@ -195,7 +188,6 @@ export interface FileRoutesByTo {
   '/map': typeof AuthenticatedMapRoute
   '/pulse': typeof AuthenticatedPulseRoute
   '/settings': typeof AuthenticatedSettingsRoute
-  '/spending': typeof AuthenticatedSpendingRoute
   '/time': typeof AuthenticatedTimeRoute
   '/vault': typeof AuthenticatedVaultRoute
   '/world': typeof AuthenticatedWorldRoute
@@ -222,7 +214,6 @@ export interface FileRoutesById {
   '/_authenticated/map': typeof AuthenticatedMapRoute
   '/_authenticated/pulse': typeof AuthenticatedPulseRoute
   '/_authenticated/settings': typeof AuthenticatedSettingsRoute
-  '/_authenticated/spending': typeof AuthenticatedSpendingRoute
   '/_authenticated/time': typeof AuthenticatedTimeRoute
   '/_authenticated/vault': typeof AuthenticatedVaultRoute
   '/_authenticated/world': typeof AuthenticatedWorldRoute
@@ -249,7 +240,6 @@ export interface FileRouteTypes {
     | '/map'
     | '/pulse'
     | '/settings'
-    | '/spending'
     | '/time'
     | '/vault'
     | '/world'
@@ -274,7 +264,6 @@ export interface FileRouteTypes {
     | '/map'
     | '/pulse'
     | '/settings'
-    | '/spending'
     | '/time'
     | '/vault'
     | '/world'
@@ -300,7 +289,6 @@ export interface FileRouteTypes {
     | '/_authenticated/map'
     | '/_authenticated/pulse'
     | '/_authenticated/settings'
-    | '/_authenticated/spending'
     | '/_authenticated/time'
     | '/_authenticated/vault'
     | '/_authenticated/world'
@@ -389,13 +377,6 @@ declare module '@tanstack/react-router' {
       path: '/time'
       fullPath: '/time'
       preLoaderRoute: typeof AuthenticatedTimeRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/spending': {
-      id: '/_authenticated/spending'
-      path: '/spending'
-      fullPath: '/spending'
-      preLoaderRoute: typeof AuthenticatedSpendingRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/settings': {
@@ -508,7 +489,6 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedMapRoute: typeof AuthenticatedMapRoute
   AuthenticatedPulseRoute: typeof AuthenticatedPulseRoute
   AuthenticatedSettingsRoute: typeof AuthenticatedSettingsRoute
-  AuthenticatedSpendingRoute: typeof AuthenticatedSpendingRoute
   AuthenticatedTimeRoute: typeof AuthenticatedTimeRoute
   AuthenticatedVaultRoute: typeof AuthenticatedVaultRoute
   AuthenticatedWorldRoute: typeof AuthenticatedWorldRoute
@@ -526,7 +506,6 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedMapRoute: AuthenticatedMapRoute,
   AuthenticatedPulseRoute: AuthenticatedPulseRoute,
   AuthenticatedSettingsRoute: AuthenticatedSettingsRoute,
-  AuthenticatedSpendingRoute: AuthenticatedSpendingRoute,
   AuthenticatedTimeRoute: AuthenticatedTimeRoute,
   AuthenticatedVaultRoute: AuthenticatedVaultRoute,
   AuthenticatedWorldRoute: AuthenticatedWorldRoute,
