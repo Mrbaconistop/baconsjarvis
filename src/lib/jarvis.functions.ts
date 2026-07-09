@@ -1421,8 +1421,17 @@ export const stockNewsSentiment = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: unknown) => z.object({ symbol: z.string() }).parse(input))
   .handler(async ({ data }) => {
-    const { fhNews, sentimentScore } = await import("./finnhub.server");
+    const { fhNews } = await import("./finnhub.server");
     const news = await fhNews(data.symbol);
-    const sentiment = sentimentScore(news);
+    const POS = /\b(beat|beats|surge|surges|soar|record|upgrade|bullish|strong|growth|profit|gain|gains|rally|jump|jumps|outperform|buy)\b/i;
+    const NEG = /\b(miss|misses|plunge|plunges|drop|drops|downgrade|bearish|weak|loss|losses|decline|fall|falls|underperform|sell|lawsuit|probe|fraud)\b/i;
+    let pos = 0, neg = 0;
+    for (const n of news) {
+      const t = `${n.headline} ${n.summary}`;
+      if (POS.test(t)) pos++;
+      if (NEG.test(t)) neg++;
+    }
+    const total = pos + neg;
+    const sentiment = total ? (pos - neg) / total : 0;
     return { news: news.slice(0, 20), sentiment };
   });
