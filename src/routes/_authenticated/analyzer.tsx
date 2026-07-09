@@ -380,7 +380,7 @@ function AnalyzerPage() {
       const res = await Promise.all(
         syms.map(async (s) => {
           const r = await snapFn({ data: { symbol: s } });
-          return r.ok ? { symbol: s, price: r.price, change: r.change } : null;
+          return r.ok ? { symbol: s, price: r.quote.c, change: r.quote.dp } : null;
         }),
       );
       setComparisonData(res.filter(Boolean));
