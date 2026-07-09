@@ -1,6 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
+import { useQuery } from "@tanstack/react-query";
 import { ComposedChart, Line, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceDot, Legend } from "recharts";
 import { format } from "date-fns";
 import {
@@ -379,7 +380,7 @@ function AnalyzerPage() {
       const res = await Promise.all(
         syms.map(async (s) => {
           const r = await snapFn({ data: { symbol: s } });
-          return r.ok ? { symbol: s, price: r.price, change: r.change } : null;
+          return r.ok ? { symbol: s, price: r.quote.c, change: r.quote.dp } : null;
         }),
       );
       setComparisonData(res.filter(Boolean));
