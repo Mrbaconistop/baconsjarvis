@@ -323,7 +323,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-screen flex bg-background grid-bg">
       {/* Desktop sidebar */}
-      <aside className="hidden lg:flex w-64 shrink-0 border-r border-arc/15 bg-background/40 backdrop-blur-xl flex-col">
+      <aside className="hidden lg:flex w-64 shrink-0 border-r border-arc/15 bg-background/40 backdrop-blur-xl flex-col h-screen sticky top-0">
         {SidebarBody}
       </aside>
 
