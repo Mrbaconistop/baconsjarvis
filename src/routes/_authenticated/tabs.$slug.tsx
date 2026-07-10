@@ -7,6 +7,7 @@ import { listThreads, createThread, deleteThread, getMessages } from "@/lib/chat
 import { PageHeader } from "@/components/jarvis/HudBits";
 import { ChatWindow } from "@/components/jarvis/ChatWindow";
 import { askCodeAssistant } from "@/lib/jarvis.functions";
+import { callTabApi } from "@/lib/tab-api.functions";
 import {
   Pencil,
   Save,
