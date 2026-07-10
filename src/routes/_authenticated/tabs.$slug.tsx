@@ -305,6 +305,8 @@ function CustomTabPage() {
               },
               "*",
             );
+          }
+        }
       }
 
       // Server API proxy — whitelisted keys/services, secrets stay on server
@@ -324,7 +326,6 @@ function CustomTabPage() {
             "*",
           );
         }
-      }
       }
 
       // Console bridge from iframe
