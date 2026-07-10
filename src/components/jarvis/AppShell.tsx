@@ -212,6 +212,40 @@ export function AppShell({ children }: { children: ReactNode }) {
             if (el) el.classList.remove(a.className);
             break;
           }
+          case "open_page_customizer": {
+            setCustomizerRouteKey(a.route_key);
+            setCustomizerOpen(true);
+            break;
+          }
+          case "set_page_customization": {
+            const key = a.route_key || routeKeyFromPath(loc.pathname);
+            upsertCustomFn({
+              data: {
+                route_key: key,
+                ...(a.css !== undefined && { css: a.css }),
+                ...(a.js !== undefined && { js: a.js }),
+                ...(a.html !== undefined && { html: a.html }),
+                ...(a.position !== undefined && { position: a.position }),
+                ...(a.enabled !== undefined && { enabled: a.enabled }),
+              },
+            })
+              .then(() => {
+                qc.invalidateQueries({ queryKey: ["page-custom", key] });
+                toast.success(`Updated /${key}`);
+              })
+              .catch((e) => toast.error(e?.message ?? "Update failed"));
+            break;
+          }
+          case "clear_page_customization": {
+            const key = a.route_key || routeKeyFromPath(loc.pathname);
+            deleteCustomFn({ data: { route_key: key } })
+              .then(() => {
+                qc.invalidateQueries({ queryKey: ["page-custom", key] });
+                toast.success(`Cleared /${key}`);
+              })
+              .catch((e) => toast.error(e?.message ?? "Clear failed"));
+            break;
+          }
         }
       } catch (e) {
         console.error("[appBus]", e);
