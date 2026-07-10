@@ -52,6 +52,10 @@ export function AppShell({ children }: { children: ReactNode }) {
   const qc = useQueryClient();
   const [time, setTime] = useState(() => new Date());
   const [navOpen, setNavOpen] = useState(false);
+  const [customizerOpen, setCustomizerOpen] = useState(false);
+  const [customizerRouteKey, setCustomizerRouteKey] = useState<string | undefined>(undefined);
+  const upsertCustomFn = useServerFn(upsertPageCustomization);
+  const deleteCustomFn = useServerFn(deletePageCustomization);
 
   // Custom tabs (created by JARVIS or via /tabs/$slug edit)
   const fetchTabs = useServerFn(listCustomTabs);
