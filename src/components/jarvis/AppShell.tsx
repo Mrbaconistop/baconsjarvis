@@ -26,6 +26,9 @@ import { listCustomTabs } from "@/lib/custom-tabs.functions";
 import { JarvisOrb } from "./JarvisOrb";
 import { appBus, type AppAction } from "@/lib/mapBus";
 import { toast } from "sonner";
+import { PageCustomLayer, PageCustomizerButton, PageCustomizerDialog } from "./PageCustomizer";
+import { upsertPageCustomization, deletePageCustomization } from "@/lib/page-customizations.functions";
+import { routeKeyFromPath } from "@/lib/route-key";
 
 const NAV = [
   { to: "/dashboard", label: "Command", icon: LayoutDashboard, tag: "00" },
