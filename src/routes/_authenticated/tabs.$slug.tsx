@@ -7,6 +7,7 @@ import { listThreads, createThread, deleteThread, getMessages } from "@/lib/chat
 import { PageHeader } from "@/components/jarvis/HudBits";
 import { ChatWindow } from "@/components/jarvis/ChatWindow";
 import { askCodeAssistant } from "@/lib/jarvis.functions";
+import { callTabApi } from "@/lib/tab-api.functions";
 import {
   Pencil,
   Save,
@@ -99,6 +100,7 @@ function CustomTabPage() {
   const doDelete = useServerFn(deleteCustomTab);
   const doCreate = useServerFn(createCustomTab);
   const askAssistant = useServerFn(askCodeAssistant);
+  const doApiCall = useServerFn(callTabApi);
 
   // --- Data ---
   const {
@@ -307,6 +309,25 @@ function CustomTabPage() {
         }
       }
 
+      // Server API proxy — whitelisted keys/services, secrets stay on server
+      if (type === "api-request" && event.data.action) {
+        const iframe = iframeRef.current;
+        try {
+          const result = await doApiCall({
+            data: { action: event.data.action, params: event.data.params || {} },
+          });
+          iframe?.contentWindow?.postMessage(
+            { type: "api-response", requestId, result },
+            "*",
+          );
+        } catch (err: any) {
+          iframe?.contentWindow?.postMessage(
+            { type: "api-response", requestId, result: { ok: false, error: err?.message || "call failed" } },
+            "*",
+          );
+        }
+      }
+
       // Console bridge from iframe
       if (type === "console-log" && event.data.args !== undefined) {
         setConsoleLogs((prev) => {
@@ -321,7 +342,7 @@ function CustomTabPage() {
 
     window.addEventListener("message", handler);
     return () => window.removeEventListener("message", handler);
-  }, [askAssistant]);
+  }, [askAssistant, doApiCall]);
 
   // ---- Helpers ----
   const effectiveFiles: FilesShape = multiFile ? files : { html: draft, css: "", js: "" };
@@ -1447,6 +1468,61 @@ function wrapHtml(files: FilesShape, config: TabConfig): string {
   });
   window.addEventListener('error', function(e){ post('error', [e.message + ' @ ' + (e.filename||'') + ':' + (e.lineno||0)]); });
   window.addEventListener('unhandledrejection', function(e){ post('error', ['Unhandled promise: ' + (e.reason && e.reason.message || e.reason)]); });
+})();
+<\/script>
+<script>
+(function(){
+  if (window.jarvis) return;
+  var pending = {};
+  window.addEventListener('message', function(e){
+    var d = e.data || {};
+    if (d.type === 'api-response' && d.requestId && pending[d.requestId]) {
+      var p = pending[d.requestId]; delete pending[d.requestId];
+      p.resolve(d.result);
+    }
+    if (d.type === 'ai-response' && d.requestId && pending[d.requestId]) {
+      var p = pending[d.requestId]; delete pending[d.requestId]; p.resolve(d.response);
+    }
+    if (d.type === 'storage-get-response' && d.requestId && pending[d.requestId]) {
+      var p = pending[d.requestId]; delete pending[d.requestId]; p.resolve(d.value);
+    }
+    if (d.type === 'storage-set-response' && d.requestId && pending[d.requestId]) {
+      var p = pending[d.requestId]; delete pending[d.requestId]; p.resolve(true);
+    }
+  });
+  function rpc(msg){
+    return new Promise(function(resolve, reject){
+      var id = Math.random().toString(36).slice(2);
+      pending[id] = { resolve: resolve, reject: reject };
+      msg.requestId = id;
+      parent.postMessage(msg, '*');
+      setTimeout(function(){ if (pending[id]) { delete pending[id]; reject(new Error('timeout')); } }, 30000);
+    });
+  }
+  window.jarvis = {
+    api: function(action, params){ return rpc({ type: 'api-request', action: action, params: params || {} }); },
+    stock: {
+      quote:      function(s){ return rpc({ type:'api-request', action:'stock.quote',      params:{symbol:s} }); },
+      profile:    function(s){ return rpc({ type:'api-request', action:'stock.profile',    params:{symbol:s} }); },
+      financials: function(s){ return rpc({ type:'api-request', action:'stock.financials', params:{symbol:s} }); },
+      news:       function(s){ return rpc({ type:'api-request', action:'stock.news',       params:{symbol:s} }); },
+      search:     function(q){ return rpc({ type:'api-request', action:'stock.search',     params:{q:q} }); },
+      candles:    function(s,r,i){ return rpc({ type:'api-request', action:'stock.candles',params:{symbol:s,range:r||'1y',interval:i||'1d'} }); }
+    },
+    weather: {
+      current:  function(p){ return rpc({ type:'api-request', action:'weather.current',  params:p||{} }); },
+      forecast: function(p){ return rpc({ type:'api-request', action:'weather.forecast', params:p||{} }); },
+      meteo:    function(p){ return rpc({ type:'api-request', action:'weather.meteo',    params:p||{} }); }
+    },
+    http: { get: function(url){ return rpc({ type:'api-request', action:'http.get', params:{url:url} }); } },
+    storage: {
+      get: function(k){ return rpc({ type:'storage-get', key:k }); },
+      set: function(k,v){ return rpc({ type:'storage-set', key:k, value:v }); }
+    },
+    ai: function(code, prompt, language){
+      return rpc({ type:'ai-request', code:code||'', prompt:prompt, language:language||'plaintext' });
+    }
+  };
 })();
 <\/script>`
     : "";
