@@ -28,7 +28,18 @@ export type AppAction =
   | { type: "remove_local_storage"; key: string }
   | { type: "set_document_title"; title: string }
   | { type: "add_class"; selector: string; className: string }
-  | { type: "remove_class"; selector: string; className: string };
+  | { type: "remove_class"; selector: string; className: string }
+  | { type: "open_page_customizer"; route_key?: string }
+  | {
+      type: "set_page_customization";
+      route_key?: string;
+      css?: string;
+      js?: string;
+      html?: string;
+      position?: "top" | "bottom" | "floating" | "replace";
+      enabled?: boolean;
+    }
+  | { type: "clear_page_customization"; route_key?: string };
 
 type Handler<T> = (a: T) => void;
 

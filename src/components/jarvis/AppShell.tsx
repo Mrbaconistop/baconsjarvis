@@ -26,6 +26,9 @@ import { listCustomTabs } from "@/lib/custom-tabs.functions";
 import { JarvisOrb } from "./JarvisOrb";
 import { appBus, type AppAction } from "@/lib/mapBus";
 import { toast } from "sonner";
+import { PageCustomLayer, PageCustomizerButton, PageCustomizerDialog } from "./PageCustomizer";
+import { upsertPageCustomization, deletePageCustomization } from "@/lib/page-customizations.functions";
+import { routeKeyFromPath } from "@/lib/route-key";
 
 const NAV = [
   { to: "/dashboard", label: "Command", icon: LayoutDashboard, tag: "00" },
@@ -49,6 +52,10 @@ export function AppShell({ children }: { children: ReactNode }) {
   const qc = useQueryClient();
   const [time, setTime] = useState(() => new Date());
   const [navOpen, setNavOpen] = useState(false);
+  const [customizerOpen, setCustomizerOpen] = useState(false);
+  const [customizerRouteKey, setCustomizerRouteKey] = useState<string | undefined>(undefined);
+  const upsertCustomFn = useServerFn(upsertPageCustomization);
+  const deleteCustomFn = useServerFn(deletePageCustomization);
 
   // Custom tabs (created by JARVIS or via /tabs/$slug edit)
   const fetchTabs = useServerFn(listCustomTabs);
@@ -205,12 +212,46 @@ export function AppShell({ children }: { children: ReactNode }) {
             if (el) el.classList.remove(a.className);
             break;
           }
+          case "open_page_customizer": {
+            setCustomizerRouteKey(a.route_key);
+            setCustomizerOpen(true);
+            break;
+          }
+          case "set_page_customization": {
+            const key = a.route_key || routeKeyFromPath(loc.pathname);
+            upsertCustomFn({
+              data: {
+                route_key: key,
+                ...(a.css !== undefined && { css: a.css }),
+                ...(a.js !== undefined && { js: a.js }),
+                ...(a.html !== undefined && { html: a.html }),
+                ...(a.position !== undefined && { position: a.position }),
+                ...(a.enabled !== undefined && { enabled: a.enabled }),
+              },
+            })
+              .then(() => {
+                qc.invalidateQueries({ queryKey: ["page-custom", key] });
+                toast.success(`Updated /${key}`);
+              })
+              .catch((e) => toast.error(e?.message ?? "Update failed"));
+            break;
+          }
+          case "clear_page_customization": {
+            const key = a.route_key || routeKeyFromPath(loc.pathname);
+            deleteCustomFn({ data: { route_key: key } })
+              .then(() => {
+                qc.invalidateQueries({ queryKey: ["page-custom", key] });
+                toast.success(`Cleared /${key}`);
+              })
+              .catch((e) => toast.error(e?.message ?? "Clear failed"));
+            break;
+          }
         }
       } catch (e) {
         console.error("[appBus]", e);
       }
     });
-  }, [navigate, qc]);
+  }, [navigate, qc, loc.pathname, upsertCustomFn, deleteCustomFn]);
 
   async function signOut() {
     await qc.cancelQueries();
@@ -361,8 +402,17 @@ export function AppShell({ children }: { children: ReactNode }) {
             </div>
           </div>
         </div>
-        <div className="flex-1 min-w-0">{children}</div>
+        <div className="flex-1 min-w-0">
+          {children}
+          <PageCustomLayer />
+        </div>
       </main>
+      <PageCustomizerButton />
+      <PageCustomizerDialog
+        open={customizerOpen}
+        onClose={() => setCustomizerOpen(false)}
+        routeKey={customizerRouteKey}
+      />
     </div>
   );
 }

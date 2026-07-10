@@ -514,6 +514,48 @@ export type Database = {
         }
         Relationships: []
       }
+      page_customizations: {
+        Row: {
+          created_at: string
+          css: string
+          enabled: boolean
+          html: string
+          id: string
+          js: string
+          notes: string | null
+          position: string
+          route_key: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          css?: string
+          enabled?: boolean
+          html?: string
+          id?: string
+          js?: string
+          notes?: string | null
+          position?: string
+          route_key: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          css?: string
+          enabled?: boolean
+          html?: string
+          id?: string
+          js?: string
+          notes?: string | null
+          position?: string
+          route_key?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       pattern_reliabilities: {
         Row: {
           avg_completion_days: number
