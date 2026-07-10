@@ -1480,6 +1480,9 @@ function wrapHtml(files: FilesShape, config: TabConfig): string {
       var p = pending[d.requestId]; delete pending[d.requestId];
       p.resolve(d.result);
     }
+    if (d.type === 'ai-response' && d.requestId && pending[d.requestId]) {
+      var p = pending[d.requestId]; delete pending[d.requestId]; p.resolve(d.response);
+    }
     if (d.type === 'storage-get-response' && d.requestId && pending[d.requestId]) {
       var p = pending[d.requestId]; delete pending[d.requestId]; p.resolve(d.value);
     }
