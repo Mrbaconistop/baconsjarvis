@@ -305,8 +305,26 @@ function CustomTabPage() {
               },
               "*",
             );
-          }
+      }
+
+      // Server API proxy — whitelisted keys/services, secrets stay on server
+      if (type === "api-request" && event.data.action) {
+        const iframe = iframeRef.current;
+        try {
+          const result = await doApiCall({
+            data: { action: event.data.action, params: event.data.params || {} },
+          });
+          iframe?.contentWindow?.postMessage(
+            { type: "api-response", requestId, result },
+            "*",
+          );
+        } catch (err: any) {
+          iframe?.contentWindow?.postMessage(
+            { type: "api-response", requestId, result: { ok: false, error: err?.message || "call failed" } },
+            "*",
+          );
         }
+      }
       }
 
       // Console bridge from iframe
