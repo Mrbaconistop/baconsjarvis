@@ -342,7 +342,7 @@ function CustomTabPage() {
 
     window.addEventListener("message", handler);
     return () => window.removeEventListener("message", handler);
-  }, [askAssistant]);
+  }, [askAssistant, doApiCall]);
 
   // ---- Helpers ----
   const effectiveFiles: FilesShape = multiFile ? files : { html: draft, css: "", js: "" };
