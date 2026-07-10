@@ -251,7 +251,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         console.error("[appBus]", e);
       }
     });
-  }, [navigate, qc]);
+  }, [navigate, qc, loc.pathname, upsertCustomFn, deleteCustomFn]);
 
   async function signOut() {
     await qc.cancelQueries();
@@ -402,8 +402,17 @@ export function AppShell({ children }: { children: ReactNode }) {
             </div>
           </div>
         </div>
-        <div className="flex-1 min-w-0">{children}</div>
+        <div className="flex-1 min-w-0">
+          {children}
+          <PageCustomLayer />
+        </div>
       </main>
+      <PageCustomizerButton />
+      <PageCustomizerDialog
+        open={customizerOpen}
+        onClose={() => setCustomizerOpen(false)}
+        routeKey={customizerRouteKey}
+      />
     </div>
   );
 }
