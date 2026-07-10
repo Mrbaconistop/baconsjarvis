@@ -100,6 +100,7 @@ function CustomTabPage() {
   const doDelete = useServerFn(deleteCustomTab);
   const doCreate = useServerFn(createCustomTab);
   const askAssistant = useServerFn(askCodeAssistant);
+  const doApiCall = useServerFn(callTabApi);
 
   // --- Data ---
   const {
