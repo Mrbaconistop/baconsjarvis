@@ -330,6 +330,87 @@ export const Route = createFileRoute("/api/chat")({
             }
           }
 
+          // ---- Time context (computed early so presets can use it) ----
+          const now = new Date();
+          const currentTimeFormatted = now.toLocaleString("en-US", {
+            timeZone: userTimezone,
+            hour: "numeric",
+            minute: "2-digit",
+            hour12: true,
+          });
+          const currentDateFormatted = now.toLocaleDateString("en-US", {
+            timeZone: userTimezone,
+            month: "long",
+            day: "numeric",
+            year: "numeric",
+          });
+          const currentDayName = now.toLocaleDateString("en-US", {
+            timeZone: userTimezone,
+            weekday: "long",
+          });
+          const currentIsoInTz = now.toISOString();
+
+          // ---- Previous message timestamp for time-gap awareness ----
+          const { data: prevMsgs } = await supabase
+            .from("chat_messages")
+            .select("role, created_at")
+            .eq("thread_id", threadId)
+            .order("created_at", { ascending: false })
+            .limit(2);
+          const prevMsg = prevMsgs && prevMsgs.length > 1 ? prevMsgs[1] : null;
+          const timeSinceLastMsg = prevMsg
+            ? formatTimeGap(now.getTime() - new Date(prevMsg.created_at).getTime())
+            : null;
+
+          // ---- Preset short-circuit (zero-cost greeting/quick replies) ----
+          const lastText =
+            last?.role === "user"
+              ? ((last.parts as any[]).find((p: any) => p?.type === "text") as any)?.text?.trim() ?? ""
+              : "";
+          if (lastText && lastText.length <= 40 && !/[<>{}`]/.test(lastText)) {
+            const normalized = normalizePresetKey(lastText);
+            const { data: customPresetRows } = await supabase
+              .from("user_facts")
+              .select("key, value")
+              .eq("user_id", userId)
+              .eq("category", "general")
+              .like("key", "preset:%");
+            const customPresets: Record<string, string> = {};
+            (customPresetRows ?? []).forEach((f: any) => {
+              customPresets[normalizePresetKey(f.key.slice(7))] = f.value;
+            });
+            const preset = customPresets[normalized] ?? DEFAULT_PRESETS[normalized];
+            if (preset) {
+              const chosen = Array.isArray(preset) ? preset[Math.floor(Math.random() * preset.length)] : preset;
+              const reply = chosen
+                .replace(/\{addressAs\}/g, addressAs)
+                .replace(/\{time\}/g, currentTimeFormatted)
+                .replace(/\{date\}/g, currentDateFormatted)
+                .replace(/\{day\}/g, currentDayName);
+              await supabase.from("chat_messages").insert({
+                thread_id: threadId,
+                user_id: userId,
+                role: "assistant",
+                parts: [{ type: "text", text: reply }] as any,
+              });
+              await supabase
+                .from("chat_threads")
+                .update({ updated_at: new Date().toISOString() })
+                .eq("id", threadId);
+              const id = crypto.randomUUID();
+              const stream = createUIMessageStream<UIMessage>({
+                originalMessages: messages,
+                execute: ({ writer }) => {
+                  writer.write({ type: "text-start", id });
+                  writer.write({ type: "text-delta", id, delta: reply });
+                  writer.write({ type: "text-end", id });
+                },
+              });
+              console.log(`[PRESET] hit="${normalized}" reply="${reply.slice(0, 40)}"`);
+              return createUIMessageStreamResponse({ status: 200, stream });
+            }
+          }
+
           const { model: chatModel, mode, submode } = await getModelForUser(userId, supabase);
 
           const cacheKey = getCacheKey(userId, messages, mode, boundTabSlug);
@@ -355,13 +436,6 @@ export const Route = createFileRoute("/api/chat")({
             console.log("❌ [CACHE] MISS – no cache for key:", cacheKey);
           }
 
-          const now = new Date();
-          const currentTimeFormatted = now.toLocaleString("en-US", {
-            timeZone: userTimezone,
-            hour: "numeric",
-            minute: "2-digit",
-            hour12: true,
-          });
 
           // ============================================================
           // TOOLS – Full object with all your original tools,
