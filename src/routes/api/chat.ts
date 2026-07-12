@@ -25,6 +25,56 @@ import { getBackendOverview } from "@/lib/backend.functions";
 
 type Body = { messages?: UIMessage[]; threadId?: string; tabSlug?: string | null };
 
+// ---- Built-in greeting/quick-response presets (zero-cost, no LLM call) ----
+// Match is exact after lowercasing and stripping trailing punctuation.
+// Placeholders: {addressAs}, {time}, {date}, {day}.
+const DEFAULT_PRESETS: Record<string, string[]> = {
+  "hi": ["Hello, {addressAs}.", "Hi, {addressAs}. What can I do for you?", "At your service, {addressAs}."],
+  "hello": ["Hello, {addressAs}.", "Good to hear from you, {addressAs}."],
+  "hey": ["Hey, {addressAs}. What do you need?", "Yes, {addressAs}?"],
+  "hey jarvis": ["Yes, {addressAs}?", "Listening, {addressAs}.", "Standing by, {addressAs}."],
+  "yo": ["Yo, {addressAs}."],
+  "sup": ["Not much, {addressAs}. What's on your mind?"],
+  "you there": ["Always, {addressAs}."],
+  "you up": ["Always on, {addressAs}."],
+  "thanks": ["Anytime, {addressAs}.", "Of course, {addressAs}."],
+  "thank you": ["Always a pleasure, {addressAs}.", "You're welcome, {addressAs}."],
+  "ty": ["Anytime, {addressAs}."],
+  "bye": ["Goodbye, {addressAs}. I'll be here."],
+  "goodbye": ["Goodbye, {addressAs}."],
+  "cya": ["Later, {addressAs}."],
+  "gn": ["Sleep well, {addressAs}."],
+  "good night": ["Good night, {addressAs}."],
+  "good morning": ["Good morning, {addressAs}. It's {time}. Ready when you are."],
+  "good afternoon": ["Good afternoon, {addressAs}."],
+  "good evening": ["Good evening, {addressAs}."],
+  "what time is it": ["It's {time} on {day}, {addressAs}."],
+  "what's the time": ["It's {time}, {addressAs}."],
+  "whats the time": ["It's {time}, {addressAs}."],
+  "what day is it": ["It's {day}, {date}, {addressAs}."],
+  "what's the date": ["{date}, {addressAs}."],
+  "whats the date": ["{date}, {addressAs}."],
+};
+
+function normalizePresetKey(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[!?.,;:'"`~]+/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function formatTimeGap(ms: number): string {
+  const abs = Math.abs(ms);
+  const mins = Math.round(abs / 60000);
+  if (mins < 1) return "moments ago";
+  if (mins < 60) return `${mins} minute${mins === 1 ? "" : "s"} ago`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return `${hrs} hour${hrs === 1 ? "" : "s"} ago`;
+  const days = Math.round(hrs / 24);
+  return `${days} day${days === 1 ? "" : "s"} ago`;
+}
+
 function serializeChatError(error: unknown, stage: string, extra: Record<string, unknown> = {}) {
   const e = error as any;
   const cause = e?.cause as any;
