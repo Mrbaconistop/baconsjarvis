@@ -25,6 +25,56 @@ import { getBackendOverview } from "@/lib/backend.functions";
 
 type Body = { messages?: UIMessage[]; threadId?: string; tabSlug?: string | null };
 
+// ---- Built-in greeting/quick-response presets (zero-cost, no LLM call) ----
+// Match is exact after lowercasing and stripping trailing punctuation.
+// Placeholders: {addressAs}, {time}, {date}, {day}.
+const DEFAULT_PRESETS: Record<string, string[]> = {
+  "hi": ["Hello, {addressAs}.", "Hi, {addressAs}. What can I do for you?", "At your service, {addressAs}."],
+  "hello": ["Hello, {addressAs}.", "Good to hear from you, {addressAs}."],
+  "hey": ["Hey, {addressAs}. What do you need?", "Yes, {addressAs}?"],
+  "hey jarvis": ["Yes, {addressAs}?", "Listening, {addressAs}.", "Standing by, {addressAs}."],
+  "yo": ["Yo, {addressAs}."],
+  "sup": ["Not much, {addressAs}. What's on your mind?"],
+  "you there": ["Always, {addressAs}."],
+  "you up": ["Always on, {addressAs}."],
+  "thanks": ["Anytime, {addressAs}.", "Of course, {addressAs}."],
+  "thank you": ["Always a pleasure, {addressAs}.", "You're welcome, {addressAs}."],
+  "ty": ["Anytime, {addressAs}."],
+  "bye": ["Goodbye, {addressAs}. I'll be here."],
+  "goodbye": ["Goodbye, {addressAs}."],
+  "cya": ["Later, {addressAs}."],
+  "gn": ["Sleep well, {addressAs}."],
+  "good night": ["Good night, {addressAs}."],
+  "good morning": ["Good morning, {addressAs}. It's {time}. Ready when you are."],
+  "good afternoon": ["Good afternoon, {addressAs}."],
+  "good evening": ["Good evening, {addressAs}."],
+  "what time is it": ["It's {time} on {day}, {addressAs}."],
+  "what's the time": ["It's {time}, {addressAs}."],
+  "whats the time": ["It's {time}, {addressAs}."],
+  "what day is it": ["It's {day}, {date}, {addressAs}."],
+  "what's the date": ["{date}, {addressAs}."],
+  "whats the date": ["{date}, {addressAs}."],
+};
+
+function normalizePresetKey(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[!?.,;:'"`~]+/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function formatTimeGap(ms: number): string {
+  const abs = Math.abs(ms);
+  const mins = Math.round(abs / 60000);
+  if (mins < 1) return "moments ago";
+  if (mins < 60) return `${mins} minute${mins === 1 ? "" : "s"} ago`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return `${hrs} hour${hrs === 1 ? "" : "s"} ago`;
+  const days = Math.round(hrs / 24);
+  return `${days} day${days === 1 ? "" : "s"} ago`;
+}
+
 function serializeChatError(error: unknown, stage: string, extra: Record<string, unknown> = {}) {
   const e = error as any;
   const cause = e?.cause as any;
@@ -280,6 +330,87 @@ export const Route = createFileRoute("/api/chat")({
             }
           }
 
+          // ---- Time context (computed early so presets can use it) ----
+          const now = new Date();
+          const currentTimeFormatted = now.toLocaleString("en-US", {
+            timeZone: userTimezone,
+            hour: "numeric",
+            minute: "2-digit",
+            hour12: true,
+          });
+          const currentDateFormatted = now.toLocaleDateString("en-US", {
+            timeZone: userTimezone,
+            month: "long",
+            day: "numeric",
+            year: "numeric",
+          });
+          const currentDayName = now.toLocaleDateString("en-US", {
+            timeZone: userTimezone,
+            weekday: "long",
+          });
+          const currentIsoInTz = now.toISOString();
+
+          // ---- Previous message timestamp for time-gap awareness ----
+          const { data: prevMsgs } = await supabase
+            .from("chat_messages")
+            .select("role, created_at")
+            .eq("thread_id", threadId)
+            .order("created_at", { ascending: false })
+            .limit(2);
+          const prevMsg = prevMsgs && prevMsgs.length > 1 ? prevMsgs[1] : null;
+          const timeSinceLastMsg = prevMsg
+            ? formatTimeGap(now.getTime() - new Date(prevMsg.created_at).getTime())
+            : null;
+
+          // ---- Preset short-circuit (zero-cost greeting/quick replies) ----
+          const lastText =
+            last?.role === "user"
+              ? ((last.parts as any[]).find((p: any) => p?.type === "text") as any)?.text?.trim() ?? ""
+              : "";
+          if (lastText && lastText.length <= 40 && !/[<>{}`]/.test(lastText)) {
+            const normalized = normalizePresetKey(lastText);
+            const { data: customPresetRows } = await supabase
+              .from("user_facts")
+              .select("key, value")
+              .eq("user_id", userId)
+              .eq("category", "general")
+              .like("key", "preset:%");
+            const customPresets: Record<string, string> = {};
+            (customPresetRows ?? []).forEach((f: any) => {
+              customPresets[normalizePresetKey(f.key.slice(7))] = f.value;
+            });
+            const preset = customPresets[normalized] ?? DEFAULT_PRESETS[normalized];
+            if (preset) {
+              const chosen = Array.isArray(preset) ? preset[Math.floor(Math.random() * preset.length)] : preset;
+              const reply = chosen
+                .replace(/\{addressAs\}/g, addressAs)
+                .replace(/\{time\}/g, currentTimeFormatted)
+                .replace(/\{date\}/g, currentDateFormatted)
+                .replace(/\{day\}/g, currentDayName);
+              await supabase.from("chat_messages").insert({
+                thread_id: threadId,
+                user_id: userId,
+                role: "assistant",
+                parts: [{ type: "text", text: reply }] as any,
+              });
+              await supabase
+                .from("chat_threads")
+                .update({ updated_at: new Date().toISOString() })
+                .eq("id", threadId);
+              const id = crypto.randomUUID();
+              const stream = createUIMessageStream<UIMessage>({
+                originalMessages: messages,
+                execute: ({ writer }) => {
+                  writer.write({ type: "text-start", id });
+                  writer.write({ type: "text-delta", id, delta: reply });
+                  writer.write({ type: "text-end", id });
+                },
+              });
+              console.log(`[PRESET] hit="${normalized}" reply="${reply.slice(0, 40)}"`);
+              return createUIMessageStreamResponse({ status: 200, stream });
+            }
+          }
+
           const { model: chatModel, mode, submode } = await getModelForUser(userId, supabase);
 
           const cacheKey = getCacheKey(userId, messages, mode, boundTabSlug);
@@ -305,13 +436,6 @@ export const Route = createFileRoute("/api/chat")({
             console.log("❌ [CACHE] MISS – no cache for key:", cacheKey);
           }
 
-          const now = new Date();
-          const currentTimeFormatted = now.toLocaleString("en-US", {
-            timeZone: userTimezone,
-            hour: "numeric",
-            minute: "2-digit",
-            hour12: true,
-          });
 
           // ============================================================
           // TOOLS – Full object with all your original tools,
@@ -1928,20 +2052,159 @@ export const Route = createFileRoute("/api/chat")({
                 return { ok: !error, id: data?.id, error: error?.message };
               },
             }),
+
+            // ---- Page Customization (per-route CSS / JS / HTML overlays) ----
+            set_page_customization: tool({
+              description:
+                "Apply a CSS / HTML / JS overlay to any page in the app so it visibly changes for the user. route_key is the top-level path segment ('dashboard', 'chat', 'analyzer', 'vault', 'settings', 'pulse', 'briefing', 'map', 'time', 'world', 'lab', 'backend', 'analyzer'), or 'tabs/<slug>' for a custom tab. Omit fields you don't want to change. CSS wins over existing app styles (use specific selectors, avoid !important unless necessary). JS runs sandboxed with locals `container` (the injected HTML div) and `route` (string); call onCleanup(fn) if you attach listeners.",
+              inputSchema: z.object({
+                route_key: z.string().describe("Route id like 'dashboard' or 'tabs/my-tab'."),
+                css: z.string().max(200_000).nullable().optional(),
+                js: z.string().max(200_000).nullable().optional(),
+                html: z.string().max(200_000).nullable().optional(),
+                position: z.enum(["top", "bottom", "floating", "replace"]).nullable().optional(),
+                enabled: z.boolean().nullable().optional(),
+                notes: z.string().max(2000).nullable().optional(),
+              }),
+              execute: async ({ route_key, css, js, html, position, enabled, notes }) => {
+                const payload: any = {
+                  user_id: userId,
+                  route_key,
+                  updated_at: new Date().toISOString(),
+                };
+                if (css !== undefined && css !== null) payload.css = css;
+                if (js !== undefined && js !== null) payload.js = js;
+                if (html !== undefined && html !== null) payload.html = html;
+                if (position !== undefined && position !== null) payload.position = position;
+                if (enabled !== undefined && enabled !== null) payload.enabled = enabled;
+                if (notes !== undefined && notes !== null) payload.notes = notes;
+                const { data, error } = await supabase
+                  .from("page_customizations")
+                  .upsert(payload, { onConflict: "user_id,route_key" })
+                  .select("route_key, enabled, position, updated_at")
+                  .single();
+                if (error) return { ok: false, error: error.message };
+                return { ok: true, applied: data, url: `/${route_key}` };
+              },
+            }),
+            get_page_customization: tool({
+              description: "Read the current customization overlay for a route.",
+              inputSchema: z.object({ route_key: z.string() }),
+              execute: async ({ route_key }) => {
+                const { data } = await supabase
+                  .from("page_customizations")
+                  .select("*")
+                  .eq("user_id", userId)
+                  .eq("route_key", route_key)
+                  .maybeSingle();
+                return { customization: data };
+              },
+            }),
+            list_page_customizations: tool({
+              description: "List all routes that currently have a customization overlay.",
+              inputSchema: z.object({}),
+              execute: async () => {
+                const { data } = await supabase
+                  .from("page_customizations")
+                  .select("route_key, enabled, position, updated_at")
+                  .eq("user_id", userId)
+                  .order("updated_at", { ascending: false });
+                return { customizations: data ?? [] };
+              },
+            }),
+            clear_page_customization: tool({
+              description: "Delete the customization overlay for a route.",
+              inputSchema: z.object({ route_key: z.string() }),
+              execute: async ({ route_key }) => {
+                const { error } = await supabase
+                  .from("page_customizations")
+                  .delete()
+                  .eq("user_id", userId)
+                  .eq("route_key", route_key);
+                return { ok: !error, error: error?.message };
+              },
+            }),
+
+            // ---- Preset (greeting / quick-reply) management ----
+            add_preset_response: tool({
+              description:
+                "Save a quick-reply preset. When the user types the trigger (exact match after lowercasing / punctuation strip), JARVIS replies with the stored response instantly, with NO model call. Use placeholders {addressAs}, {time}, {date}, {day}. Example: trigger='hey j', response='At your service, {addressAs}.'",
+              inputSchema: z.object({
+                trigger: z.string().min(1).max(60),
+                response: z.string().min(1).max(500),
+              }),
+              execute: async ({ trigger, response }) => {
+                const key = `preset:${normalizePresetKey(trigger)}`;
+                const { error } = await supabase
+                  .from("user_facts")
+                  .upsert(
+                    { user_id: userId, category: "general", key, value: response },
+                    { onConflict: "user_id,category,key" },
+                  );
+                return { ok: !error, trigger: normalizePresetKey(trigger), error: error?.message };
+              },
+            }),
+            list_preset_responses: tool({
+              description: "List all saved quick-reply presets (plus built-in defaults).",
+              inputSchema: z.object({}),
+              execute: async () => {
+                const { data } = await supabase
+                  .from("user_facts")
+                  .select("key, value")
+                  .eq("user_id", userId)
+                  .eq("category", "general")
+                  .like("key", "preset:%");
+                return {
+                  custom: (data ?? []).map((f: any) => ({ trigger: f.key.slice(7), response: f.value })),
+                  builtin: Object.keys(DEFAULT_PRESETS),
+                };
+              },
+            }),
+            remove_preset_response: tool({
+              description: "Delete a saved custom preset by trigger.",
+              inputSchema: z.object({ trigger: z.string() }),
+              execute: async ({ trigger }) => {
+                const key = `preset:${normalizePresetKey(trigger)}`;
+                const { error } = await supabase
+                  .from("user_facts")
+                  .delete()
+                  .eq("user_id", userId)
+                  .eq("category", "general")
+                  .eq("key", key);
+                return { ok: !error, error: error?.message };
+              },
+            }),
           };
+
           // ============================================================
 
           // ---- System Prompt ----
           const baseSystemPrompt = getSystemPrompt(mode, addressAs, factsBlock, submode);
           const systemPrompt = `${baseSystemPrompt}
 
-Your user's timezone is "${userTimezone}". All times you display should be in this timezone.
-When displaying times, always use 12-hour format with AM/PM (e.g., '8:45 AM', '3:30 PM').
-The current time in the user's location is: ${currentTimeFormatted}.
+TIME CONTEXT — you are fully clock-synced. Trust these values over anything else:
+- Current time (user tz "${userTimezone}"): ${currentTimeFormatted} on ${currentDayName}, ${currentDateFormatted}
+- Absolute now (UTC ISO): ${currentIsoInTz}
+- ${timeSinceLastMsg ? `Time since previous message in this thread: ${timeSinceLastMsg}` : "This is the first message in this thread."}
+Rules:
+- Always render times to the user in 12-hour AM/PM in their timezone.
+- When calling create_reminder or schedule_notification, ALWAYS pass an absolute ISO 8601 datetime computed FROM the "Absolute now" above — never a relative phrase, never guess. "at 4pm" today = today's date in user tz at 16:00, converted to ISO. If the requested time already passed today, roll to tomorrow unless the user said otherwise.
+- Be time-aware in conversation: if a noticeable gap has passed since the last message ("Time since previous message" is hours or days), acknowledge it naturally ("been a bit, {addressAs}", "welcome back"). If it's minutes, don't mention it.
+- If asked "what time is it" / "what's the date", answer from the values above without calling any tool.
 
-You have full operational access to the user's command center. When in doubt about the current state of anything — time, date, day of week, account counts, what's in their vault/files/reminders/spending/places/check-ins/briefings, or which AI model you're running on — call the system_status tool. Never guess time or date; query it.
+You have full operational access to the user's command center. When in doubt about deeper state — vault/files/reminders/spending/places/check-ins/briefings, or which AI model you're running on — call the system_status tool.
 
-You can also build new sections of the UI itself: use create_custom_tab / update_custom_tab / list_custom_tabs / delete_custom_tab to add sidebar tabs that render arbitrary HTML/CSS/JS in a sandboxed iframe. Use this whenever the user asks for a tool, widget, tracker, calculator, mini-app, page, or "tab" — build it as a custom tab. Keep it self-contained (inline <style>/<script>, no external network or module imports). After creating, tell the user the sidebar entry and /tabs/<slug> URL.
+PAGE CUSTOMIZATION — you can restyle or add features to any page in the app on request. Use set_page_customization / get_page_customization / list_page_customizations / clear_page_customization. When the user describes a change ("make the dashboard neon green", "add a countdown to the vault page", "hide the chat sidebar on /pulse"), don't just describe it — generate the CSS/JS/HTML snippet and apply it in one step:
+- Prefer CSS-only when possible (safer, no runtime cost). Use specific selectors; scope via [data-route] or ancestor classes if needed.
+- Use JS only for behavior (event listeners, live values). Wrap in an IIFE-style block, use \`onCleanup(() => { ... })\` to remove listeners on route change.
+- Use HTML with position: "floating" for widgets/badges, "top"/"bottom" for banners, "replace" only when the user asks to fully take over the page.
+- Set enabled: true by default. Call get_page_customization first if editing an existing overlay to avoid clobbering.
+- Route keys are the first path segment: /dashboard → "dashboard", /tabs/foo → "tabs/foo", /chat/xyz → "chat". The home is "index".
+After applying, briefly tell the user what changed and the route it's on.
+
+QUICK REPLIES / PRESETS — trivial greetings like "hi", "hey jarvis", "thanks", "gn" are answered by the preset system BEFORE you're invoked (zero cost). You do NOT need to handle those. But when the user says "remember to always reply X when I say Y", "add a preset", or "make it so 'trigger' always says 'response'", call add_preset_response. Use list_preset_responses / remove_preset_response to manage them.
+
+
 
 DESIGN LANGUAGE for custom tabs — make them BUBBLY, playful, and delightful, not flat corporate boxes:
 - Rounded everything: 16–24px radii on cards, 999px on pills/buttons.
