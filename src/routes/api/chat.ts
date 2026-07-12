@@ -2052,7 +2052,130 @@ export const Route = createFileRoute("/api/chat")({
                 return { ok: !error, id: data?.id, error: error?.message };
               },
             }),
+
+            // ---- Page Customization (per-route CSS / JS / HTML overlays) ----
+            set_page_customization: tool({
+              description:
+                "Apply a CSS / HTML / JS overlay to any page in the app so it visibly changes for the user. route_key is the top-level path segment ('dashboard', 'chat', 'analyzer', 'vault', 'settings', 'pulse', 'briefing', 'map', 'time', 'world', 'lab', 'backend', 'analyzer'), or 'tabs/<slug>' for a custom tab. Omit fields you don't want to change. CSS wins over existing app styles (use specific selectors, avoid !important unless necessary). JS runs sandboxed with locals `container` (the injected HTML div) and `route` (string); call onCleanup(fn) if you attach listeners.",
+              inputSchema: z.object({
+                route_key: z.string().describe("Route id like 'dashboard' or 'tabs/my-tab'."),
+                css: z.string().max(200_000).nullable().optional(),
+                js: z.string().max(200_000).nullable().optional(),
+                html: z.string().max(200_000).nullable().optional(),
+                position: z.enum(["top", "bottom", "floating", "replace"]).nullable().optional(),
+                enabled: z.boolean().nullable().optional(),
+                notes: z.string().max(2000).nullable().optional(),
+              }),
+              execute: async ({ route_key, css, js, html, position, enabled, notes }) => {
+                const payload: any = {
+                  user_id: userId,
+                  route_key,
+                  updated_at: new Date().toISOString(),
+                };
+                if (css !== undefined && css !== null) payload.css = css;
+                if (js !== undefined && js !== null) payload.js = js;
+                if (html !== undefined && html !== null) payload.html = html;
+                if (position !== undefined && position !== null) payload.position = position;
+                if (enabled !== undefined && enabled !== null) payload.enabled = enabled;
+                if (notes !== undefined && notes !== null) payload.notes = notes;
+                const { data, error } = await supabase
+                  .from("page_customizations")
+                  .upsert(payload, { onConflict: "user_id,route_key" })
+                  .select("route_key, enabled, position, updated_at")
+                  .single();
+                if (error) return { ok: false, error: error.message };
+                return { ok: true, applied: data, url: `/${route_key}` };
+              },
+            }),
+            get_page_customization: tool({
+              description: "Read the current customization overlay for a route.",
+              inputSchema: z.object({ route_key: z.string() }),
+              execute: async ({ route_key }) => {
+                const { data } = await supabase
+                  .from("page_customizations")
+                  .select("*")
+                  .eq("user_id", userId)
+                  .eq("route_key", route_key)
+                  .maybeSingle();
+                return { customization: data };
+              },
+            }),
+            list_page_customizations: tool({
+              description: "List all routes that currently have a customization overlay.",
+              inputSchema: z.object({}),
+              execute: async () => {
+                const { data } = await supabase
+                  .from("page_customizations")
+                  .select("route_key, enabled, position, updated_at")
+                  .eq("user_id", userId)
+                  .order("updated_at", { ascending: false });
+                return { customizations: data ?? [] };
+              },
+            }),
+            clear_page_customization: tool({
+              description: "Delete the customization overlay for a route.",
+              inputSchema: z.object({ route_key: z.string() }),
+              execute: async ({ route_key }) => {
+                const { error } = await supabase
+                  .from("page_customizations")
+                  .delete()
+                  .eq("user_id", userId)
+                  .eq("route_key", route_key);
+                return { ok: !error, error: error?.message };
+              },
+            }),
+
+            // ---- Preset (greeting / quick-reply) management ----
+            add_preset_response: tool({
+              description:
+                "Save a quick-reply preset. When the user types the trigger (exact match after lowercasing / punctuation strip), JARVIS replies with the stored response instantly, with NO model call. Use placeholders {addressAs}, {time}, {date}, {day}. Example: trigger='hey j', response='At your service, {addressAs}.'",
+              inputSchema: z.object({
+                trigger: z.string().min(1).max(60),
+                response: z.string().min(1).max(500),
+              }),
+              execute: async ({ trigger, response }) => {
+                const key = `preset:${normalizePresetKey(trigger)}`;
+                const { error } = await supabase
+                  .from("user_facts")
+                  .upsert(
+                    { user_id: userId, category: "general", key, value: response },
+                    { onConflict: "user_id,category,key" },
+                  );
+                return { ok: !error, trigger: normalizePresetKey(trigger), error: error?.message };
+              },
+            }),
+            list_preset_responses: tool({
+              description: "List all saved quick-reply presets (plus built-in defaults).",
+              inputSchema: z.object({}),
+              execute: async () => {
+                const { data } = await supabase
+                  .from("user_facts")
+                  .select("key, value")
+                  .eq("user_id", userId)
+                  .eq("category", "general")
+                  .like("key", "preset:%");
+                return {
+                  custom: (data ?? []).map((f: any) => ({ trigger: f.key.slice(7), response: f.value })),
+                  builtin: Object.keys(DEFAULT_PRESETS),
+                };
+              },
+            }),
+            remove_preset_response: tool({
+              description: "Delete a saved custom preset by trigger.",
+              inputSchema: z.object({ trigger: z.string() }),
+              execute: async ({ trigger }) => {
+                const key = `preset:${normalizePresetKey(trigger)}`;
+                const { error } = await supabase
+                  .from("user_facts")
+                  .delete()
+                  .eq("user_id", userId)
+                  .eq("category", "general")
+                  .eq("key", key);
+                return { ok: !error, error: error?.message };
+              },
+            }),
           };
+
           // ============================================================
 
           // ---- System Prompt ----
