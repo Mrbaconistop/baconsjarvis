@@ -673,20 +673,5 @@ const MessageBubble = memo(
       </div>
     );
   },
-  (prev, next) => {
-    if (prev.msg === next.msg) return true;
-    if (prev.msg.id !== next.msg.id) return false;
-    if (prev.msg.parts.length !== next.msg.parts.length) return false;
-    // Cheap deep-ish check: compare each part's key fields.
-    for (let i = 0; i < prev.msg.parts.length; i++) {
-      const a: any = prev.msg.parts[i];
-      const b: any = next.msg.parts[i];
-      if (a === b) continue;
-      if (a?.type !== b?.type) return false;
-      if (a?.text !== b?.text) return false;
-      if (a?.state !== b?.state) return false;
-      if (a?.output !== b?.output) return false;
-    }
-    return true;
-  },
+  (prev, next) => prev.msg.id === next.msg.id && prev.version === next.version,
 );
