@@ -432,9 +432,15 @@ export function ChatWindow({
             <div>At your service, Sir. Ask for a reminder, save a credential, or simply talk.</div>
           </div>
         )}
-        {messages.map((m: UIMessage) => (
-          <MessageBubble key={m.id} msg={m} />
-        ))}
+        {messages.map((m: UIMessage) => {
+          // Include a content-derived version in the key so in-place
+          // mutations by useChat still force a re-render as tokens stream.
+          const version = (m.parts as any[]).reduce(
+            (acc, p: any) => acc + (typeof p?.text === "string" ? p.text.length : 0) + (p?.state ? 1 : 0),
+            m.parts.length,
+          );
+          return <MessageBubble key={m.id} msg={m} version={version} />;
+        })}
         {status === "submitted" && (
           <div className="flex items-center gap-2 text-arc font-mono text-xs">
             <span className="inline-block size-1.5 rounded-full bg-arc animate-pulse" />
@@ -599,7 +605,7 @@ const MarkdownBlock = memo(function MarkdownBlock({ text }: { text: string }) {
 // Compare msg by id + parts length + last-part text length so we skip
 // re-rendering settled messages while streaming a new one.
 const MessageBubble = memo(
-  function MessageBubble({ msg }: { msg: UIMessage }) {
+  function MessageBubble({ msg }: { msg: UIMessage; version: number }) {
     const isUser = msg.role === "user";
     return (
       <div className={`flex gap-3 max-w-4xl mx-auto ${isUser ? "justify-end" : "justify-start"}`}>
@@ -667,20 +673,5 @@ const MessageBubble = memo(
       </div>
     );
   },
-  (prev, next) => {
-    if (prev.msg === next.msg) return true;
-    if (prev.msg.id !== next.msg.id) return false;
-    if (prev.msg.parts.length !== next.msg.parts.length) return false;
-    // Cheap deep-ish check: compare each part's key fields.
-    for (let i = 0; i < prev.msg.parts.length; i++) {
-      const a: any = prev.msg.parts[i];
-      const b: any = next.msg.parts[i];
-      if (a === b) continue;
-      if (a?.type !== b?.type) return false;
-      if (a?.text !== b?.text) return false;
-      if (a?.state !== b?.state) return false;
-      if (a?.output !== b?.output) return false;
-    }
-    return true;
-  },
+  (prev, next) => prev.msg.id === next.msg.id && prev.version === next.version,
 );
