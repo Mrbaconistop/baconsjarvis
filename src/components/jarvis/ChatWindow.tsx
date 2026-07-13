@@ -432,9 +432,15 @@ export function ChatWindow({
             <div>At your service, Sir. Ask for a reminder, save a credential, or simply talk.</div>
           </div>
         )}
-        {messages.map((m: UIMessage) => (
-          <MessageBubble key={m.id} msg={m} />
-        ))}
+        {messages.map((m: UIMessage) => {
+          // Include a content-derived version in the key so in-place
+          // mutations by useChat still force a re-render as tokens stream.
+          const version = (m.parts as any[]).reduce(
+            (acc, p: any) => acc + (typeof p?.text === "string" ? p.text.length : 0) + (p?.state ? 1 : 0),
+            m.parts.length,
+          );
+          return <MessageBubble key={m.id} msg={m} version={version} />;
+        })}
         {status === "submitted" && (
           <div className="flex items-center gap-2 text-arc font-mono text-xs">
             <span className="inline-block size-1.5 rounded-full bg-arc animate-pulse" />
