@@ -605,7 +605,7 @@ const MarkdownBlock = memo(function MarkdownBlock({ text }: { text: string }) {
 // Compare msg by id + parts length + last-part text length so we skip
 // re-rendering settled messages while streaming a new one.
 const MessageBubble = memo(
-  function MessageBubble({ msg }: { msg: UIMessage }) {
+  function MessageBubble({ msg }: { msg: UIMessage; version: number }) {
     const isUser = msg.role === "user";
     return (
       <div className={`flex gap-3 max-w-4xl mx-auto ${isUser ? "justify-end" : "justify-start"}`}>
