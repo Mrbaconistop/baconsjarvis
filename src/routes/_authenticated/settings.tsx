@@ -290,6 +290,16 @@ function SettingsPage() {
                   <span className="font-mono">OPENROUTER_MODEL</span> env, or pick any model slug from OpenRouter.
                 </span>
               )}
+              {provider === "mistral" && (
+                <span className="block mt-1 text-arc/70">
+                  💡 Get a key at{" "}
+                  <a href="https://console.mistral.ai/api-keys" target="_blank" rel="noopener noreferrer" className="underline">
+                    console.mistral.ai/api-keys
+                  </a>
+                  . Default model: <span className="font-mono">mistral-small-latest</span>. Override via{" "}
+                  <span className="font-mono">MISTRAL_MODEL</span> env.
+                </span>
+              )}
             </p>
 
           </div>
