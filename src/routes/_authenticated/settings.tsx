@@ -277,7 +277,18 @@ function SettingsPage() {
                   . Default model: <span className="font-mono">gemini-1.5-flash</span>.
                 </span>
               )}
+              {provider === "openrouter" && (
+                <span className="block mt-1 text-arc/70">
+                  💡 Get a key at{" "}
+                  <a href="https://openrouter.ai/keys" target="_blank" rel="noopener noreferrer" className="underline">
+                    openrouter.ai/keys
+                  </a>
+                  . Default model: <span className="font-mono">deepseek/deepseek-chat</span>. Change via{" "}
+                  <span className="font-mono">OPENROUTER_MODEL</span> env, or pick any model slug from OpenRouter.
+                </span>
+              )}
             </p>
+
           </div>
         </section>
 
