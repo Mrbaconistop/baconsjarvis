@@ -1299,7 +1299,7 @@ export const Route = createFileRoute("/api/chat")({
             set_ai_config: tool({
               description: "Change the AI provider, API key, or mode.",
               inputSchema: z.object({
-                provider: z.enum(["groq", "deepseek", "gemini", "system", "lmstudio", "openrouter"]).optional(),
+                provider: z.enum(["groq", "deepseek", "gemini", "system", "lmstudio", "openrouter", "mistral"]).optional(),
                 apiKey: z.string().optional(),
                 mode: z.enum(["thinking", "coding", "basic"]).optional(),
               }),
