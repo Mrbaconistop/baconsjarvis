@@ -152,6 +152,16 @@ export function resolveChatModel(opts?: { provider?: ProviderId; apiKey?: string
     return { model: lmstudio(modelId) as any, provider: "lmstudio" as const, modelId };
   }
 
+  // ---------- OPENROUTER ----------
+  if (effectiveProvider === "openrouter") {
+    const key = providedApiKey ?? process.env.OPENROUTER_API_KEY;
+    if (!key) throw new Error("OpenRouter API key is not set");
+    const openrouter = createOpenRouterProvider(key);
+    const modelId = process.env.OPENROUTER_MODEL ?? "deepseek/deepseek-chat";
+    return { model: openrouter(modelId) as any, provider: "openrouter" as const, modelId };
+  }
+
+
   // ---------- FALLBACK (should never reach here) ----------
   throw new Error(`Unsupported provider: ${effectiveProvider}`);
 }
