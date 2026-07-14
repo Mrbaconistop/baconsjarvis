@@ -49,7 +49,7 @@ function SettingsPage() {
   });
 
   const [connecting, setConnecting] = useState(false);
-  const [provider, setProvider] = useState<"groq" | "deepseek" | "system" | "lmstudio" | "gemini">("system");
+  const [provider, setProvider] = useState<"groq" | "deepseek" | "system" | "lmstudio" | "gemini" | "openrouter">("system");
   const [apiKey, setApiKey] = useState("");
   const [mode, setMode] = useState<"thinking" | "coding" | "basic">("basic");
   const [codingSubmode, setCodingSubmode] = useState<"full" | "language_only" | "direct">("full");
@@ -183,7 +183,9 @@ function SettingsPage() {
                 <option value="groq">Groq</option>
                 <option value="deepseek">DeepSeek</option>
                 <option value="lmstudio">LM Studio (local)</option>
+                <option value="openrouter">OpenRouter</option>
               </select>
+
             </div>
             {provider !== "system" && (
               <div className="flex flex-wrap items-center gap-4">
@@ -197,8 +199,11 @@ function SettingsPage() {
                       ? "Default key is pre‑filled – replace with your own"
                       : provider === "gemini"
                         ? "Enter your Google AI API key"
-                        : "Enter your API key"
+                        : provider === "openrouter"
+                          ? "sk-or-v1-…"
+                          : "Enter your API key"
                   }
+
                   className="bg-background/40 border border-arc/20 rounded-md px-3 py-2 text-sm font-mono focus:border-arc focus:outline-none w-64"
                 />
               </div>
@@ -272,7 +277,18 @@ function SettingsPage() {
                   . Default model: <span className="font-mono">gemini-1.5-flash</span>.
                 </span>
               )}
+              {provider === "openrouter" && (
+                <span className="block mt-1 text-arc/70">
+                  💡 Get a key at{" "}
+                  <a href="https://openrouter.ai/keys" target="_blank" rel="noopener noreferrer" className="underline">
+                    openrouter.ai/keys
+                  </a>
+                  . Default model: <span className="font-mono">deepseek/deepseek-chat</span>. Change via{" "}
+                  <span className="font-mono">OPENROUTER_MODEL</span> env, or pick any model slug from OpenRouter.
+                </span>
+              )}
             </p>
+
           </div>
         </section>
 

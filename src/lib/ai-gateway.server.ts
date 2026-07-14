@@ -89,7 +89,20 @@ export function createLMStudioProvider(apiKey?: string) {
   });
 }
 
-type ProviderId = "groq" | "deepseek" | "lmstudio" | "gemini" | "system";
+export function createOpenRouterProvider(apiKey: string) {
+  return createOpenAICompatible({
+    name: "openrouter",
+    baseURL: "https://openrouter.ai/api/v1",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "HTTP-Referer": process.env.OPENROUTER_SITE_URL ?? "https://jarvis.lovable.app",
+      "X-Title": "JARVIS",
+    },
+  });
+}
+
+type ProviderId = "groq" | "deepseek" | "lmstudio" | "gemini" | "openrouter" | "system";
+
 
 export function resolveChatModel(opts?: { provider?: ProviderId; apiKey?: string }) {
   const providedApiKey = opts?.apiKey?.trim();
@@ -97,9 +110,10 @@ export function resolveChatModel(opts?: { provider?: ProviderId; apiKey?: string
 
   // "system" means use the built-in default provider.
   const effectiveProvider: Exclude<ProviderId, "system"> =
-    raw === "system" || !["groq", "deepseek", "lmstudio", "gemini"].includes(raw)
+    raw === "system" || !["groq", "deepseek", "lmstudio", "gemini", "openrouter"].includes(raw)
       ? "deepseek"
       : (raw as Exclude<ProviderId, "system">);
+
 
   // ---------- GEMINI ----------
   if (effectiveProvider === "gemini") {
@@ -137,6 +151,16 @@ export function resolveChatModel(opts?: { provider?: ProviderId; apiKey?: string
     const modelId = process.env.LM_STUDIO_MODEL ?? "local-model";
     return { model: lmstudio(modelId) as any, provider: "lmstudio" as const, modelId };
   }
+
+  // ---------- OPENROUTER ----------
+  if (effectiveProvider === "openrouter") {
+    const key = providedApiKey ?? process.env.OPENROUTER_API_KEY;
+    if (!key) throw new Error("OpenRouter API key is not set");
+    const openrouter = createOpenRouterProvider(key);
+    const modelId = process.env.OPENROUTER_MODEL ?? "deepseek/deepseek-chat";
+    return { model: openrouter(modelId) as any, provider: "openrouter" as const, modelId };
+  }
+
 
   // ---------- FALLBACK (should never reach here) ----------
   throw new Error(`Unsupported provider: ${effectiveProvider}`);
