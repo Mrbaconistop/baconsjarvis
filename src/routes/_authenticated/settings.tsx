@@ -206,7 +206,7 @@ function SettingsPage() {
                       onChange={(e) => setApiKey(e.target.value)}
                       placeholder={
                         provider === "groq"
-                          ? "Default key is pre‑filled – replace with your own"
+                          ? "Leave blank to use the workspace default key"
                           : provider === "gemini"
                             ? "Enter your Google AI API key"
                             : provider === "openrouter"
@@ -261,7 +261,7 @@ function SettingsPage() {
 
                 <button
                   onClick={saveLlm}
-                  disabled={savingLlm || (provider !== "system" && !apiKey)}
+                  disabled={savingLlm || (provider !== "system" && provider !== "groq" && !apiKey)}
                   className="text-xs px-4 py-2 rounded-md bg-arc text-arc-foreground shadow-arc hover:opacity-90 transition disabled:opacity-50"
                 >
                   {savingLlm ? "Saving…" : "Save AI settings"}
@@ -271,7 +271,8 @@ function SettingsPage() {
                   securely in your user profile.
                   {provider === "groq" && (
                     <span className="block mt-1 text-arc/70">
-                      💡 A default Groq key is pre‑filled. You can use it or replace it with your own.
+                      💡 Leave blank to use the workspace's default key (kept server-side), or paste your own to
+                      override it.
                     </span>
                   )}
                   {provider === "gemini" && (
