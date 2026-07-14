@@ -202,7 +202,9 @@ function SettingsPage() {
                         ? "Enter your Google AI API key"
                         : provider === "openrouter"
                           ? "sk-or-v1-…"
-                          : "Enter your API key"
+                          : provider === "mistral"
+                            ? "Enter your Mistral API key"
+                            : "Enter your API key"
                   }
 
                   className="bg-background/40 border border-arc/20 rounded-md px-3 py-2 text-sm font-mono focus:border-arc focus:outline-none w-64"
