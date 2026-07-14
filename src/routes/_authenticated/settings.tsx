@@ -184,6 +184,7 @@ function SettingsPage() {
                 <option value="deepseek">DeepSeek</option>
                 <option value="lmstudio">LM Studio (local)</option>
                 <option value="openrouter">OpenRouter</option>
+                <option value="mistral">Mistral AI</option>
               </select>
 
             </div>
