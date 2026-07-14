@@ -49,7 +49,7 @@ function SettingsPage() {
   });
 
   const [connecting, setConnecting] = useState(false);
-  const [provider, setProvider] = useState<"groq" | "deepseek" | "system" | "lmstudio" | "gemini" | "openrouter">("system");
+  const [provider, setProvider] = useState<"groq" | "deepseek" | "system" | "lmstudio" | "gemini" | "openrouter" | "mistral">("system");
   const [apiKey, setApiKey] = useState("");
   const [mode, setMode] = useState<"thinking" | "coding" | "basic">("basic");
   const [codingSubmode, setCodingSubmode] = useState<"full" | "language_only" | "direct">("full");
