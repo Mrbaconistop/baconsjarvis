@@ -171,6 +171,16 @@ export function resolveChatModel(opts?: { provider?: ProviderId; apiKey?: string
   }
 
 
+  // ---------- MISTRAL ----------
+  if (effectiveProvider === "mistral") {
+    const key = providedApiKey ?? process.env.MISTRAL_API_KEY;
+    if (!key) throw new Error("Mistral API key is not set");
+    const mistral = createMistralProvider(key);
+    const modelId = process.env.MISTRAL_MODEL ?? "mistral-small-latest";
+    return { model: mistral(modelId) as any, provider: "mistral" as const, modelId };
+  }
+
+
   // ---------- FALLBACK (should never reach here) ----------
   throw new Error(`Unsupported provider: ${effectiveProvider}`);
 }
