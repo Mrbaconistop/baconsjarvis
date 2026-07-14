@@ -110,9 +110,10 @@ export function resolveChatModel(opts?: { provider?: ProviderId; apiKey?: string
 
   // "system" means use the built-in default provider.
   const effectiveProvider: Exclude<ProviderId, "system"> =
-    raw === "system" || !["groq", "deepseek", "lmstudio", "gemini"].includes(raw)
+    raw === "system" || !["groq", "deepseek", "lmstudio", "gemini", "openrouter"].includes(raw)
       ? "deepseek"
       : (raw as Exclude<ProviderId, "system">);
+
 
   // ---------- GEMINI ----------
   if (effectiveProvider === "gemini") {
