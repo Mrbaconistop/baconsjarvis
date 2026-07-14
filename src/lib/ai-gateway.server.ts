@@ -101,7 +101,15 @@ export function createOpenRouterProvider(apiKey: string) {
   });
 }
 
-type ProviderId = "groq" | "deepseek" | "lmstudio" | "gemini" | "openrouter" | "system";
+export function createMistralProvider(apiKey: string) {
+  return createOpenAICompatible({
+    name: "mistral",
+    baseURL: "https://api.mistral.ai/v1",
+    headers: { Authorization: `Bearer ${apiKey}` },
+  });
+}
+
+type ProviderId = "groq" | "deepseek" | "lmstudio" | "gemini" | "openrouter" | "mistral" | "system";
 
 
 export function resolveChatModel(opts?: { provider?: ProviderId; apiKey?: string }) {
@@ -110,9 +118,10 @@ export function resolveChatModel(opts?: { provider?: ProviderId; apiKey?: string
 
   // "system" means use the built-in default provider.
   const effectiveProvider: Exclude<ProviderId, "system"> =
-    raw === "system" || !["groq", "deepseek", "lmstudio", "gemini", "openrouter"].includes(raw)
+    raw === "system" || !["groq", "deepseek", "lmstudio", "gemini", "openrouter", "mistral"].includes(raw)
       ? "deepseek"
       : (raw as Exclude<ProviderId, "system">);
+
 
 
   // ---------- GEMINI ----------
