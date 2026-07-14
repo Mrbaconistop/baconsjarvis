@@ -183,7 +183,9 @@ function SettingsPage() {
                 <option value="groq">Groq</option>
                 <option value="deepseek">DeepSeek</option>
                 <option value="lmstudio">LM Studio (local)</option>
+                <option value="openrouter">OpenRouter</option>
               </select>
+
             </div>
             {provider !== "system" && (
               <div className="flex flex-wrap items-center gap-4">
