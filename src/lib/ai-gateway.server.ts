@@ -89,7 +89,20 @@ export function createLMStudioProvider(apiKey?: string) {
   });
 }
 
-type ProviderId = "groq" | "deepseek" | "lmstudio" | "gemini" | "system";
+export function createOpenRouterProvider(apiKey: string) {
+  return createOpenAICompatible({
+    name: "openrouter",
+    baseURL: "https://openrouter.ai/api/v1",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "HTTP-Referer": process.env.OPENROUTER_SITE_URL ?? "https://jarvis.lovable.app",
+      "X-Title": "JARVIS",
+    },
+  });
+}
+
+type ProviderId = "groq" | "deepseek" | "lmstudio" | "gemini" | "openrouter" | "system";
+
 
 export function resolveChatModel(opts?: { provider?: ProviderId; apiKey?: string }) {
   const providedApiKey = opts?.apiKey?.trim();
