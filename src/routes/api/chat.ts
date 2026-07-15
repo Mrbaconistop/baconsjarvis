@@ -29,21 +29,21 @@ type Body = { messages?: UIMessage[]; threadId?: string; tabSlug?: string | null
 // Match is exact after lowercasing and stripping trailing punctuation.
 // Placeholders: {addressAs}, {time}, {date}, {day}.
 const DEFAULT_PRESETS: Record<string, string[]> = {
-  "hi": ["Hello, {addressAs}.", "Hi, {addressAs}. What can I do for you?", "At your service, {addressAs}."],
-  "hello": ["Hello, {addressAs}.", "Good to hear from you, {addressAs}."],
-  "hey": ["Hey, {addressAs}. What do you need?", "Yes, {addressAs}?"],
+  hi: ["Hello, {addressAs}.", "Hi, {addressAs}. What can I do for you?", "At your service, {addressAs}."],
+  hello: ["Hello, {addressAs}.", "Good to hear from you, {addressAs}."],
+  hey: ["Hey, {addressAs}. What do you need?", "Yes, {addressAs}?"],
   "hey jarvis": ["Yes, {addressAs}?", "Listening, {addressAs}.", "Standing by, {addressAs}."],
-  "yo": ["Yo, {addressAs}."],
-  "sup": ["Not much, {addressAs}. What's on your mind?"],
+  yo: ["Yo, {addressAs}."],
+  sup: ["Not much, {addressAs}. What's on your mind?"],
   "you there": ["Always, {addressAs}."],
   "you up": ["Always on, {addressAs}."],
-  "thanks": ["Anytime, {addressAs}.", "Of course, {addressAs}."],
+  thanks: ["Anytime, {addressAs}.", "Of course, {addressAs}."],
   "thank you": ["Always a pleasure, {addressAs}.", "You're welcome, {addressAs}."],
-  "ty": ["Anytime, {addressAs}."],
-  "bye": ["Goodbye, {addressAs}. I'll be here."],
-  "goodbye": ["Goodbye, {addressAs}."],
-  "cya": ["Later, {addressAs}."],
-  "gn": ["Sleep well, {addressAs}."],
+  ty: ["Anytime, {addressAs}."],
+  bye: ["Goodbye, {addressAs}. I'll be here."],
+  goodbye: ["Goodbye, {addressAs}."],
+  cya: ["Later, {addressAs}."],
+  gn: ["Sleep well, {addressAs}."],
   "good night": ["Good night, {addressAs}."],
   "good morning": ["Good morning, {addressAs}. It's {time}. Ready when you are."],
   "good afternoon": ["Good afternoon, {addressAs}."],
@@ -365,7 +365,7 @@ export const Route = createFileRoute("/api/chat")({
           // ---- Preset short-circuit (zero-cost greeting/quick replies) ----
           const lastText =
             last?.role === "user"
-              ? ((last.parts as any[]).find((p: any) => p?.type === "text") as any)?.text?.trim() ?? ""
+              ? (((last.parts as any[]).find((p: any) => p?.type === "text") as any)?.text?.trim() ?? "")
               : "";
           if (lastText && lastText.length <= 40 && !/[<>{}`]/.test(lastText)) {
             const normalized = normalizePresetKey(lastText);
@@ -393,10 +393,7 @@ export const Route = createFileRoute("/api/chat")({
                 role: "assistant",
                 parts: [{ type: "text", text: reply }] as any,
               });
-              await supabase
-                .from("chat_threads")
-                .update({ updated_at: new Date().toISOString() })
-                .eq("id", threadId);
+              await supabase.from("chat_threads").update({ updated_at: new Date().toISOString() }).eq("id", threadId);
               const id = crypto.randomUUID();
               const stream = createUIMessageStream<UIMessage>({
                 originalMessages: messages,
@@ -436,12 +433,53 @@ export const Route = createFileRoute("/api/chat")({
             console.log("❌ [CACHE] MISS – no cache for key:", cacheKey);
           }
 
-
           // ============================================================
           // TOOLS – Full object with all your original tools,
           // including stock tools (search_stocks, get_stock_snapshot)
           // ============================================================
+          let searchCallCount = 0;
+          const MAX_SEARCHES_PER_TURN = 5;
+
           const tools = {
+            // ---- Web Search (SerpAPI, capped) ----
+            web_search: tool({
+              description:
+                "Search the live web for current information (news, facts, prices, anything post-knowledge-cutoff). Use sparingly — capped at 5 searches per turn. Prefer one well-formed query over many broad ones.",
+              inputSchema: z.object({
+                query: z.string().describe("A short, specific search query (2-6 words ideally)."),
+              }),
+              execute: async ({ query }) => {
+                if (searchCallCount >= MAX_SEARCHES_PER_TURN) {
+                  return {
+                    ok: false,
+                    error: `Search limit reached (${MAX_SEARCHES_PER_TURN} per turn). Answer with what you already have.`,
+                  };
+                }
+                searchCallCount++;
+                const key = process.env.SERP_API_KEY;
+                if (!key) return { ok: false, error: "SERP_API_KEY is not set on the server." };
+                try {
+                  const url = `https://serpapi.com/search.json?engine=google&q=${encodeURIComponent(query)}&api_key=${key}&num=5`;
+                  const r = await fetch(url);
+                  if (!r.ok) return { ok: false, error: `SerpAPI error: ${r.status}` };
+                  const j: any = await r.json();
+                  const results = (j.organic_results ?? []).slice(0, 5).map((item: any) => ({
+                    title: item.title,
+                    link: item.link,
+                    snippet: item.snippet,
+                  }));
+                  return {
+                    ok: true,
+                    query,
+                    results,
+                    searches_used: searchCallCount,
+                    searches_remaining: MAX_SEARCHES_PER_TURN - searchCallCount,
+                  };
+                } catch (e: any) {
+                  return { ok: false, error: e?.message ?? "Search failed" };
+                }
+              },
+            }),
             // ---- Reminders ----
             create_reminder: tool({
               description: "Create a one-off or recurring reminder.",
@@ -1299,7 +1337,19 @@ export const Route = createFileRoute("/api/chat")({
             set_ai_config: tool({
               description: "Change the AI provider, API key, or mode.",
               inputSchema: z.object({
-                provider: z.enum(["groq", "deepseek", "gemini", "system", "lmstudio", "openrouter", "mistral"]).optional(),
+                provider: z
+                  .enum([
+                    "groq",
+                    "deepseek",
+                    "gemini",
+                    "system",
+                    "lmstudio",
+                    "openrouter",
+                    "mistral",
+                    "claude",
+                    "perplexity",
+                  ])
+                  .optional(),
                 apiKey: z.string().optional(),
                 mode: z.enum(["thinking", "coding", "basic"]).optional(),
               }),
@@ -2204,8 +2254,6 @@ After applying, briefly tell the user what changed and the route it's on.
 
 QUICK REPLIES / PRESETS — trivial greetings like "hi", "hey jarvis", "thanks", "gn" are answered by the preset system BEFORE you're invoked (zero cost). You do NOT need to handle those. But when the user says "remember to always reply X when I say Y", "add a preset", or "make it so 'trigger' always says 'response'", call add_preset_response. Use list_preset_responses / remove_preset_response to manage them.
 
-
-
 DESIGN LANGUAGE for custom tabs — make them BUBBLY, playful, and delightful, not flat corporate boxes:
 - Rounded everything: 16–24px radii on cards, 999px on pills/buttons.
 - Soft depth: layered box-shadows with color-tinted glows (e.g. rgba of the accent), never harsh black shadows.
@@ -2241,7 +2289,7 @@ UTILITY BELT — reach for these instead of doing it in your head:
 - Time/dates: time_in_timezone, convert_time_between_timezones, time_until, schedule_across_zones, list_common_timezones, days_between, add_to_date, age_from_birthdate.
 - Math/units/money: calculate, convert_units, currency_convert, crypto_price, random_pick.
 - Coding helpers: format_json, decode_jwt, regex_test, uuid_generate, password_generate, base64_encode/decode, url_encode/decode, hash_text, slugify, diff_text, lorem_ipsum, color_convert, text_stats.
-- Lookups: http_get, define_word, wikipedia_summary, get_public_ip_info.
+- Lookups: http_get, define_word, wikipedia_summary, get_public_ip_info, web_search (live web results, capped at 5 per turn — use it when you need current info, not for things you already know).
 - Code memory: remember_code to store snippets, recall_memory with language filter to retrieve them.
 - Built-in browser: create_browser_tab to give the user a full web browser inside a custom tab.
 
