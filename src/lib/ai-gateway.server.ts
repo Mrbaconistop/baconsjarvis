@@ -109,8 +109,32 @@ export function createMistralProvider(apiKey: string) {
   });
 }
 
-type ProviderId = "groq" | "deepseek" | "lmstudio" | "gemini" | "openrouter" | "mistral" | "system";
+export function createClaudeProvider(apiKey: string) {
+  return createOpenAICompatible({
+    name: "claude",
+    baseURL: "https://api.anthropic.com/v1",
+    headers: { Authorization: `Bearer ${apiKey}` },
+  });
+}
 
+export function createPerplexityProvider(apiKey: string) {
+  return createOpenAICompatible({
+    name: "perplexity",
+    baseURL: "https://api.perplexity.ai",
+    headers: { Authorization: `Bearer ${apiKey}` },
+  });
+}
+
+type ProviderId =
+  | "groq"
+  | "deepseek"
+  | "lmstudio"
+  | "gemini"
+  | "openrouter"
+  | "mistral"
+  | "claude"
+  | "perplexity"
+  | "system";
 
 export function resolveChatModel(opts?: { provider?: ProviderId; apiKey?: string }) {
   const providedApiKey = opts?.apiKey?.trim();
@@ -118,11 +142,10 @@ export function resolveChatModel(opts?: { provider?: ProviderId; apiKey?: string
 
   // "system" means use the built-in default provider.
   const effectiveProvider: Exclude<ProviderId, "system"> =
-    raw === "system" || !["groq", "deepseek", "lmstudio", "gemini", "openrouter", "mistral"].includes(raw)
+    raw === "system" ||
+    !["groq", "deepseek", "lmstudio", "gemini", "openrouter", "mistral", "claude", "perplexity"].includes(raw)
       ? "deepseek"
       : (raw as Exclude<ProviderId, "system">);
-
-
 
   // ---------- GEMINI ----------
   if (effectiveProvider === "gemini") {
@@ -170,7 +193,6 @@ export function resolveChatModel(opts?: { provider?: ProviderId; apiKey?: string
     return { model: openrouter(modelId) as any, provider: "openrouter" as const, modelId };
   }
 
-
   // ---------- MISTRAL ----------
   if (effectiveProvider === "mistral") {
     const key = providedApiKey ?? process.env.MISTRAL_API_KEY;
@@ -180,6 +202,23 @@ export function resolveChatModel(opts?: { provider?: ProviderId; apiKey?: string
     return { model: mistral(modelId) as any, provider: "mistral" as const, modelId };
   }
 
+  // ---------- CLAUDE ----------
+  if (effectiveProvider === "claude") {
+    const key = providedApiKey ?? process.env.CLAUDE_API_KEY;
+    if (!key) throw new Error("Claude API key is not set");
+    const claude = createClaudeProvider(key);
+    const modelId = process.env.CLAUDE_MODEL ?? "claude-sonnet-4-6";
+    return { model: claude(modelId) as any, provider: "claude" as const, modelId };
+  }
+
+  // ---------- PERPLEXITY ----------
+  if (effectiveProvider === "perplexity") {
+    const key = providedApiKey ?? process.env.PERPLEXITY_API_KEY;
+    if (!key) throw new Error("Perplexity API key is not set");
+    const perplexity = createPerplexityProvider(key);
+    const modelId = process.env.PERPLEXITY_MODEL ?? "sonar";
+    return { model: perplexity(modelId) as any, provider: "perplexity" as const, modelId };
+  }
 
   // ---------- FALLBACK (should never reach here) ----------
   throw new Error(`Unsupported provider: ${effectiveProvider}`);

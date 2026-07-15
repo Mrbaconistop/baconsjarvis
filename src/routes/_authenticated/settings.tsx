@@ -31,8 +31,6 @@ const PLATFORM_META: Record<string, { label: string; icon: any; note: string }> 
   calendar: { label: "Google Calendar", icon: Calendar, note: "Connect to surface upcoming events." },
 };
 
-const DEFAULT_GROQ_KEY = "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";
-
 function SettingsPage() {
   const qc = useQueryClient();
   const prof = useServerFn(getProfile);
@@ -49,7 +47,9 @@ function SettingsPage() {
   });
 
   const [connecting, setConnecting] = useState(false);
-  const [provider, setProvider] = useState<"groq" | "deepseek" | "system" | "lmstudio" | "gemini" | "openrouter" | "mistral">("system");
+  const [provider, setProvider] = useState
+    "groq" | "deepseek" | "system" | "lmstudio" | "gemini" | "openrouter" | "mistral" | "claude" | "perplexity"
+  >("system");
   const [apiKey, setApiKey] = useState("");
   const [mode, setMode] = useState<"thinking" | "coding" | "basic">("basic");
   const [codingSubmode, setCodingSubmode] = useState<"full" | "language_only" | "direct">("full");
@@ -80,12 +80,6 @@ function SettingsPage() {
       setCodingSubmode((llmConfig.coding_submode as "full" | "language_only" | "direct") || "full");
     }
   }, [llmConfig]);
-
-  useEffect(() => {
-    if (provider === "groq" && !apiKey) {
-      setApiKey(DEFAULT_GROQ_KEY);
-    }
-  }, [provider, apiKey]);
 
   async function connectGoogle() {
     setConnecting(true);
@@ -145,9 +139,7 @@ function SettingsPage() {
             key={t}
             onClick={() => setTab(t)}
             className={`px-4 py-2 text-xs font-mono uppercase tracking-[0.2em] rounded-t transition ${
-              tab === t
-                ? "bg-arc/10 text-arc border-b-2 border-arc"
-                : "text-hud-dim hover:text-foreground"
+              tab === t ? "bg-arc/10 text-arc border-b-2 border-arc" : "text-hud-dim hover:text-foreground"
             }`}
           >
             {t}
@@ -155,201 +147,255 @@ function SettingsPage() {
         ))}
       </div>
       <div className="flex-1 overflow-y-auto px-8 py-6 space-y-6 max-w-4xl">
-        {tab === "diagnostics" ? <DiagnosticsTab /> : tab === "appearance" ? <ThemeCustomizer /> : tab === "libraries" ? <LibraryManager /> : (<>
-
-        <section className="glass-strong hud-corners rounded-xl p-5">
-          <div className="font-mono text-[10px] tracking-[0.3em] text-arc mb-4">PROFILE</div>
-          <div className="grid grid-cols-2 gap-4 text-sm">
-            <Field label="Name" value={profile?.name ?? "—"} />
-            <Field label="Email" value={profile?.email ?? "—"} />
-            <Field label="Address as" value={profile?.address_as ?? "Sir"} />
-            <Field label="Briefing time" value={profile?.preferred_briefing_time ?? "08:00"} />
-            <Field label="Timezone" value={profile?.timezone ?? "UTC"} />
-          </div>
-        </section>
-
-        <section className="glass-strong hud-corners rounded-xl p-5">
-          <div className="font-mono text-[10px] tracking-[0.3em] text-arc mb-4">AI PROVIDER</div>
-          <div className="space-y-3">
-            <div className="flex flex-wrap items-center gap-4">
-              <label className="text-sm font-medium">Provider</label>
-              <select
-                value={provider}
-                onChange={(e) => setProvider(e.target.value as typeof provider)}
-                className="bg-background/40 border border-arc/20 rounded-md px-3 py-2 text-sm focus:border-arc focus:outline-none"
-              >
-                <option value="system">System default</option>
-                <option value="gemini">Google Gemini</option>
-                <option value="groq">Groq</option>
-                <option value="deepseek">DeepSeek</option>
-                <option value="lmstudio">LM Studio (local)</option>
-                <option value="openrouter">OpenRouter</option>
-                <option value="mistral">Mistral AI</option>
-              </select>
-
-            </div>
-            {provider !== "system" && (
-              <div className="flex flex-wrap items-center gap-4">
-                <label className="text-sm font-medium">API Key</label>
-                <input
-                  type="password"
-                  value={apiKey}
-                  onChange={(e) => setApiKey(e.target.value)}
-                  placeholder={
-                    provider === "groq"
-                      ? "Default key is pre‑filled – replace with your own"
-                      : provider === "gemini"
-                        ? "Enter your Google AI API key"
-                        : provider === "openrouter"
-                          ? "sk-or-v1-…"
-                          : provider === "mistral"
-                            ? "Enter your Mistral API key"
-                            : "Enter your API key"
-                  }
-
-                  className="bg-background/40 border border-arc/20 rounded-md px-3 py-2 text-sm font-mono focus:border-arc focus:outline-none w-64"
-                />
+        {tab === "diagnostics" ? (
+          <DiagnosticsTab />
+        ) : tab === "appearance" ? (
+          <ThemeCustomizer />
+        ) : tab === "libraries" ? (
+          <LibraryManager />
+        ) : (
+          <>
+            <section className="glass-strong hud-corners rounded-xl p-5">
+              <div className="font-mono text-[10px] tracking-[0.3em] text-arc mb-4">PROFILE</div>
+              <div className="grid grid-cols-2 gap-4 text-sm">
+                <Field label="Name" value={profile?.name ?? "—"} />
+                <Field label="Email" value={profile?.email ?? "—"} />
+                <Field label="Address as" value={profile?.address_as ?? "Sir"} />
+                <Field label="Briefing time" value={profile?.preferred_briefing_time ?? "08:00"} />
+                <Field label="Timezone" value={profile?.timezone ?? "UTC"} />
               </div>
-            )}
-            <div className="flex flex-wrap items-center gap-4">
-              <label className="text-sm font-medium">AI Mode</label>
-              <select
-                value={mode}
-                onChange={(e) => setMode(e.target.value as typeof mode)}
-                className="bg-background/40 border border-arc/20 rounded-md px-3 py-2 text-sm focus:border-arc focus:outline-none"
-              >
-                <option value="basic">🗣️ Basic – Everyday chat</option>
-                <option value="thinking">🧠 Thinking – Deep reasoning</option>
-                <option value="coding">💻 Coding – Technical help</option>
-              </select>
-            </div>
+            </section>
 
-            {/* Coding Submode – shown only when mode is "coding" */}
-            {mode === "coding" && (
-              <div className="flex flex-wrap items-center gap-4 pt-2 border-t border-arc/20">
-                <label className="text-sm font-medium">Coding Sub‑mode</label>
-                <div className="flex gap-1 bg-background/40 border border-arc/20 rounded-md p-1">
-                  {[
-                    { value: "full", label: "🧠 Full Workflow", desc: "Ask language + environment" },
-                    { value: "language_only", label: "💬 Language Only", desc: "Ask language only" },
-                    { value: "direct", label: "⚡ Direct", desc: "Write code immediately" },
-                  ].map((opt) => (
-                    <button
-                      key={opt.value}
-                      onClick={() => setCodingSubmode(opt.value as any)}
-                      className={`px-3 py-1.5 text-xs font-mono uppercase tracking-wider rounded transition ${
-                        codingSubmode === opt.value
-                          ? "bg-arc text-arc-foreground"
-                          : "text-hud-dim hover:text-foreground hover:bg-arc/10"
-                      }`}
-                      title={opt.desc}
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            <button
-              onClick={saveLlm}
-              disabled={savingLlm || (provider !== "system" && !apiKey)}
-              className="text-xs px-4 py-2 rounded-md bg-arc text-arc-foreground shadow-arc hover:opacity-90 transition disabled:opacity-50"
-            >
-              {savingLlm ? "Saving…" : "Save AI settings"}
-            </button>
-            <p className="text-xs text-hud-dim mt-2">
-              Choose a provider and enter your own API key to override the system default. The key is stored securely in
-              your user profile.
-              {provider === "groq" && (
-                <span className="block mt-1 text-arc/70">
-                  💡 A default Groq key is pre‑filled. You can use it or replace it with your own.
-                </span>
-              )}
-              {provider === "gemini" && (
-                <span className="block mt-1 text-arc/70">
-                  💡 Get your free API key from{" "}
-                  <a
-                    href="https://aistudio.google.com/app/apikey"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="underline"
+            <section className="glass-strong hud-corners rounded-xl p-5">
+              <div className="font-mono text-[10px] tracking-[0.3em] text-arc mb-4">AI PROVIDER</div>
+              <div className="space-y-3">
+                <div className="flex flex-wrap items-center gap-4">
+                  <label className="text-sm font-medium">Provider</label>
+                  <select
+                    value={provider}
+                    onChange={(e) => setProvider(e.target.value as typeof provider)}
+                    className="bg-background/40 border border-arc/20 rounded-md px-3 py-2 text-sm focus:border-arc focus:outline-none"
                   >
-                    Google AI Studio
-                  </a>
-                  . Default model: <span className="font-mono">gemini-1.5-flash</span>.
-                </span>
-              )}
-              {provider === "openrouter" && (
-                <span className="block mt-1 text-arc/70">
-                  💡 Get a key at{" "}
-                  <a href="https://openrouter.ai/keys" target="_blank" rel="noopener noreferrer" className="underline">
-                    openrouter.ai/keys
-                  </a>
-                  . Default model: <span className="font-mono">deepseek/deepseek-chat</span>. Change via{" "}
-                  <span className="font-mono">OPENROUTER_MODEL</span> env, or pick any model slug from OpenRouter.
-                </span>
-              )}
-              {provider === "mistral" && (
-                <span className="block mt-1 text-arc/70">
-                  💡 Get a key at{" "}
-                  <a href="https://console.mistral.ai/api-keys" target="_blank" rel="noopener noreferrer" className="underline">
-                    console.mistral.ai/api-keys
-                  </a>
-                  . Default model: <span className="font-mono">mistral-small-latest</span>. Override via{" "}
-                  <span className="font-mono">MISTRAL_MODEL</span> env.
-                </span>
-              )}
-            </p>
-
-          </div>
-        </section>
-
-        <section className="glass-strong hud-corners rounded-xl p-5">
-          <div className="flex items-center justify-between mb-4">
-            <div className="font-mono text-[10px] tracking-[0.3em] text-arc">CONNECTED CHANNELS</div>
-            <button
-              onClick={connectGoogle}
-              disabled={connecting}
-              className="text-xs px-3 py-1.5 rounded-md border border-arc/30 bg-arc/10 hover:bg-arc/20 transition disabled:opacity-50"
-            >
-              {connecting ? "Opening…" : "Connect Google (Gmail + Calendar)"}
-            </button>
-          </div>
-          <div className="space-y-2">
-            {(["calendar", "gmail", "twitter", "linkedin", "instagram", "facebook"] as const).map((p) => {
-              const meta = PLATFORM_META[p];
-              const Icon = meta.icon;
-              const acct = accounts?.find((a: any) => a.platform === p);
-              const live = !!acct && acct.status === "connected";
-              return (
-                <div key={p} className="flex items-center gap-3 p-3 rounded-md bg-background/40 border border-arc/10">
-                  <Icon size={16} className={live ? "text-success" : "text-hud-dim"} />
-                  <div className="flex-1">
-                    <div className="font-medium text-sm flex items-center gap-2">
-                      {meta.label}
-                      {live ? (
-                        <CheckCircle2 size={12} className="text-success" />
-                      ) : (
-                        <Circle size={12} className="text-hud-dim" />
-                      )}
-                    </div>
-                    <div className="text-xs text-hud-dim">{meta.note}</div>
+                    <option value="system">System default</option>
+                    <option value="gemini">Google Gemini</option>
+                    <option value="groq">Groq</option>
+                    <option value="deepseek">DeepSeek</option>
+                    <option value="lmstudio">LM Studio (local)</option>
+                    <option value="openrouter">OpenRouter</option>
+                    <option value="mistral">Mistral AI</option>
+                    <option value="claude">Claude (Anthropic)</option>
+                    <option value="perplexity">Perplexity</option>
+                  </select>
+                </div>
+                {provider !== "system" && (
+                  <div className="flex flex-wrap items-center gap-4">
+                    <label className="text-sm font-medium">API Key</label>
+                    <input
+                      type="password"
+                      value={apiKey}
+                      onChange={(e) => setApiKey(e.target.value)}
+                      placeholder={
+                        provider === "groq"
+                          ? "Leave blank to use the workspace default key"
+                          : provider === "gemini"
+                            ? "Enter your Google AI API key"
+                            : provider === "openrouter"
+                              ? "sk-or-v1-…"
+                              : provider === "mistral"
+                                ? "Enter your Mistral API key"
+                                : provider === "claude"
+                                  ? "sk-ant-…"
+                                  : provider === "perplexity"
+                                    ? "pplx-…"
+                                    : "Enter your API key"
+                      }
+                      className="bg-background/40 border border-arc/20 rounded-md px-3 py-2 text-sm font-mono focus:border-arc focus:outline-none w-64"
+                    />
                   </div>
-                  <span
-                    className={`font-mono text-[10px] uppercase tracking-wider ${live ? "text-success" : "text-hud-dim"}`}
+                )}
+                <div className="flex flex-wrap items-center gap-4">
+                  <label className="text-sm font-medium">AI Mode</label>
+                  <select
+                    value={mode}
+                    onChange={(e) => setMode(e.target.value as typeof mode)}
+                    className="bg-background/40 border border-arc/20 rounded-md px-3 py-2 text-sm focus:border-arc focus:outline-none"
                   >
-                    {live ? "Live" : "Not connected"}
-                  </span>
+                    <option value="basic">🗣️ Basic – Everyday chat</option>
+                    <option value="thinking">🧠 Thinking – Deep reasoning</option>
+                    <option value="coding">💻 Coding – Technical help</option>
+                  </select>
                 </div>
-              );
-            })}
-          </div>
-          <p className="mt-4 text-xs text-hud-dim">
-            Nothing is linked automatically. Connect each channel here whenever you're ready.
-          </p>
-        </section>
-        </>)}
+
+                {/* Coding Submode – shown only when mode is "coding" */}
+                {mode === "coding" && (
+                  <div className="flex flex-wrap items-center gap-4 pt-2 border-t border-arc/20">
+                    <label className="text-sm font-medium">Coding Sub‑mode</label>
+                    <div className="flex gap-1 bg-background/40 border border-arc/20 rounded-md p-1">
+                      {[
+                        { value: "full", label: "🧠 Full Workflow", desc: "Ask language + environment" },
+                        { value: "language_only", label: "💬 Language Only", desc: "Ask language only" },
+                        { value: "direct", label: "⚡ Direct", desc: "Write code immediately" },
+                      ].map((opt) => (
+                        <button
+                          key={opt.value}
+                          onClick={() => setCodingSubmode(opt.value as any)}
+                          className={`px-3 py-1.5 text-xs font-mono uppercase tracking-wider rounded transition ${
+                            codingSubmode === opt.value
+                              ? "bg-arc text-arc-foreground"
+                              : "text-hud-dim hover:text-foreground hover:bg-arc/10"
+                          }`}
+                          title={opt.desc}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <button
+                  onClick={saveLlm}
+                  disabled={savingLlm || (provider !== "system" && provider !== "groq" && !apiKey)}
+                  className="text-xs px-4 py-2 rounded-md bg-arc text-arc-foreground shadow-arc hover:opacity-90 transition disabled:opacity-50"
+                >
+                  {savingLlm ? "Saving…" : "Save AI settings"}
+                </button>
+                <p className="text-xs text-hud-dim mt-2">
+                  Choose a provider and enter your own API key to override the system default. The key is stored
+                  securely in your user profile.
+                  {provider === "groq" && (
+                    <span className="block mt-1 text-arc/70">
+                      💡 Leave blank to use the workspace's default key (kept server-side), or paste your own to
+                      override it.
+                    </span>
+                  )}
+                  {provider === "gemini" && (
+                    <span className="block mt-1 text-arc/70">
+                      💡 Get your free API key from{" "}
+                      
+                        href="https://aistudio.google.com/app/apikey"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="underline"
+                      >
+                        Google AI Studio
+                      </a>
+                      . Default model: <span className="font-mono">gemini-1.5-flash</span>.
+                    </span>
+                  )}
+                  {provider === "openrouter" && (
+                    <span className="block mt-1 text-arc/70">
+                      💡 Get a key at{" "}
+                      
+                        href="https://openrouter.ai/keys"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="underline"
+                      >
+                        openrouter.ai/keys
+                      </a>
+                      . Default model: <span className="font-mono">deepseek/deepseek-chat</span>. Change via{" "}
+                      <span className="font-mono">OPENROUTER_MODEL</span> env, or pick any model slug from OpenRouter.
+                    </span>
+                  )}
+                  {provider === "mistral" && (
+                    <span className="block mt-1 text-arc/70">
+                      💡 Get a key at{" "}
+                      
+                        href="https://console.mistral.ai/api-keys"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="underline"
+                      >
+                        console.mistral.ai/api-keys
+                      </a>
+                      . Default model: <span className="font-mono">mistral-small-latest</span>. Override via{" "}
+                      <span className="font-mono">MISTRAL_MODEL</span> env.
+                    </span>
+                  )}
+                  {provider === "claude" && (
+                    <span className="block mt-1 text-arc/70">
+                      💡 Get a key at{" "}
+                      
+                        href="https://console.anthropic.com/settings/keys"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="underline"
+                      >
+                        console.anthropic.com
+                      </a>
+                      . Default model: <span className="font-mono">claude-sonnet-4-6</span>. Override via{" "}
+                      <span className="font-mono">CLAUDE_MODEL</span> env. Uses Anthropic's OpenAI-compatible endpoint.
+                    </span>
+                  )}
+                  {provider === "perplexity" && (
+                    <span className="block mt-1 text-arc/70">
+                      💡 Get a key at{" "}
+                      
+                        href="https://www.perplexity.ai/settings/api"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="underline"
+                      >
+                        perplexity.ai/settings/api
+                      </a>
+                      . Default model: <span className="font-mono">sonar</span>. Override via{" "}
+                      <span className="font-mono">PERPLEXITY_MODEL</span> env.
+                    </span>
+                  )}
+                </p>
+              </div>
+            </section>
+
+            <section className="glass-strong hud-corners rounded-xl p-5">
+              <div className="flex items-center justify-between mb-4">
+                <div className="font-mono text-[10px] tracking-[0.3em] text-arc">CONNECTED CHANNELS</div>
+                <button
+                  onClick={connectGoogle}
+                  disabled={connecting}
+                  className="text-xs px-3 py-1.5 rounded-md border border-arc/30 bg-arc/10 hover:bg-arc/20 transition disabled:opacity-50"
+                >
+                  {connecting ? "Opening…" : "Connect Google (Gmail + Calendar)"}
+                </button>
+              </div>
+              <div className="space-y-2">
+                {(["calendar", "gmail", "twitter", "linkedin", "instagram", "facebook"] as const).map((p) => {
+                  const meta = PLATFORM_META[p];
+                  const Icon = meta.icon;
+                  const acct = accounts?.find((a: any) => a.platform === p);
+                  const live = !!acct && acct.status === "connected";
+                  return (
+                    <div
+                      key={p}
+                      className="flex items-center gap-3 p-3 rounded-md bg-background/40 border border-arc/10"
+                    >
+                      <Icon size={16} className={live ? "text-success" : "text-hud-dim"} />
+                      <div className="flex-1">
+                        <div className="font-medium text-sm flex items-center gap-2">
+                          {meta.label}
+                          {live ? (
+                            <CheckCircle2 size={12} className="text-success" />
+                          ) : (
+                            <Circle size={12} className="text-hud-dim" />
+                          )}
+                        </div>
+                        <div className="text-xs text-hud-dim">{meta.note}</div>
+                      </div>
+                      <span
+                        className={`font-mono text-[10px] uppercase tracking-wider ${live ? "text-success" : "text-hud-dim"}`}
+                      >
+                        {live ? "Live" : "Not connected"}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+              <p className="mt-4 text-xs text-hud-dim">
+                Nothing is linked automatically. Connect each channel here whenever you're ready.
+              </p>
+            </section>
+          </>
+        )}
       </div>
     </div>
   );

@@ -46,7 +46,17 @@ export const updateLLMConfig = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) =>
     z
       .object({
-        provider: z.enum(["groq", "deepseek", "system", "lmstudio", "gemini", "openrouter", "mistral"]),
+        provider: z.enum([
+          "groq",
+          "deepseek",
+          "system",
+          "lmstudio",
+          "gemini",
+          "openrouter",
+          "mistral",
+          "claude",
+          "perplexity",
+        ]),
         apiKey: z.string().optional(),
         mode: z.enum(["thinking", "coding", "basic"]).optional(),
         coding_submode: z.enum(["full", "language_only", "direct"]).optional(),
