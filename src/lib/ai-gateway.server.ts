@@ -224,19 +224,26 @@ export function resolveChatModel(opts?: { provider?: ProviderId; apiKey?: string
   throw new Error(`Unsupported provider: ${effectiveProvider}`);
 }
 
+// ============================================================
+// FIXED: READ FROM llm_config TABLE (NOT user_facts)
+// ============================================================
+
 export async function getModelForUser(userId: string, supabase: any) {
-  const { data } = await supabase.from("user_facts").select("key, value").eq("user_id", userId).eq("category", "llm");
+  // Read from the correct table used by updateLLMConfig
+  const { data: configRow } = await supabase
+    .from("llm_config")
+    .select("provider, api_key, mode, coding_submode")
+    .eq("user_id", userId)
+    .maybeSingle();
 
-  const config: Record<string, string> = {};
-  (data ?? []).forEach((f: any) => {
-    config[f.key] = f.value;
-  });
+  const provider = (configRow?.provider ?? "system") as ProviderId;
+  const apiKey = configRow?.api_key;
+  const mode = configRow?.mode || "basic";
+  const submode = configRow?.coding_submode || "full";
 
-  const provider = (config.provider ?? "system") as ProviderId;
-  const apiKey = config.api_key;
-  const mode = config.mode || "basic";
-  const submode = config.coding_submode || "full";
-  return { ...resolveChatModel({ provider, apiKey }), mode, submode };
+  // Resolve the model using the provider and apiKey
+  const resolved = resolveChatModel({ provider, apiKey });
+  return { ...resolved, mode, submode };
 }
 
 export const JARVIS_SYSTEM_PROMPT = MODE_PROMPTS.basic;
