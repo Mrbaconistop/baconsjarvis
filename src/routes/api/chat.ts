@@ -26,8 +26,6 @@ import { getBackendOverview } from "@/lib/backend.functions";
 type Body = { messages?: UIMessage[]; threadId?: string; tabSlug?: string | null };
 
 // ---- Built-in greeting/quick-response presets (zero-cost, no LLM call) ----
-// Match is exact after lowercasing and stripping trailing punctuation.
-// Placeholders: {addressAs}, {time}, {date}, {day}.
 const DEFAULT_PRESETS: Record<string, string[]> = {
   hi: ["Hello, {addressAs}.", "Hi, {addressAs}. What can I do for you?", "At your service, {addressAs}."],
   hello: ["Hello, {addressAs}.", "Good to hear from you, {addressAs}."],
@@ -330,7 +328,7 @@ export const Route = createFileRoute("/api/chat")({
             }
           }
 
-          // ---- Time context (computed early so presets can use it) ----
+          // ---- Time context ----
           const now = new Date();
           const currentTimeFormatted = now.toLocaleString("en-US", {
             timeZone: userTimezone,
@@ -350,7 +348,7 @@ export const Route = createFileRoute("/api/chat")({
           });
           const currentIsoInTz = now.toISOString();
 
-          // ---- Previous message timestamp for time-gap awareness ----
+          // ---- Previous message timestamp ----
           const { data: prevMsgs } = await supabase
             .from("chat_messages")
             .select("role, created_at")
@@ -362,7 +360,7 @@ export const Route = createFileRoute("/api/chat")({
             ? formatTimeGap(now.getTime() - new Date(prevMsg.created_at).getTime())
             : null;
 
-          // ---- Preset short-circuit (zero-cost greeting/quick replies) ----
+          // ---- Preset short-circuit ----
           const lastText =
             last?.role === "user"
               ? (((last.parts as any[]).find((p: any) => p?.type === "text") as any)?.text?.trim() ?? "")
@@ -434,17 +432,16 @@ export const Route = createFileRoute("/api/chat")({
           }
 
           // ============================================================
-          // TOOLS – Full object with all your original tools,
-          // including stock tools (search_stocks, get_stock_snapshot)
+          // TOOLS – Full object with all tools
           // ============================================================
           let searchCallCount = 0;
           const MAX_SEARCHES_PER_TURN = 5;
 
           const tools = {
-            // ---- Web Search (SerpAPI, capped) ----
+            // ---- Web Search (SerpAPI) ----
             web_search: tool({
               description:
-                "Search the live web for current information (news, facts, prices, anything post-knowledge-cutoff). Use sparingly — capped at 5 searches per turn. Prefer one well-formed query over many broad ones.",
+                "Search the live web for current information (news, facts, prices, anything post-knowledge-cutoff). Use sparingly — capped at 5 searches per turn.",
               inputSchema: z.object({
                 query: z.string().describe("A short, specific search query (2-6 words ideally)."),
               }),
@@ -452,7 +449,7 @@ export const Route = createFileRoute("/api/chat")({
                 if (searchCallCount >= MAX_SEARCHES_PER_TURN) {
                   return {
                     ok: false,
-                    error: `Search limit reached (${MAX_SEARCHES_PER_TURN} per turn). Answer with what you already have.`,
+                    error: `Search limit reached (${MAX_SEARCHES_PER_TURN} per turn).`,
                   };
                 }
                 searchCallCount++;
@@ -480,7 +477,103 @@ export const Route = createFileRoute("/api/chat")({
                 }
               },
             }),
-            // ---- Reminders ----
+
+            // ---- TTS (Google Cloud or fallback) ----
+            speak_text: tool({
+              description:
+                "Speak text aloud. If GOOGLE_CLOUD_TTS_API_KEY is set, uses high‑quality neural TTS (free, 4M chars/month). Otherwise falls back to browser speech synthesis.",
+              inputSchema: z.object({
+                text: z.string(),
+                voice: z
+                  .enum(["en-US-Neural2-J", "en-US-Neural2-F", "en-GB-Neural2-A"])
+                  .default("en-US-Neural2-J")
+                  .optional(),
+              }),
+              execute: async ({ text, voice }) => {
+                const gcpKey = process.env.GOOGLE_CLOUD_TTS_API_KEY;
+                if (gcpKey) {
+                  try {
+                    const response = await fetch(
+                      `https://texttospeech.googleapis.com/v1/text:synthesize?key=${gcpKey}`,
+                      {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          input: { text },
+                          voice: {
+                            languageCode: voice?.split("-").slice(0, 2).join("-") || "en-US",
+                            name: voice || "en-US-Neural2-J",
+                          },
+                          audioConfig: { audioEncoding: "MP3" },
+                        }),
+                      },
+                    );
+                    if (!response.ok) {
+                      const err = await response.text();
+                      return { ok: false, error: `Google TTS error: ${response.status} - ${err}` };
+                    }
+                    const data = await response.json();
+                    return {
+                      ok: true,
+                      client_action: {
+                        type: "play_audio",
+                        audioBase64: data.audioContent,
+                        format: "mp3",
+                      },
+                    };
+                  } catch (e: any) {
+                    // fallback to browser TTS
+                    return {
+                      ok: true,
+                      client_action: { type: "speak", text },
+                    };
+                  }
+                } else {
+                  // No GCP key – use browser TTS
+                  return {
+                    ok: true,
+                    client_action: { type: "speak", text },
+                  };
+                }
+              },
+            }),
+
+            // ---- STT (Groq Whisper – free) ----
+            transcribe_audio: tool({
+              description: "Transcribe speech audio to text using Groq's free Whisper API.",
+              inputSchema: z.object({
+                audioBase64: z.string(),
+                format: z.enum(["webm", "mp3", "wav", "m4a"]).default("webm"),
+              }),
+              execute: async ({ audioBase64, format }) => {
+                const apiKey = process.env.GROQ_API_KEY;
+                if (!apiKey) return { ok: false, error: "GROQ_API_KEY is not set." };
+                try {
+                  const audioBuffer = Buffer.from(audioBase64, "base64");
+                  const formData = new FormData();
+                  const blob = new Blob([audioBuffer], { type: `audio/${format}` });
+                  formData.append("file", blob, `recording.${format}`);
+                  formData.append("model", "whisper-large-v3");
+                  formData.append("response_format", "json");
+
+                  const response = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
+                    method: "POST",
+                    headers: { Authorization: `Bearer ${apiKey}` },
+                    body: formData,
+                  });
+                  if (!response.ok) {
+                    const err = await response.text();
+                    return { ok: false, error: `Groq Whisper error: ${response.status} - ${err}` };
+                  }
+                  const result = await response.json();
+                  return { ok: true, text: result.text };
+                } catch (e: any) {
+                  return { ok: false, error: e.message };
+                }
+              },
+            }),
+
+            // ---- All other tools (reminders, vault, etc.) ----
             create_reminder: tool({
               description: "Create a one-off or recurring reminder.",
               inputSchema: z.object({
@@ -738,7 +831,7 @@ export const Route = createFileRoute("/api/chat")({
               },
             }),
             remember_code: tool({
-              description: "Store a code snippet with language, description, and tags for future recall.",
+              description: "Store a code snippet with language, description, and tags.",
               inputSchema: z.object({
                 code: z.string(),
                 language: z.string(),
@@ -1382,7 +1475,7 @@ export const Route = createFileRoute("/api/chat")({
               },
             }),
 
-            // ---- Stocks (imported from jarvis.functions) ----
+            // ---- Stocks ----
             search_stocks: tool({
               description: "Search for a stock symbol by company name or ticker.",
               inputSchema: z.object({ query: z.string() }),
@@ -1921,14 +2014,6 @@ export const Route = createFileRoute("/api/chat")({
               inputSchema: z.object({}),
               execute: async () => ({ ok: true, client_action: { type: "reload" } }),
             }),
-            speak_text: tool({
-              description: "Speak text aloud through the user's browser TTS.",
-              inputSchema: z.object({ text: z.string(), voice: z.string().nullable().optional() }),
-              execute: async ({ text, voice }) => ({
-                ok: true,
-                client_action: { type: "speak", text, voice: voice ?? null },
-              }),
-            }),
 
             // ---- Thread Management ----
             list_chat_threads: tool({
@@ -2009,7 +2094,7 @@ export const Route = createFileRoute("/api/chat")({
               },
             }),
 
-            // ---- Stocks Holdings (optional, you can extend) ----
+            // ---- Stock Holdings ----
             list_stock_holdings: tool({
               description: "List the user's stock holdings.",
               inputSchema: z.object({}),
@@ -2103,10 +2188,9 @@ export const Route = createFileRoute("/api/chat")({
               },
             }),
 
-            // ---- Page Customization (per-route CSS / JS / HTML overlays) ----
+            // ---- Page Customization ----
             set_page_customization: tool({
-              description:
-                "Apply a CSS / HTML / JS overlay to any page in the app so it visibly changes for the user. route_key is the top-level path segment ('dashboard', 'chat', 'analyzer', 'vault', 'settings', 'pulse', 'briefing', 'map', 'time', 'world', 'lab', 'backend', 'analyzer'), or 'tabs/<slug>' for a custom tab. Omit fields you don't want to change. CSS wins over existing app styles (use specific selectors, avoid !important unless necessary). JS runs sandboxed with locals `container` (the injected HTML div) and `route` (string); call onCleanup(fn) if you attach listeners.",
+              description: "Apply a CSS / HTML / JS overlay to any page in the app.",
               inputSchema: z.object({
                 route_key: z.string().describe("Route id like 'dashboard' or 'tabs/my-tab'."),
                 css: z.string().max(200_000).nullable().optional(),
@@ -2175,10 +2259,9 @@ export const Route = createFileRoute("/api/chat")({
               },
             }),
 
-            // ---- Preset (greeting / quick-reply) management ----
+            // ---- Preset management ----
             add_preset_response: tool({
-              description:
-                "Save a quick-reply preset. When the user types the trigger (exact match after lowercasing / punctuation strip), JARVIS replies with the stored response instantly, with NO model call. Use placeholders {addressAs}, {time}, {date}, {day}. Example: trigger='hey j', response='At your service, {addressAs}.'",
+              description: "Save a quick-reply preset.",
               inputSchema: z.object({
                 trigger: z.string().min(1).max(60),
                 response: z.string().min(1).max(500),
@@ -2227,8 +2310,8 @@ export const Route = createFileRoute("/api/chat")({
           };
 
           // ============================================================
-
-          // ---- System Prompt ----
+          // System Prompt (unchanged, includes web_search mention)
+          // ============================================================
           const baseSystemPrompt = getSystemPrompt(mode, addressAs, factsBlock, submode);
           const systemPrompt = `${baseSystemPrompt}
 
@@ -2252,7 +2335,7 @@ PAGE CUSTOMIZATION — you can restyle or add features to any page in the app on
 - Route keys are the first path segment: /dashboard → "dashboard", /tabs/foo → "tabs/foo", /chat/xyz → "chat". The home is "index".
 After applying, briefly tell the user what changed and the route it's on.
 
-QUICK REPLIES / PRESETS — trivial greetings like "hi", "hey jarvis", "thanks", "gn" are answered by the preset system BEFORE you're invoked (zero cost). You do NOT need to handle those. But when the user says "remember to always reply X when I say Y", "add a preset", or "make it so 'trigger' always says 'response'", call add_preset_response. Use list_preset_responses / remove_preset_response to manage them.
+QUICK REPLIES / PRESETS — trivial greetings like "hi", "hey jarvis", "thanks", "gn" are answered by the preset system BEFORE you're invoked (zero cost). You do NOT need to handle those. But when the user says "remember to always reply X when I say Y", "add a preset", or "make it so 'trigger' always says 'response'", call add_preset_response. Use list_preset_responses / remove_preset_responses to manage them.
 
 DESIGN LANGUAGE for custom tabs — make them BUBBLY, playful, and delightful, not flat corporate boxes:
 - Rounded everything: 16–24px radii on cards, 999px on pills/buttons.
