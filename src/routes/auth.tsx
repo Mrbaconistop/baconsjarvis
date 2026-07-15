@@ -30,6 +30,12 @@ export const Route = createFileRoute("/auth")({
 
 function AuthPage() {
   const navigate = useNavigate();
+  const search = Route.useSearch();
+  const nextDest = search.next && search.next.startsWith("/") && !search.next.startsWith("//") ? search.next : null;
+  const goPostAuth = () => {
+    if (nextDest) window.location.href = nextDest;
+    else navigate({ to: "/dashboard" });
+  };
   const [mode, setMode] = useState<"sign_in" | "sign_up">("sign_in");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -44,16 +50,16 @@ function AuthPage() {
         const { error } = await supabase.auth.signUp({
           email: lowerEmail,
           password,
-          options: { emailRedirectTo: window.location.origin + "/dashboard" },
+          options: { emailRedirectTo: window.location.origin + (nextDest ?? "/dashboard") },
         });
         if (error) throw error;
         toast.success("Welcome aboard, Sir.");
-        navigate({ to: "/dashboard" });
+        goPostAuth();
       } else {
         const { error } = await supabase.auth.signInWithPassword({ email: lowerEmail, password });
         if (error) throw error;
         toast.success("Welcome back, Sir.");
-        navigate({ to: "/dashboard" });
+        goPostAuth();
       }
     } catch (err: any) {
       toast.error(err.message ?? "Authentication failed");
@@ -61,6 +67,7 @@ function AuthPage() {
       setLoading(false);
     }
   }
+
 
   async function handleForgotPassword() {
     const emailInput = window.prompt("Enter your email address to reset your password:");
