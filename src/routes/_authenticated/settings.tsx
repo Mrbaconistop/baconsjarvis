@@ -47,7 +47,7 @@ function SettingsPage() {
   });
 
   const [connecting, setConnecting] = useState(false);
-  const [provider, setProvider] = useState
+  const [provider, setProvider] = useState<
     "groq" | "deepseek" | "system" | "lmstudio" | "gemini" | "openrouter" | "mistral" | "claude" | "perplexity"
   >("system");
   const [apiKey, setApiKey] = useState("");
@@ -272,7 +272,7 @@ function SettingsPage() {
                   {provider === "gemini" && (
                     <span className="block mt-1 text-arc/70">
                       💡 Get your free API key from{" "}
-                      
+                      <a
                         href="https://aistudio.google.com/app/apikey"
                         target="_blank"
                         rel="noopener noreferrer"
@@ -286,7 +286,7 @@ function SettingsPage() {
                   {provider === "openrouter" && (
                     <span className="block mt-1 text-arc/70">
                       💡 Get a key at{" "}
-                      
+                      <a
                         href="https://openrouter.ai/keys"
                         target="_blank"
                         rel="noopener noreferrer"
@@ -301,7 +301,7 @@ function SettingsPage() {
                   {provider === "mistral" && (
                     <span className="block mt-1 text-arc/70">
                       💡 Get a key at{" "}
-                      
+                      <a
                         href="https://console.mistral.ai/api-keys"
                         target="_blank"
                         rel="noopener noreferrer"
@@ -316,7 +316,7 @@ function SettingsPage() {
                   {provider === "claude" && (
                     <span className="block mt-1 text-arc/70">
                       💡 Get a key at{" "}
-                      
+                      <a
                         href="https://console.anthropic.com/settings/keys"
                         target="_blank"
                         rel="noopener noreferrer"
@@ -331,7 +331,7 @@ function SettingsPage() {
                   {provider === "perplexity" && (
                     <span className="block mt-1 text-arc/70">
                       💡 Get a key at{" "}
-                      
+                      <a
                         href="https://www.perplexity.ai/settings/api"
                         target="_blank"
                         rel="noopener noreferrer"
