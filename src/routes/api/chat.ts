@@ -478,58 +478,49 @@ export const Route = createFileRoute("/api/chat")({
               },
             }),
 
-            // ---- TTS (Google Cloud or fallback) ----
+            // ---- TTS (Free Edge TTS proxy – no key required) ----
             speak_text: tool({
-              description:
-                "Speak text aloud. If GOOGLE_CLOUD_TTS_API_KEY is set, uses high‑quality neural TTS (free, 4M chars/month). Otherwise falls back to browser speech synthesis.",
+              description: "Speak text aloud using free Edge TTS (no API key required).",
               inputSchema: z.object({
                 text: z.string(),
                 voice: z
-                  .enum(["en-US-Neural2-J", "en-US-Neural2-F", "en-GB-Neural2-A"])
-                  .default("en-US-Neural2-J")
+                  .enum([
+                    "en-US-AriaNeural",
+                    "en-US-JennyNeural",
+                    "en-US-GuyNeural",
+                    "en-GB-SoniaNeural",
+                    "en-GB-RyanNeural",
+                    "en-AU-NatashaNeural",
+                    "en-IN-NeerjaNeural",
+                  ])
+                  .default("en-US-AriaNeural")
                   .optional(),
               }),
               execute: async ({ text, voice }) => {
-                const gcpKey = process.env.GOOGLE_CLOUD_TTS_API_KEY;
-                if (gcpKey) {
-                  try {
-                    const response = await fetch(
-                      `https://texttospeech.googleapis.com/v1/text:synthesize?key=${gcpKey}`,
-                      {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({
-                          input: { text },
-                          voice: {
-                            languageCode: voice?.split("-").slice(0, 2).join("-") || "en-US",
-                            name: voice || "en-US-Neural2-J",
-                          },
-                          audioConfig: { audioEncoding: "MP3" },
-                        }),
-                      },
-                    );
-                    if (!response.ok) {
-                      const err = await response.text();
-                      return { ok: false, error: `Google TTS error: ${response.status} - ${err}` };
-                    }
-                    const data = await response.json();
-                    return {
-                      ok: true,
-                      client_action: {
-                        type: "play_audio",
-                        audioBase64: data.audioContent,
-                        format: "mp3",
-                      },
-                    };
-                  } catch (e: any) {
-                    // fallback to browser TTS
-                    return {
-                      ok: true,
-                      client_action: { type: "speak", text },
-                    };
+                try {
+                  const response = await fetch("https://api.tts.quest/v1/tts", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      voice: voice || "en-US-AriaNeural",
+                      text: text,
+                    }),
+                  });
+                  if (!response.ok) {
+                    const err = await response.text();
+                    return { ok: false, error: `TTS error: ${response.status} - ${err}` };
                   }
-                } else {
-                  // No GCP key – use browser TTS
+                  const data = await response.json();
+                  return {
+                    ok: true,
+                    client_action: {
+                      type: "play_audio",
+                      audioBase64: data.mp3,
+                      format: "mp3",
+                    },
+                  };
+                } catch (e: any) {
+                  // Fallback to browser TTS if the proxy fails
                   return {
                     ok: true,
                     client_action: { type: "speak", text },
