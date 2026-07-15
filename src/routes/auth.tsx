@@ -6,17 +6,27 @@ import { toast } from "sonner";
 import { ParticleField } from "@/components/jarvis/ParticleField";
 import { JarvisOrb } from "@/components/jarvis/JarvisOrb";
 
+function safeNext(v: unknown): string | null {
+  return typeof v === "string" && v.startsWith("/") && !v.startsWith("//") ? v : null;
+}
+
 export const Route = createFileRoute("/auth")({
   ssr: false,
-  beforeLoad: async () => {
+  validateSearch: (s: Record<string, unknown>) => ({ next: safeNext(s.next) ?? undefined }),
+  beforeLoad: async ({ search }) => {
     const { data } = await supabase.auth.getSession();
-    if (data.session) throw redirect({ to: "/dashboard" });
+    if (data.session) {
+      const dest = safeNext(search.next);
+      if (dest) throw redirect({ href: dest });
+      throw redirect({ to: "/dashboard" });
+    }
   },
   head: () => ({
     meta: [{ title: "Sign in — JARVIS" }, { name: "description", content: "Access your JARVIS command center." }],
   }),
   component: AuthPage,
 });
+
 
 function AuthPage() {
   const navigate = useNavigate();
