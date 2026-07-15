@@ -58,7 +58,9 @@ export function ChatWindow({
 }) {
   const qc = useQueryClient();
   const [input, setInput] = useState("");
-  const [attachments, setAttachments] = useState<{ id: string; name: string; size: number; content: string; kind: "text" | "binary" }[]>([]);
+  const [attachments, setAttachments] = useState<
+    { id: string; name: string; size: number; content: string; kind: "text" | "binary" }[]
+  >([]);
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [micPermission, setMicPermission] = useState<PermissionState | "unknown" | "unsupported">("unknown");
@@ -192,8 +194,7 @@ export function ChatWindow({
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const SR: any =
-      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    const SR: any = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SR) {
       setMicPermission("unsupported");
       return;
@@ -221,8 +222,7 @@ export function ChatWindow({
 
   function startRecording() {
     if (isRecording || isTranscribing || isSpeaking) return;
-    const SR: any =
-      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    const SR: any = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SR) {
       toast.error("Voice input isn't supported in this browser.", {
         description: "Chrome, Edge, or Safari support the Web Speech API.",
@@ -306,8 +306,6 @@ export function ChatWindow({
     else startRecording();
   }
 
-
-
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -330,11 +328,24 @@ export function ChatWindow({
     for (const m of messages) {
       for (let i = 0; i < m.parts.length; i++) {
         const p: any = m.parts[i];
+        const key = `${m.id}:${i}`;
+        if (dispatchedRef.current.has(key)) continue;
         if (typeof p?.type === "string" && p.type.startsWith("tool-") && p.output?.client_action) {
-          const key = `${m.id}:${i}`;
-          if (!dispatchedRef.current.has(key)) {
-            dispatchedRef.current.add(key);
-            applyClientAction(p.output.client_action);
+          dispatchedRef.current.add(key);
+          const action = p.output.client_action;
+
+          // Existing map actions
+          applyClientAction(action);
+
+          // NEW: handle play_audio (free TTS from Edge proxy)
+          if (action.type === "play_audio") {
+            try {
+              const audioSrc = `data:audio/${action.format || "mp3"};base64,${action.audioBase64}`;
+              const audio = new Audio(audioSrc);
+              audio.play().catch((err) => console.error("play_audio error", err));
+            } catch (err) {
+              console.error("play_audio error", err);
+            }
           }
         }
       }
@@ -382,7 +393,8 @@ export function ChatWindow({
     await sendMessage({ text: fullText });
   }
 
-  const TEXT_EXT = /\.(txt|md|markdown|lua|js|jsx|ts|tsx|py|rb|go|rs|java|c|h|cpp|hpp|cs|php|sh|bash|zsh|yml|yaml|toml|ini|conf|json|xml|html|htm|css|scss|sass|sql|env|log|csv|tsv|swift|kt|dart|vue|svelte|astro|graphql|proto|dockerfile|makefile)$/i;
+  const TEXT_EXT =
+    /\.(txt|md|markdown|lua|js|jsx|ts|tsx|py|rb|go|rs|java|c|h|cpp|hpp|cs|php|sh|bash|zsh|yml|yaml|toml|ini|conf|json|xml|html|htm|css|scss|sass|sql|env|log|csv|tsv|swift|kt|dart|vue|svelte|astro|graphql|proto|dockerfile|makefile)$/i;
 
   async function handleFiles(files: FileList | null) {
     if (!files || files.length === 0) return;
@@ -456,9 +468,14 @@ export function ChatWindow({
         {attachments.length > 0 && (
           <div className="max-w-4xl mx-auto mb-2 flex flex-wrap gap-2">
             {attachments.map((a) => (
-              <div key={a.id} className="group flex items-center gap-2 pl-2 pr-1 py-1 rounded-md bg-arc/10 border border-arc/25 text-xs">
+              <div
+                key={a.id}
+                className="group flex items-center gap-2 pl-2 pr-1 py-1 rounded-md bg-arc/10 border border-arc/25 text-xs"
+              >
                 <FileText size={12} className="text-arc" />
-                <span className="font-mono truncate max-w-[180px]" title={a.name}>{a.name}</span>
+                <span className="font-mono truncate max-w-[180px]" title={a.name}>
+                  {a.name}
+                </span>
                 <span className="text-hud-dim text-[10px]">{(a.size / 1024).toFixed(1)}kb</span>
                 <button
                   onClick={() => removeAttachment(a.id)}
@@ -471,13 +488,7 @@ export function ChatWindow({
             ))}
           </div>
         )}
-        <input
-          ref={fileRef}
-          type="file"
-          multiple
-          className="hidden"
-          onChange={(e) => handleFiles(e.target.files)}
-        />
+        <input ref={fileRef} type="file" multiple className="hidden" onChange={(e) => handleFiles(e.target.files)} />
         <div className="flex items-end gap-2 max-w-4xl mx-auto">
           {/* Attach files */}
           <button
@@ -523,7 +534,7 @@ export function ChatWindow({
                     ? "JARVIS is speaking"
                     : micPermission === "denied"
                       ? "Microphone blocked in site settings"
-                    : "Speak your message"
+                      : "Speak your message"
             }
           >
             {isRecording ? <MicOff size={16} /> : <Mic size={16} />}
