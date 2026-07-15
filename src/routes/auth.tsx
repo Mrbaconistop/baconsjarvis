@@ -6,11 +6,20 @@ import { toast } from "sonner";
 import { ParticleField } from "@/components/jarvis/ParticleField";
 import { JarvisOrb } from "@/components/jarvis/JarvisOrb";
 
+function safeNext(v: unknown): string | null {
+  return typeof v === "string" && v.startsWith("/") && !v.startsWith("//") ? v : null;
+}
+
 export const Route = createFileRoute("/auth")({
   ssr: false,
-  beforeLoad: async () => {
+  validateSearch: (s: Record<string, unknown>) => ({ next: safeNext(s.next) ?? undefined }),
+  beforeLoad: async ({ search }) => {
     const { data } = await supabase.auth.getSession();
-    if (data.session) throw redirect({ to: "/dashboard" });
+    if (data.session) {
+      const dest = safeNext(search.next);
+      if (dest) throw redirect({ href: dest });
+      throw redirect({ to: "/dashboard" });
+    }
   },
   head: () => ({
     meta: [{ title: "Sign in — JARVIS" }, { name: "description", content: "Access your JARVIS command center." }],
@@ -18,8 +27,15 @@ export const Route = createFileRoute("/auth")({
   component: AuthPage,
 });
 
+
 function AuthPage() {
   const navigate = useNavigate();
+  const search = Route.useSearch();
+  const nextDest = search.next && search.next.startsWith("/") && !search.next.startsWith("//") ? search.next : null;
+  const goPostAuth = () => {
+    if (nextDest) window.location.href = nextDest;
+    else navigate({ to: "/dashboard" });
+  };
   const [mode, setMode] = useState<"sign_in" | "sign_up">("sign_in");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -34,16 +50,16 @@ function AuthPage() {
         const { error } = await supabase.auth.signUp({
           email: lowerEmail,
           password,
-          options: { emailRedirectTo: window.location.origin + "/dashboard" },
+          options: { emailRedirectTo: window.location.origin + (nextDest ?? "/dashboard") },
         });
         if (error) throw error;
         toast.success("Welcome aboard, Sir.");
-        navigate({ to: "/dashboard" });
+        goPostAuth();
       } else {
         const { error } = await supabase.auth.signInWithPassword({ email: lowerEmail, password });
         if (error) throw error;
         toast.success("Welcome back, Sir.");
-        navigate({ to: "/dashboard" });
+        goPostAuth();
       }
     } catch (err: any) {
       toast.error(err.message ?? "Authentication failed");
@@ -51,6 +67,7 @@ function AuthPage() {
       setLoading(false);
     }
   }
+
 
   async function handleForgotPassword() {
     const emailInput = window.prompt("Enter your email address to reset your password:");
@@ -116,16 +133,17 @@ function AuthPage() {
             setLoading(true);
             try {
               const result = await lovable.auth.signInWithOAuth("google", {
-                redirect_uri: window.location.origin + "/dashboard",
+                redirect_uri: window.location.origin + (nextDest ?? "/dashboard"),
               });
               if (result.error) throw new Error(result.error.message ?? "Google sign-in failed");
               if (result.redirected) return;
-              navigate({ to: "/dashboard" });
+              goPostAuth();
             } catch (err: any) {
               toast.error(err.message ?? "Google sign-in failed");
               setLoading(false);
             }
           }}
+
           className="w-full flex items-center justify-center gap-2 rounded-md bg-background/60 border border-arc/30 py-2.5 text-sm hover:border-arc transition disabled:opacity-50"
         >
           <GoogleMark /> Continue with Google
