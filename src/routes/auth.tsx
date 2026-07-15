@@ -133,16 +133,17 @@ function AuthPage() {
             setLoading(true);
             try {
               const result = await lovable.auth.signInWithOAuth("google", {
-                redirect_uri: window.location.origin + "/dashboard",
+                redirect_uri: window.location.origin + (nextDest ?? "/dashboard"),
               });
               if (result.error) throw new Error(result.error.message ?? "Google sign-in failed");
               if (result.redirected) return;
-              navigate({ to: "/dashboard" });
+              goPostAuth();
             } catch (err: any) {
               toast.error(err.message ?? "Google sign-in failed");
               setLoading(false);
             }
           }}
+
           className="w-full flex items-center justify-center gap-2 rounded-md bg-background/60 border border-arc/30 py-2.5 text-sm hover:border-arc transition disabled:opacity-50"
         >
           <GoogleMark /> Continue with Google
