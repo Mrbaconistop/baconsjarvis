@@ -202,6 +202,9 @@ export function ChatWindow({
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<BlobPart[]>([]);
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const vadRafRef = useRef<number | null>(null);
+  const hasSpokeRef = useRef(false);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
