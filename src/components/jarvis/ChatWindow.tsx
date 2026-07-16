@@ -109,8 +109,14 @@ export function ChatWindow({
           voices.find((v) => /^en/i.test(v.lang));
         if (pick) u.voice = pick;
         u.onstart = () => setIsSpeaking(true);
-        u.onend = () => setIsSpeaking(false);
-        u.onerror = () => setIsSpeaking(false);
+        u.onend = () => {
+          setIsSpeaking(false);
+          if (liveModeRef.current) setTimeout(() => startRecRef.current?.(), 250);
+        };
+        u.onerror = () => {
+          setIsSpeaking(false);
+          if (liveModeRef.current) setTimeout(() => startRecRef.current?.(), 250);
+        };
         synth.speak(u);
       } catch (err) {
         console.error("[TTS] error", err);
