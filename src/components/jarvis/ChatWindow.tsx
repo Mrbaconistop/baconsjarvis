@@ -169,6 +169,19 @@ export function ChatWindow({
     },
   });
 
+  // ---- Live mode: re-arm mic after assistant reply when TTS is off ----
+  useEffect(() => {
+    if (!liveMode) return;
+    if (status !== "ready") return;
+    if (ttsEnabled) return; // TTS onend handles it in that case
+    if (isRecording || isTranscribing || isSpeaking) return;
+    const last = messages[messages.length - 1];
+    if (last?.role !== "assistant") return;
+    const t = setTimeout(() => startRecRef.current?.(), 300);
+    return () => clearTimeout(t);
+  }, [liveMode, status, ttsEnabled, isRecording, isTranscribing, isSpeaking, messages]);
+
+
   // ---- Auto‑speak assistant messages ----
   useEffect(() => {
     const last = messages[messages.length - 1];
