@@ -120,14 +120,12 @@ export function ChatWindow({
       const next = !prev;
       if (typeof window !== "undefined") {
         localStorage.setItem("jarvis-tts-enabled", String(next));
-        if (!next && audioRef.current) {
-          audioRef.current.pause();
-          audioRef.current.src = "";
-        }
+        if (!next && window.speechSynthesis) window.speechSynthesis.cancel();
       }
       return next;
     });
   }, []);
+
 
   // ---- Transport ----
   const transport = useMemo(
