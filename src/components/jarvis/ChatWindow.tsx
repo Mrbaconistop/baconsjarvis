@@ -285,10 +285,16 @@ export function ChatWindow({
       recorder.onstop = async () => {
         const type = recorder.mimeType || mime || "audio/webm";
         const blob = new Blob(chunksRef.current, { type });
+        const spoke = hasSpokeRef.current;
         chunksRef.current = [];
         cleanupStream();
-        if (blob.size < 1024) {
-          toast.error("Recording too short.");
+        if (blob.size < 1024 || !spoke) {
+          // In live mode, just re-arm the mic silently instead of nagging
+          if (liveModeRef.current) {
+            setTimeout(() => startRecRef.current?.(), 250);
+          } else {
+            toast.error("Didn't catch anything, Sir.");
+          }
           return;
         }
         setIsTranscribing(true);
