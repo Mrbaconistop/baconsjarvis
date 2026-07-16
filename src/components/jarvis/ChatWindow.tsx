@@ -81,41 +81,39 @@ export function ChatWindow({
     if (saved !== null) setTtsEnabled(saved === "true");
   }, []);
 
-  const speakWithElevenLabs = useCallback(
-    async (text: string) => {
+  // Simple, reliable browser TTS via SpeechSynthesis (no server, no credits, no CORS).
+  const speak = useCallback(
+    (text: string) => {
       if (typeof window === "undefined") return;
       if (!ttsEnabled || !text?.trim() || isRecording || isTranscribing) return;
+      const synth = window.speechSynthesis;
+      if (!synth) return;
       try {
-        setIsSpeaking(true);
-        // Use Lovable's ElevenLabs proxy (assumes you have the connector linked)
-        const response = await fetch("/api/elevenlabs/text-to-speech", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            text: text,
-            voice_id: "pNInz6obpgDQGcFmaJgB", // Adam – change if you prefer
-            model_id: "eleven_monolingual_v1",
-            voice_settings: { stability: 0.5, similarity_boost: 0.5 },
-          }),
-        });
-        if (!response.ok) throw new Error("ElevenLabs API error");
-        const audioBlob = await response.blob();
-        const url = URL.createObjectURL(audioBlob);
-        if (audioRef.current) {
-          audioRef.current.src = url;
-          await audioRef.current.play();
-          audioRef.current.onended = () => {
-            setIsSpeaking(false);
-            URL.revokeObjectURL(url);
-          };
-        }
+        synth.cancel(); // stop anything in-flight
+        const u = new SpeechSynthesisUtterance(text);
+        u.lang = "en-US";
+        u.rate = 1.0;
+        u.pitch = 1.0;
+        u.volume = 1.0;
+        // Prefer a natural English voice when available
+        const voices = synth.getVoices();
+        const pick =
+          voices.find((v) => /en(-|_)?US/i.test(v.lang) && /Google|Natural|Samantha|Daniel/i.test(v.name)) ||
+          voices.find((v) => /^en/i.test(v.lang));
+        if (pick) u.voice = pick;
+        u.onstart = () => setIsSpeaking(true);
+        u.onend = () => setIsSpeaking(false);
+        u.onerror = () => setIsSpeaking(false);
+        synth.speak(u);
       } catch (err) {
-        console.error("[ElevenLabs TTS] error", err);
+        console.error("[TTS] error", err);
         setIsSpeaking(false);
       }
     },
     [ttsEnabled, isRecording, isTranscribing],
   );
+  const speakWithElevenLabs = speak; // back-compat alias for existing call sites
+
 
   const toggleTts = useCallback(() => {
     setTtsEnabled((prev) => {
