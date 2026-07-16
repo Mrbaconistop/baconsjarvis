@@ -325,7 +325,55 @@ export function ChatWindow({
       recorder.start();
       mediaRecorderRef.current = recorder;
       setIsRecording(true);
-      toast.info("Listening, Sir…");
+      toast.info(liveModeRef.current ? "Live mode: listening…" : "Listening, Sir…");
+
+      // ---- Voice activity detection: auto-stop after 3s of silence once speech was heard ----
+      try {
+        const AC: any = (window as any).AudioContext || (window as any).webkitAudioContext;
+        if (AC) {
+          const ctx: AudioContext = new AC();
+          audioCtxRef.current = ctx;
+          const src = ctx.createMediaStreamSource(stream);
+          const analyser = ctx.createAnalyser();
+          analyser.fftSize = 1024;
+          src.connect(analyser);
+          const buf = new Uint8Array(analyser.fftSize);
+          hasSpokeRef.current = false;
+          let lastVoice = performance.now();
+          const started = performance.now();
+          const SILENCE_MS = 3000;
+          const THRESHOLD = 0.025;
+          const tick = () => {
+            if (!mediaRecorderRef.current) return;
+            analyser.getByteTimeDomainData(buf);
+            let sum = 0;
+            for (let i = 0; i < buf.length; i++) {
+              const v = (buf[i] - 128) / 128;
+              sum += v * v;
+            }
+            const rms = Math.sqrt(sum / buf.length);
+            const now = performance.now();
+            if (rms > THRESHOLD) {
+              lastVoice = now;
+              hasSpokeRef.current = true;
+            }
+            // Auto-stop: 3s of silence after real speech
+            if (hasSpokeRef.current && now - lastVoice > SILENCE_MS) {
+              stopRecording();
+              return;
+            }
+            // Safety cap: 60s hard limit even without speech in live mode
+            if (liveModeRef.current && !hasSpokeRef.current && now - started > 30000) {
+              stopRecording();
+              return;
+            }
+            vadRafRef.current = requestAnimationFrame(tick);
+          };
+          vadRafRef.current = requestAnimationFrame(tick);
+        }
+      } catch (e) {
+        console.warn("[vad] setup failed", e);
+      }
     } catch (err: any) {
       console.error("[mic] getUserMedia error", err);
       if (err?.name === "NotAllowedError" || err?.name === "SecurityError") {
