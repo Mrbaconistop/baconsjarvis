@@ -81,55 +81,51 @@ export function ChatWindow({
     if (saved !== null) setTtsEnabled(saved === "true");
   }, []);
 
-  const speakWithElevenLabs = useCallback(
-    async (text: string) => {
+  // Simple, reliable browser TTS via SpeechSynthesis (no server, no credits, no CORS).
+  const speak = useCallback(
+    (text: string) => {
       if (typeof window === "undefined") return;
       if (!ttsEnabled || !text?.trim() || isRecording || isTranscribing) return;
+      const synth = window.speechSynthesis;
+      if (!synth) return;
       try {
-        setIsSpeaking(true);
-        // Use Lovable's ElevenLabs proxy (assumes you have the connector linked)
-        const response = await fetch("/api/elevenlabs/text-to-speech", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            text: text,
-            voice_id: "pNInz6obpgDQGcFmaJgB", // Adam – change if you prefer
-            model_id: "eleven_monolingual_v1",
-            voice_settings: { stability: 0.5, similarity_boost: 0.5 },
-          }),
-        });
-        if (!response.ok) throw new Error("ElevenLabs API error");
-        const audioBlob = await response.blob();
-        const url = URL.createObjectURL(audioBlob);
-        if (audioRef.current) {
-          audioRef.current.src = url;
-          await audioRef.current.play();
-          audioRef.current.onended = () => {
-            setIsSpeaking(false);
-            URL.revokeObjectURL(url);
-          };
-        }
+        synth.cancel(); // stop anything in-flight
+        const u = new SpeechSynthesisUtterance(text);
+        u.lang = "en-US";
+        u.rate = 1.0;
+        u.pitch = 1.0;
+        u.volume = 1.0;
+        // Prefer a natural English voice when available
+        const voices = synth.getVoices();
+        const pick =
+          voices.find((v) => /en(-|_)?US/i.test(v.lang) && /Google|Natural|Samantha|Daniel/i.test(v.name)) ||
+          voices.find((v) => /^en/i.test(v.lang));
+        if (pick) u.voice = pick;
+        u.onstart = () => setIsSpeaking(true);
+        u.onend = () => setIsSpeaking(false);
+        u.onerror = () => setIsSpeaking(false);
+        synth.speak(u);
       } catch (err) {
-        console.error("[ElevenLabs TTS] error", err);
+        console.error("[TTS] error", err);
         setIsSpeaking(false);
       }
     },
     [ttsEnabled, isRecording, isTranscribing],
   );
+  const speakWithElevenLabs = speak; // back-compat alias for existing call sites
+
 
   const toggleTts = useCallback(() => {
     setTtsEnabled((prev) => {
       const next = !prev;
       if (typeof window !== "undefined") {
         localStorage.setItem("jarvis-tts-enabled", String(next));
-        if (!next && audioRef.current) {
-          audioRef.current.pause();
-          audioRef.current.src = "";
-        }
+        if (!next && window.speechSynthesis) window.speechSynthesis.cancel();
       }
       return next;
     });
   }, []);
+
 
   // ---- Transport ----
   const transport = useMemo(
@@ -189,13 +185,14 @@ export function ChatWindow({
     }
   }, [messages, speakWithElevenLabs]);
 
-  // ---- Voice input via browser Web Speech API (no server, no credits) ----
-  const recognitionRef = useRef<any>(null);
+  // ---- Voice input via MediaRecorder → Groq Whisper (/api/transcribe) ----
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const chunksRef = useRef<BlobPart[]>([]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const SR: any = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SR) {
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
       setMicPermission("unsupported");
       return;
     }
@@ -220,13 +217,25 @@ export function ChatWindow({
     };
   }, []);
 
-  function startRecording() {
+  function pickMime(): string {
+    const candidates = [
+      "audio/webm;codecs=opus",
+      "audio/webm",
+      "audio/mp4;codecs=mp4a.40.2",
+      "audio/mp4",
+      "audio/ogg;codecs=opus",
+      "audio/ogg",
+    ];
+    for (const m of candidates) {
+      if (typeof MediaRecorder !== "undefined" && (MediaRecorder as any).isTypeSupported?.(m)) return m;
+    }
+    return "";
+  }
+
+  async function startRecording() {
     if (isRecording || isTranscribing || isSpeaking) return;
-    const SR: any = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SR) {
-      toast.error("Voice input isn't supported in this browser.", {
-        description: "Chrome, Edge, or Safari support the Web Speech API.",
-      });
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+      toast.error("Voice input isn't supported in this browser.");
       return;
     }
     if (micPermission === "denied") {
@@ -237,65 +246,103 @@ export function ChatWindow({
       return;
     }
 
-    try {
-      const recognition = new SR();
-      recognition.lang = "en-US";
-      recognition.interimResults = false;
-      recognition.maxAlternatives = 1;
-      recognition.continuous = false;
+    // Stop any TTS so it doesn't bleed into the recording
+    if (window.speechSynthesis) window.speechSynthesis.cancel();
 
-      let finalText = "";
-      recognition.onresult = (event: any) => {
-        for (let i = event.resultIndex; i < event.results.length; i++) {
-          const r = event.results[i];
-          if (r.isFinal) finalText += r[0].transcript;
-        }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      });
+      mediaStreamRef.current = stream;
+      const mime = pickMime();
+      const recorder = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+      chunksRef.current = [];
+      recorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) chunksRef.current.push(e.data);
       };
-      recognition.onerror = (event: any) => {
-        console.error("[speech] error", event);
-        if (event.error === "not-allowed" || event.error === "service-not-allowed") {
-          setMicPermission("denied");
-          toast.error("Microphone permission denied.");
-        } else if (event.error === "no-speech") {
-          toast.error("Didn't catch that, Sir.");
-        } else if (event.error === "audio-capture") {
-          toast.error("No microphone found.");
-        } else {
-          toast.error(`Voice error: ${event.error}`);
-        }
+      recorder.onerror = (e: any) => {
+        console.error("[mic] recorder error", e);
+        toast.error(`Recorder error: ${e?.error?.message ?? "unknown"}`);
+        cleanupStream();
         setIsRecording(false);
       };
-      recognition.onend = async () => {
-        setIsRecording(false);
-        const text = finalText.trim();
-        if (!text) return;
+      recorder.onstop = async () => {
+        const type = recorder.mimeType || mime || "audio/webm";
+        const blob = new Blob(chunksRef.current, { type });
+        chunksRef.current = [];
+        cleanupStream();
+        if (blob.size < 1024) {
+          toast.error("Recording too short.");
+          return;
+        }
+        setIsTranscribing(true);
         try {
+          const ext =
+            type.includes("mp4") ? "mp4" :
+            type.includes("ogg") ? "ogg" :
+            type.includes("wav") ? "wav" :
+            type.includes("mpeg") ? "mp3" :
+            "webm";
+          const fd = new FormData();
+          fd.append("file", blob, `recording.${ext}`);
+          const res = await fetch("/api/transcribe", { method: "POST", body: fd });
+          const data = await res.json().catch(() => ({} as any));
+          if (!res.ok) {
+            console.error("[stt] server error", data);
+            toast.error(data?.error ?? "Transcription failed");
+            return;
+          }
+          const text: string = (data?.text ?? "").trim();
+          if (!text) {
+            toast.error("Didn't catch that, Sir.");
+            return;
+          }
           await sendMessage({ text });
           setInput("");
         } catch (err: any) {
-          console.error("[speech] send error", err);
-          toast.error(`Send failed: ${err?.message ?? err}`);
+          console.error("[stt] error", err);
+          toast.error(`Voice error: ${err?.message ?? err}`);
+        } finally {
+          setIsTranscribing(false);
         }
       };
-
-      recognition.start();
-      recognitionRef.current = recognition;
+      recorder.start();
+      mediaRecorderRef.current = recorder;
       setIsRecording(true);
       toast.info("Listening, Sir…");
     } catch (err: any) {
-      console.error("[speech] start error", err);
-      toast.error(`Mic error: ${err?.message ?? err}`);
+      console.error("[mic] getUserMedia error", err);
+      if (err?.name === "NotAllowedError" || err?.name === "SecurityError") {
+        setMicPermission("denied");
+        toast.error("Microphone permission denied.");
+      } else if (err?.name === "NotFoundError") {
+        toast.error("No microphone found.");
+      } else {
+        toast.error(`Mic error: ${err?.message ?? err}`);
+      }
+      cleanupStream();
       setIsRecording(false);
     }
   }
 
-  function stopRecording() {
-    const r = recognitionRef.current;
-    if (r) {
+  function cleanupStream() {
+    const s = mediaStreamRef.current;
+    if (s) {
       try {
-        r.stop();
+        s.getTracks().forEach((t) => t.stop());
+      } catch {}
+      mediaStreamRef.current = null;
+    }
+    mediaRecorderRef.current = null;
+  }
+
+  function stopRecording() {
+    const rec = mediaRecorderRef.current;
+    if (rec && rec.state !== "inactive") {
+      try {
+        rec.stop();
       } catch (e) {
-        console.warn("[speech] stop error", e);
+        console.warn("[mic] stop error", e);
       }
     }
     setIsRecording(false);
@@ -311,14 +358,15 @@ export function ChatWindow({
     return () => {
       if (typeof window === "undefined") return;
       try {
-        recognitionRef.current?.stop?.();
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+          mediaRecorderRef.current.stop();
+        }
       } catch {}
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current.src = "";
-      }
+      cleanupStream();
+      if (window.speechSynthesis) window.speechSynthesis.cancel();
     };
   }, []);
+
 
   // ---- Chat UI ----
   const busy = status === "submitted" || status === "streaming";
