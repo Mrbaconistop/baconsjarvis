@@ -663,6 +663,20 @@ export function ChatWindow({
             {ttsEnabled ? <Volume2 size={16} /> : <VolumeX size={16} />}
           </button>
 
+          {/* Live conversation toggle */}
+          <button
+            onClick={toggleLiveMode}
+            className={`p-3 rounded-lg border transition ${
+              liveMode
+                ? "bg-arc text-arc-foreground border-arc shadow-arc animate-pulse"
+                : "border-arc/30 hover:bg-arc/10 text-hud-dim"
+            }`}
+            aria-label="Toggle live conversation"
+            title={liveMode ? "Live conversation ON — click to stop" : "Live conversation: auto-listen & auto-send after 3s silence"}
+          >
+            <Radio size={16} />
+          </button>
+
           {/* Mic Button */}
           <button
             onClick={toggleMic}
