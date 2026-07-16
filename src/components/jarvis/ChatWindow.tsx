@@ -75,6 +75,12 @@ export function ChatWindow({
   const [ttsEnabled, setTtsEnabled] = useState(true);
   const [isSpeaking, setIsSpeaking] = useState(false);
 
+  // ---- Live conversation mode ----
+  const [liveMode, setLiveMode] = useState(false);
+  const liveModeRef = useRef(false);
+  useEffect(() => { liveModeRef.current = liveMode; }, [liveMode]);
+  const startRecRef = useRef<() => void>(() => {});
+
   // Load preference on client only
   useEffect(() => {
     if (typeof window === "undefined") return;
