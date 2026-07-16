@@ -396,6 +396,14 @@ export function ChatWindow({
   }
 
   function cleanupStream() {
+    if (vadRafRef.current != null) {
+      cancelAnimationFrame(vadRafRef.current);
+      vadRafRef.current = null;
+    }
+    if (audioCtxRef.current) {
+      try { audioCtxRef.current.close(); } catch {}
+      audioCtxRef.current = null;
+    }
     const s = mediaStreamRef.current;
     if (s) {
       try {
@@ -422,6 +430,30 @@ export function ChatWindow({
     if (isRecording) stopRecording();
     else startRecording();
   }
+
+  // Keep a ref to startRecording so TTS onend / auto-restart can call the latest version
+  useEffect(() => {
+    startRecRef.current = startRecording;
+  });
+
+  function toggleLiveMode() {
+    setLiveMode((prev) => {
+      const next = !prev;
+      liveModeRef.current = next;
+      if (next) {
+        toast.info("Live conversation ON — just speak.");
+        // Kick off immediately if we're idle
+        if (!isRecording && !isTranscribing && !isSpeaking && !busy) {
+          setTimeout(() => startRecRef.current?.(), 100);
+        }
+      } else {
+        toast.info("Live conversation OFF.");
+        if (isRecording) stopRecording();
+      }
+      return next;
+    });
+  }
+
 
   // Cleanup on unmount
   useEffect(() => {
