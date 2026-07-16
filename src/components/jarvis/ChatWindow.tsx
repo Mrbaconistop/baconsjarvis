@@ -18,6 +18,7 @@ import {
   Paperclip,
   FileText,
   X,
+  Radio,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -74,6 +75,12 @@ export function ChatWindow({
   const [ttsEnabled, setTtsEnabled] = useState(true);
   const [isSpeaking, setIsSpeaking] = useState(false);
 
+  // ---- Live conversation mode ----
+  const [liveMode, setLiveMode] = useState(false);
+  const liveModeRef = useRef(false);
+  useEffect(() => { liveModeRef.current = liveMode; }, [liveMode]);
+  const startRecRef = useRef<() => void>(() => {});
+
   // Load preference on client only
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -102,8 +109,14 @@ export function ChatWindow({
           voices.find((v) => /^en/i.test(v.lang));
         if (pick) u.voice = pick;
         u.onstart = () => setIsSpeaking(true);
-        u.onend = () => setIsSpeaking(false);
-        u.onerror = () => setIsSpeaking(false);
+        u.onend = () => {
+          setIsSpeaking(false);
+          if (liveModeRef.current) setTimeout(() => startRecRef.current?.(), 250);
+        };
+        u.onerror = () => {
+          setIsSpeaking(false);
+          if (liveModeRef.current) setTimeout(() => startRecRef.current?.(), 250);
+        };
         synth.speak(u);
       } catch (err) {
         console.error("[TTS] error", err);
@@ -156,6 +169,19 @@ export function ChatWindow({
     },
   });
 
+  // ---- Live mode: re-arm mic after assistant reply when TTS is off ----
+  useEffect(() => {
+    if (!liveMode) return;
+    if (status !== "ready") return;
+    if (ttsEnabled) return; // TTS onend handles it in that case
+    if (isRecording || isTranscribing || isSpeaking) return;
+    const last = messages[messages.length - 1];
+    if (last?.role !== "assistant") return;
+    const t = setTimeout(() => startRecRef.current?.(), 300);
+    return () => clearTimeout(t);
+  }, [liveMode, status, ttsEnabled, isRecording, isTranscribing, isSpeaking, messages]);
+
+
   // ---- Auto‑speak assistant messages ----
   useEffect(() => {
     const last = messages[messages.length - 1];
@@ -189,6 +215,9 @@ export function ChatWindow({
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<BlobPart[]>([]);
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const vadRafRef = useRef<number | null>(null);
+  const hasSpokeRef = useRef(false);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -269,10 +298,16 @@ export function ChatWindow({
       recorder.onstop = async () => {
         const type = recorder.mimeType || mime || "audio/webm";
         const blob = new Blob(chunksRef.current, { type });
+        const spoke = hasSpokeRef.current;
         chunksRef.current = [];
         cleanupStream();
-        if (blob.size < 1024) {
-          toast.error("Recording too short.");
+        if (blob.size < 1024 || !spoke) {
+          // In live mode, just re-arm the mic silently instead of nagging
+          if (liveModeRef.current) {
+            setTimeout(() => startRecRef.current?.(), 250);
+          } else {
+            toast.error("Didn't catch anything, Sir.");
+          }
           return;
         }
         setIsTranscribing(true);
@@ -309,7 +344,55 @@ export function ChatWindow({
       recorder.start();
       mediaRecorderRef.current = recorder;
       setIsRecording(true);
-      toast.info("Listening, Sir…");
+      toast.info(liveModeRef.current ? "Live mode: listening…" : "Listening, Sir…");
+
+      // ---- Voice activity detection: auto-stop after 3s of silence once speech was heard ----
+      try {
+        const AC: any = (window as any).AudioContext || (window as any).webkitAudioContext;
+        if (AC) {
+          const ctx: AudioContext = new AC();
+          audioCtxRef.current = ctx;
+          const src = ctx.createMediaStreamSource(stream);
+          const analyser = ctx.createAnalyser();
+          analyser.fftSize = 1024;
+          src.connect(analyser);
+          const buf = new Uint8Array(analyser.fftSize);
+          hasSpokeRef.current = false;
+          let lastVoice = performance.now();
+          const started = performance.now();
+          const SILENCE_MS = 3000;
+          const THRESHOLD = 0.025;
+          const tick = () => {
+            if (!mediaRecorderRef.current) return;
+            analyser.getByteTimeDomainData(buf);
+            let sum = 0;
+            for (let i = 0; i < buf.length; i++) {
+              const v = (buf[i] - 128) / 128;
+              sum += v * v;
+            }
+            const rms = Math.sqrt(sum / buf.length);
+            const now = performance.now();
+            if (rms > THRESHOLD) {
+              lastVoice = now;
+              hasSpokeRef.current = true;
+            }
+            // Auto-stop: 3s of silence after real speech
+            if (hasSpokeRef.current && now - lastVoice > SILENCE_MS) {
+              stopRecording();
+              return;
+            }
+            // Safety cap: 60s hard limit even without speech in live mode
+            if (liveModeRef.current && !hasSpokeRef.current && now - started > 30000) {
+              stopRecording();
+              return;
+            }
+            vadRafRef.current = requestAnimationFrame(tick);
+          };
+          vadRafRef.current = requestAnimationFrame(tick);
+        }
+      } catch (e) {
+        console.warn("[vad] setup failed", e);
+      }
     } catch (err: any) {
       console.error("[mic] getUserMedia error", err);
       if (err?.name === "NotAllowedError" || err?.name === "SecurityError") {
@@ -326,6 +409,14 @@ export function ChatWindow({
   }
 
   function cleanupStream() {
+    if (vadRafRef.current != null) {
+      cancelAnimationFrame(vadRafRef.current);
+      vadRafRef.current = null;
+    }
+    if (audioCtxRef.current) {
+      try { audioCtxRef.current.close(); } catch {}
+      audioCtxRef.current = null;
+    }
     const s = mediaStreamRef.current;
     if (s) {
       try {
@@ -352,6 +443,30 @@ export function ChatWindow({
     if (isRecording) stopRecording();
     else startRecording();
   }
+
+  // Keep a ref to startRecording so TTS onend / auto-restart can call the latest version
+  useEffect(() => {
+    startRecRef.current = startRecording;
+  });
+
+  function toggleLiveMode() {
+    setLiveMode((prev) => {
+      const next = !prev;
+      liveModeRef.current = next;
+      if (next) {
+        toast.info("Live conversation ON — just speak.");
+        // Kick off immediately if we're idle
+        if (!isRecording && !isTranscribing && !isSpeaking && !busy) {
+          setTimeout(() => startRecRef.current?.(), 100);
+        }
+      } else {
+        toast.info("Live conversation OFF.");
+        if (isRecording) stopRecording();
+      }
+      return next;
+    });
+  }
+
 
   // Cleanup on unmount
   useEffect(() => {
@@ -559,6 +674,20 @@ export function ChatWindow({
             title={ttsEnabled ? "Disable voice output" : "Enable voice output"}
           >
             {ttsEnabled ? <Volume2 size={16} /> : <VolumeX size={16} />}
+          </button>
+
+          {/* Live conversation toggle */}
+          <button
+            onClick={toggleLiveMode}
+            className={`p-3 rounded-lg border transition ${
+              liveMode
+                ? "bg-arc text-arc-foreground border-arc shadow-arc animate-pulse"
+                : "border-arc/30 hover:bg-arc/10 text-hud-dim"
+            }`}
+            aria-label="Toggle live conversation"
+            title={liveMode ? "Live conversation ON — click to stop" : "Live conversation: auto-listen & auto-send after 3s silence"}
+          >
+            <Radio size={16} />
           </button>
 
           {/* Mic Button */}
