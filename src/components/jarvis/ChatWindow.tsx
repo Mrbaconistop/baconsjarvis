@@ -19,6 +19,9 @@ import {
   FileText,
   X,
   Radio,
+  Brain,
+  ArrowDown,
+
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
