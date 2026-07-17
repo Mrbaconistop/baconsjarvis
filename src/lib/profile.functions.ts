@@ -33,9 +33,20 @@ export const getLLMConfig = createServerFn({ method: "GET" })
     (data ?? []).forEach((f: any) => {
       config[f.key] = f.value;
     });
+    const provider = config.provider || "system";
+    // Per-provider saved keys survive when switching providers
+    const apiKeys: Record<string, string> = {};
+    Object.keys(config).forEach((k) => {
+      if (k.startsWith("api_key:")) apiKeys[k.slice(8)] = config[k];
+    });
+    // Legacy single-key fallback: attribute it to the current provider
+    if (config.api_key && provider !== "system" && !apiKeys[provider]) {
+      apiKeys[provider] = config.api_key;
+    }
     return {
-      provider: config.provider || "system",
-      apiKey: config.api_key || "",
+      provider,
+      apiKey: apiKeys[provider] || "",
+      apiKeys,
       mode: config.mode || "basic",
       coding_submode: config.coding_submode || "full",
     };
@@ -66,23 +77,32 @@ export const updateLLMConfig = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     const { supabase, userId } = context as any;
 
-    await supabase.from("user_facts").delete().eq("user_id", userId).eq("category", "llm");
+    // Update the selection + mode fields (delete then insert those specific keys only)
+    const keysToReplace = ["provider", "mode", "coding_submode", "api_key"];
+    await supabase
+      .from("user_facts")
+      .delete()
+      .eq("user_id", userId)
+      .eq("category", "llm")
+      .in("key", keysToReplace);
 
     const facts: Array<{ user_id: string; category: string; key: string; value: string }> = [];
-
-    if (data.provider !== "system") {
-      facts.push({ user_id: userId, category: "llm", key: "provider", value: data.provider });
-      if (data.apiKey) {
-        facts.push({ user_id: userId, category: "llm", key: "api_key", value: data.apiKey });
-      }
-    }
-
-    if (data.mode) {
-      facts.push({ user_id: userId, category: "llm", key: "mode", value: data.mode });
-    }
-
+    facts.push({ user_id: userId, category: "llm", key: "provider", value: data.provider });
+    if (data.mode) facts.push({ user_id: userId, category: "llm", key: "mode", value: data.mode });
     if (data.mode === "coding" && data.coding_submode) {
       facts.push({ user_id: userId, category: "llm", key: "coding_submode", value: data.coding_submode });
+    }
+
+    // Persist per-provider API key so switching providers preserves earlier keys
+    if (data.provider !== "system" && typeof data.apiKey === "string" && data.apiKey.length > 0) {
+      const perKey = `api_key:${data.provider}`;
+      await supabase
+        .from("user_facts")
+        .delete()
+        .eq("user_id", userId)
+        .eq("category", "llm")
+        .eq("key", perKey);
+      facts.push({ user_id: userId, category: "llm", key: perKey, value: data.apiKey });
     }
 
     if (facts.length > 0) {
@@ -92,6 +112,7 @@ export const updateLLMConfig = createServerFn({ method: "POST" })
 
     return { ok: true };
   });
+
 
 export const storeGoogleConnection = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
