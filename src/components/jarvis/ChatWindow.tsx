@@ -19,6 +19,9 @@ import {
   FileText,
   X,
   Radio,
+  Brain,
+  ArrowDown,
+
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -29,7 +32,7 @@ import { applyClientAction } from "@/lib/mapBus";
 import { toast } from "sonner";
 import { MicDiagnosticsDialog } from "./MicDiagnosticsDialog";
 import { HelpCircle } from "lucide-react";
-import { buildLibraryPromptPayload } from "@/lib/libraries";
+import { buildLibraryPromptPayload, addLibraryFromContent } from "@/lib/libraries";
 
 const TOOL_META: Record<string, { icon: any; label: string }> = {
   "tool-create_reminder": { icon: Bell, label: "Setting reminder" },
@@ -520,6 +523,23 @@ export function ChatWindow({
   }, [threadId, busy]);
 
   const rafRef = useRef<number | null>(null);
+  const [atBottom, setAtBottom] = useState(true);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const onScroll = () => {
+      const near = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+      setAtBottom(near);
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    onScroll();
+    return () => el.removeEventListener("scroll", onScroll);
+  }, []);
+  const scrollToBottom = useCallback((smooth = true) => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight, behavior: smooth ? "smooth" : "auto" });
+  }, []);
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
@@ -598,8 +618,26 @@ export function ChatWindow({
     setAttachments((prev) => prev.filter((a) => a.id !== id));
   }
 
+  function memorizeAttachment(id: string) {
+    const a = attachments.find((x) => x.id === id);
+    if (!a) return;
+    if (a.kind !== "text") {
+      toast.error("Only text files can be memorized.");
+      return;
+    }
+    try {
+      addLibraryFromContent(a.name, a.content, { active: true, note: "Uploaded from chat" });
+      setAttachments((prev) => prev.filter((x) => x.id !== id));
+      toast.success(`Memorized "${a.name}" — JARVIS will remember it across chats.`, {
+        description: "Manage or disable it in Settings → Library.",
+      });
+    } catch (err: any) {
+      toast.error(`Memorize failed: ${err?.message ?? err}`);
+    }
+  }
+
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full relative">
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 py-6 space-y-5">
         {messages.length === 0 && (
           <div className="text-center text-hud-dim text-sm mt-12">
@@ -627,6 +665,17 @@ export function ChatWindow({
         {error && <div className="text-xs text-critical font-mono">Error: {error.message}</div>}
       </div>
 
+      {!atBottom && (
+        <button
+          onClick={() => scrollToBottom(true)}
+          className="absolute bottom-28 right-6 z-20 p-2.5 rounded-full bg-arc text-arc-foreground shadow-arc border border-arc/40 hover:opacity-90 transition"
+          aria-label="Scroll to latest"
+          title="Jump to latest"
+        >
+          <ArrowDown size={16} />
+        </button>
+      )}
+
       <div className="border-t border-arc/15 bg-background/40 backdrop-blur px-4 py-3">
         {attachments.length > 0 && (
           <div className="max-w-4xl mx-auto mb-2 flex flex-wrap gap-2">
@@ -640,6 +689,16 @@ export function ChatWindow({
                   {a.name}
                 </span>
                 <span className="text-hud-dim text-[10px]">{(a.size / 1024).toFixed(1)}kb</span>
+                {a.kind === "text" && (
+                  <button
+                    onClick={() => memorizeAttachment(a.id)}
+                    className="p-0.5 rounded hover:bg-arc/20 text-hud-dim hover:text-arc"
+                    aria-label={`Memorize ${a.name}`}
+                    title="Save to JARVIS memory (persistent, no re-send per message)"
+                  >
+                    <Brain size={12} />
+                  </button>
+                )}
                 <button
                   onClick={() => removeAttachment(a.id)}
                   className="p-0.5 rounded hover:bg-critical/20 text-hud-dim hover:text-critical"
