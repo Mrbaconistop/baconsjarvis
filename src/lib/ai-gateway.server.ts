@@ -140,20 +140,24 @@ export function resolveChatModel(opts?: { provider?: ProviderId; apiKey?: string
   const providedApiKey = opts?.apiKey?.trim();
   const raw = (opts?.provider ?? (process.env.CHAT_PROVIDER?.toLowerCase() as ProviderId) ?? "system") as ProviderId;
 
-  // "system" means use the built-in default provider.
-  const effectiveProvider: Exclude<ProviderId, "system"> =
-    raw === "system" ||
-    !["groq", "deepseek", "lmstudio", "gemini", "openrouter", "mistral", "claude", "perplexity"].includes(raw)
-      ? "deepseek"
-      : (raw as Exclude<ProviderId, "system">);
+  const known: ProviderId[] = ["groq", "deepseek", "lmstudio", "gemini", "openrouter", "mistral", "claude", "perplexity"];
+
+  if (raw === "system" || !known.includes(raw)) {
+    throw new Error(
+      "No AI provider selected. Open Settings → AI Provider, choose a provider, and paste an API key.",
+    );
+  }
+
+  const effectiveProvider = raw as Exclude<ProviderId, "system">;
+  const missingKey = () =>
+    new Error(
+      `${effectiveProvider} API key is not set. Open Settings → AI Provider, select ${effectiveProvider}, and save your key.`,
+    );
 
   // ---------- GEMINI ----------
   if (effectiveProvider === "gemini") {
     const key = providedApiKey ?? process.env.GOOGLE_GENERATIVE_AI_API_KEY;
-    if (!key) {
-      console.warn("[AI] Gemini API key missing – falling back to DeepSeek");
-      return resolveChatModel({ provider: "deepseek", apiKey: providedApiKey });
-    }
+    if (!key) throw missingKey();
     const gemini = createGeminiProvider(key);
     const modelId = process.env.GEMINI_MODEL ?? "gemini-2.5-flash";
     return { model: gemini(modelId) as any, provider: "gemini" as const, modelId };
@@ -162,7 +166,7 @@ export function resolveChatModel(opts?: { provider?: ProviderId; apiKey?: string
   // ---------- GROQ ----------
   if (effectiveProvider === "groq") {
     const key = providedApiKey ?? process.env.GROQ_API_KEY;
-    if (!key) throw new Error("Groq API key is not set");
+    if (!key) throw missingKey();
     const groq = createGroqProvider(key);
     const modelId = process.env.GROQ_MODEL ?? "llama-3.1-8b-instant";
     return { model: groq(modelId) as any, provider: "groq" as const, modelId };
@@ -171,7 +175,7 @@ export function resolveChatModel(opts?: { provider?: ProviderId; apiKey?: string
   // ---------- DEEPSEEK ----------
   if (effectiveProvider === "deepseek") {
     const key = providedApiKey ?? process.env.DEEPSEEK_API_KEY;
-    if (!key) throw new Error("DeepSeek API key is not set");
+    if (!key) throw missingKey();
     const deepseek = createDeepSeekProvider(key);
     const modelId = process.env.DEEPSEEK_MODEL ?? "deepseek-chat";
     return { model: deepseek(modelId) as any, provider: "deepseek" as const, modelId };
@@ -187,7 +191,7 @@ export function resolveChatModel(opts?: { provider?: ProviderId; apiKey?: string
   // ---------- OPENROUTER ----------
   if (effectiveProvider === "openrouter") {
     const key = providedApiKey ?? process.env.OPENROUTER_API_KEY;
-    if (!key) throw new Error("OpenRouter API key is not set");
+    if (!key) throw missingKey();
     const openrouter = createOpenRouterProvider(key);
     const modelId = process.env.OPENROUTER_MODEL ?? "deepseek/deepseek-chat";
     return { model: openrouter(modelId) as any, provider: "openrouter" as const, modelId };
@@ -196,7 +200,7 @@ export function resolveChatModel(opts?: { provider?: ProviderId; apiKey?: string
   // ---------- MISTRAL ----------
   if (effectiveProvider === "mistral") {
     const key = providedApiKey ?? process.env.MISTRAL_API_KEY;
-    if (!key) throw new Error("Mistral API key is not set");
+    if (!key) throw missingKey();
     const mistral = createMistralProvider(key);
     const modelId = process.env.MISTRAL_MODEL ?? "mistral-small-latest";
     return { model: mistral(modelId) as any, provider: "mistral" as const, modelId };
@@ -205,7 +209,7 @@ export function resolveChatModel(opts?: { provider?: ProviderId; apiKey?: string
   // ---------- CLAUDE ----------
   if (effectiveProvider === "claude") {
     const key = providedApiKey ?? process.env.CLAUDE_API_KEY;
-    if (!key) throw new Error("Claude API key is not set");
+    if (!key) throw missingKey();
     const claude = createClaudeProvider(key);
     const modelId = process.env.CLAUDE_MODEL ?? "claude-sonnet-4-6";
     return { model: claude(modelId) as any, provider: "claude" as const, modelId };
@@ -214,36 +218,41 @@ export function resolveChatModel(opts?: { provider?: ProviderId; apiKey?: string
   // ---------- PERPLEXITY ----------
   if (effectiveProvider === "perplexity") {
     const key = providedApiKey ?? process.env.PERPLEXITY_API_KEY;
-    if (!key) throw new Error("Perplexity API key is not set");
+    if (!key) throw missingKey();
     const perplexity = createPerplexityProvider(key);
     const modelId = process.env.PERPLEXITY_MODEL ?? "sonar";
     return { model: perplexity(modelId) as any, provider: "perplexity" as const, modelId };
   }
 
-  // ---------- FALLBACK (should never reach here) ----------
   throw new Error(`Unsupported provider: ${effectiveProvider}`);
 }
 
 // ============================================================
-// FIXED: READ FROM llm_config TABLE (NOT user_facts)
+// Reads llm settings from user_facts (category=llm), matching
+// where updateLLMConfig writes. Keys are stored per-provider
+// under `api_key:<provider>` so switching providers preserves them.
 // ============================================================
 
 export async function getModelForUser(userId: string, supabase: any) {
-  // Read from the correct table used by updateLLMConfig
-  const { data: configRow } = await supabase
-    .from("llm_config")
-    .select("provider, api_key, mode, coding_submode")
+  const { data: rows } = await supabase
+    .from("user_facts")
+    .select("key, value")
     .eq("user_id", userId)
-    .maybeSingle();
+    .eq("category", "llm");
 
-  const provider = (configRow?.provider ?? "system") as ProviderId;
-  const apiKey = configRow?.api_key;
-  const mode = configRow?.mode || "basic";
-  const submode = configRow?.coding_submode || "full";
+  const cfg: Record<string, string> = {};
+  (rows ?? []).forEach((r: any) => {
+    cfg[r.key] = r.value;
+  });
 
-  // Resolve the model using the provider and apiKey
+  const provider = (cfg.provider ?? "system") as ProviderId;
+  const apiKey = cfg[`api_key:${provider}`] ?? cfg.api_key;
+  const mode = cfg.mode || "basic";
+  const submode = cfg.coding_submode || "full";
+
   const resolved = resolveChatModel({ provider, apiKey });
   return { ...resolved, mode, submode };
 }
+
 
 export const JARVIS_SYSTEM_PROMPT = MODE_PROMPTS.basic;
