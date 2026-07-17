@@ -665,6 +665,17 @@ export function ChatWindow({
         {error && <div className="text-xs text-critical font-mono">Error: {error.message}</div>}
       </div>
 
+      {!atBottom && (
+        <button
+          onClick={() => scrollToBottom(true)}
+          className="absolute bottom-28 right-6 z-20 p-2.5 rounded-full bg-arc text-arc-foreground shadow-arc border border-arc/40 hover:opacity-90 transition"
+          aria-label="Scroll to latest"
+          title="Jump to latest"
+        >
+          <ArrowDown size={16} />
+        </button>
+      )}
+
       <div className="border-t border-arc/15 bg-background/40 backdrop-blur px-4 py-3">
         {attachments.length > 0 && (
           <div className="max-w-4xl mx-auto mb-2 flex flex-wrap gap-2">
