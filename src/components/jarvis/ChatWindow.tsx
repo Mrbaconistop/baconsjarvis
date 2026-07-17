@@ -32,7 +32,7 @@ import { applyClientAction } from "@/lib/mapBus";
 import { toast } from "sonner";
 import { MicDiagnosticsDialog } from "./MicDiagnosticsDialog";
 import { HelpCircle } from "lucide-react";
-import { buildLibraryPromptPayload } from "@/lib/libraries";
+import { buildLibraryPromptPayload, addLibraryFromContent } from "@/lib/libraries";
 
 const TOOL_META: Record<string, { icon: any; label: string }> = {
   "tool-create_reminder": { icon: Bell, label: "Setting reminder" },
