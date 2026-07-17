@@ -678,6 +678,16 @@ export function ChatWindow({
                   {a.name}
                 </span>
                 <span className="text-hud-dim text-[10px]">{(a.size / 1024).toFixed(1)}kb</span>
+                {a.kind === "text" && (
+                  <button
+                    onClick={() => memorizeAttachment(a.id)}
+                    className="p-0.5 rounded hover:bg-arc/20 text-hud-dim hover:text-arc"
+                    aria-label={`Memorize ${a.name}`}
+                    title="Save to JARVIS memory (persistent, no re-send per message)"
+                  >
+                    <Brain size={12} />
+                  </button>
+                )}
                 <button
                   onClick={() => removeAttachment(a.id)}
                   className="p-0.5 rounded hover:bg-critical/20 text-hud-dim hover:text-critical"
