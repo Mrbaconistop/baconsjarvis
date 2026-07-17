@@ -75,11 +75,26 @@ function SettingsPage() {
   useEffect(() => {
     if (llmConfig) {
       setProvider(llmConfig.provider as typeof provider);
-      setApiKey(llmConfig.apiKey || "");
+      const savedKeys = (llmConfig as any).apiKeys as Record<string, string> | undefined;
+      const currentKey =
+        savedKeys?.[llmConfig.provider] ?? llmConfig.apiKey ?? "";
+      setApiKey(currentKey);
       setMode((llmConfig.mode as "thinking" | "coding" | "basic") || "basic");
       setCodingSubmode((llmConfig.coding_submode as "full" | "language_only" | "direct") || "full");
     }
   }, [llmConfig]);
+
+  // When user switches provider in the dropdown, load that provider's saved key
+  useEffect(() => {
+    const savedKeys = (llmConfig as any)?.apiKeys as Record<string, string> | undefined;
+    if (savedKeys && provider in savedKeys) {
+      setApiKey(savedKeys[provider] ?? "");
+    } else {
+      setApiKey("");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [provider]);
+
 
   async function connectGoogle() {
     setConnecting(true);
