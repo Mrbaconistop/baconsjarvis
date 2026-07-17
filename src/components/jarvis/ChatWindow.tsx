@@ -639,16 +639,6 @@ export function ChatWindow({
   return (
     <div className="flex flex-col h-full relative">
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 py-6 space-y-5">
-        {!atBottom && (
-          <button
-            onClick={() => scrollToBottom(true)}
-            className="fixed md:absolute bottom-28 right-6 z-20 p-2.5 rounded-full bg-arc text-arc-foreground shadow-arc border border-arc/40 hover:opacity-90 transition"
-            aria-label="Scroll to latest"
-            title="Jump to latest"
-          >
-            <ArrowDown size={16} />
-          </button>
-        )}
         {messages.length === 0 && (
           <div className="text-center text-hud-dim text-sm mt-12">
             <div className="font-mono text-[10px] tracking-[0.3em] text-arc mb-2">JARVIS ONLINE</div>
