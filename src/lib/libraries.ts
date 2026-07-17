@@ -91,6 +91,31 @@ export async function addLibraryFromUrl(url: string, name?: string, note?: strin
   return entry;
 }
 
+export function addLibraryFromContent(
+  name: string,
+  content: string,
+  opts?: { url?: string; note?: string; active?: boolean },
+): LibraryEntry {
+  let body = content ?? "";
+  if (body.length > MAX_BYTES_PER_LIB) {
+    body = body.slice(0, MAX_BYTES_PER_LIB) + `\n\n/* … truncated at ${MAX_BYTES_PER_LIB} bytes … */`;
+  }
+  const entry: LibraryEntry = {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    name: (name?.trim() || "untitled").slice(0, 120),
+    url: opts?.url || `memory://${encodeURIComponent(name || "file")}`,
+    content: body,
+    bytes: body.length,
+    fetchedAt: Date.now(),
+    active: opts?.active ?? false,
+    note: opts?.note?.trim() || undefined,
+  };
+  const list = read();
+  list.unshift(entry);
+  write(list);
+  return entry;
+}
+
 export async function refreshLibrary(id: string): Promise<LibraryEntry | null> {
   const list = read();
   const cur = list.find((l) => l.id === id);
