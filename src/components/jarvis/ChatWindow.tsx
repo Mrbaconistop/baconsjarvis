@@ -618,6 +618,24 @@ export function ChatWindow({
     setAttachments((prev) => prev.filter((a) => a.id !== id));
   }
 
+  function memorizeAttachment(id: string) {
+    const a = attachments.find((x) => x.id === id);
+    if (!a) return;
+    if (a.kind !== "text") {
+      toast.error("Only text files can be memorized.");
+      return;
+    }
+    try {
+      addLibraryFromContent(a.name, a.content, { active: true, note: "Uploaded from chat" });
+      setAttachments((prev) => prev.filter((x) => x.id !== id));
+      toast.success(`Memorized "${a.name}" — JARVIS will remember it across chats.`, {
+        description: "Manage or disable it in Settings → Library.",
+      });
+    } catch (err: any) {
+      toast.error(`Memorize failed: ${err?.message ?? err}`);
+    }
+  }
+
   return (
     <div className="flex flex-col h-full">
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 py-6 space-y-5">
