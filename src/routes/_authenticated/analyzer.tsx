@@ -718,6 +718,105 @@ function AnalyzerPage() {
               </div>
             </Panel>
 
+            {/* ---- PatternFlow Pro ---- */}
+            <Panel
+              title="PatternFlow Pro"
+              icon={<Sparkles size={14} />}
+              actions={
+                <div className="flex items-center gap-2">
+                  {prefs.warMode && (
+                    <Badge variant="destructive" className="gap-1 text-[10px]">
+                      <Swords size={10} /> WAR MODE
+                    </Badge>
+                  )}
+                  {warFlagged && (
+                    <Badge className="text-[10px] bg-critical/20 text-critical border border-critical/40">
+                      War-linked sector
+                    </Badge>
+                  )}
+                  <AnalyzerSettingsButton prefs={prefs} onChange={setPrefs} />
+                </div>
+              }
+            >
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2 text-xs">
+                  <div className="grid grid-cols-2 gap-2">
+                    <Stat label="Reliability" value={`${reliabilityPct}%`} tone={reliabilityPct >= 60 ? "bull" : reliabilityPct <= 40 ? "bear" : undefined} />
+                    <Stat
+                      label="Reward score"
+                      value={rewardScore ? rewardScore.reward.toExponential(2) : "—"}
+                      tone={rewardScore && rewardScore.reward > -0.005 ? "bull" : "bear"}
+                    />
+                    <Stat
+                      label="Hit rate (past)"
+                      value={rewardScore ? `${(rewardScore.hitRate * 100).toFixed(0)}%` : "—"}
+                    />
+                    <Stat
+                      label="Sentiment"
+                      value={newsSent ? (newsSent.aggregate >= 0 ? "+" : "") + (newsSent.aggregate * 100).toFixed(0) : "—"}
+                      tone={newsSent && newsSent.aggregate > 0.1 ? "bull" : newsSent && newsSent.aggregate < -0.1 ? "bear" : undefined}
+                    />
+                  </div>
+                  {newsSent && newsSent.events.length > 0 && (
+                    <div className="flex flex-wrap gap-1 pt-1">
+                      {newsSent.events.map((e) => (
+                        <Badge key={e.type} variant="outline" className="text-[10px]">
+                          {e.type} · {e.count} · {(e.avgImpact * 100).toFixed(0)}%
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
+                  <p className="text-[10px] text-muted-foreground pt-1">
+                    Reward = −MSE of past predicted vs realised returns ({rewardScore?.samples ?? 0} samples).
+                    Reliability blends backtest win rate, pattern strength, sentiment alignment.
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="font-mono text-[10px] tracking-widest text-arc/70 uppercase">Monte Carlo · GBM</div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] text-muted-foreground">Horizon {mcHorizon}d</span>
+                      <Slider
+                        value={[mcHorizon]}
+                        min={5}
+                        max={120}
+                        step={5}
+                        onValueChange={([v]) => setMcHorizon(v)}
+                        className="w-24"
+                      />
+                      <Button size="sm" onClick={runMC} disabled={mcRunning} className="h-7 text-xs">
+                        {mcRunning ? <Loader2 size={12} className="animate-spin mr-1" /> : <Dice5 size={12} className="mr-1" />}
+                        Simulate
+                      </Button>
+                    </div>
+                  </div>
+                  {mc ? (
+                    <div className="grid grid-cols-3 gap-2">
+                      <Stat label="P10" value={fmtMoney(mc.p10)} tone="bear" />
+                      <Stat label="Median" value={fmtMoney(mc.p50)} />
+                      <Stat label="P90" value={fmtMoney(mc.p90)} tone="bull" />
+                      <Stat label="Mean" value={fmtMoney(mc.mean)} />
+                      <Stat label="P(above)" value={`${(mc.probAbove * 100).toFixed(0)}%`} tone={mc.probAbove >= 0.5 ? "bull" : "bear"} />
+                      <Stat label="Paths" value={mc.paths.toLocaleString()} />
+                    </div>
+                  ) : (
+                    <p className="text-[10px] text-muted-foreground">Run the simulator to generate a probability distribution for the selected horizon.</p>
+                  )}
+                </div>
+              </div>
+
+              <div className="mt-4 pt-3 border-t border-arc/10">
+                <OverlayLineEditor
+                  symbol={snap.symbol}
+                  currentPrice={snap.quote.c || snap.quote.pc || 0}
+                  priceMin={Math.min(...chartData.map((d) => d.l ?? d.c))}
+                  priceMax={Math.max(...chartData.map((d) => d.h ?? d.c))}
+                  onChange={setOverlayLines}
+                />
+              </div>
+            </Panel>
+
             {/* Chart */}
             <Panel title={`Price · ${snap.symbol}`} icon={<Activity size={14} />}>
               <div className="h-64 sm:h-80">
@@ -743,6 +842,22 @@ function AnalyzerPage() {
                     <Area type="monotone" dataKey="h" stroke="none" fill="hsl(var(--arc) / 0.05)" />
                     <Area type="monotone" dataKey="l" stroke="none" fill="hsl(var(--background))" />
                     <Line type="monotone" dataKey="c" stroke="hsl(var(--arc))" dot={false} strokeWidth={1.5} />
+                    {overlayLines.map((ol) => (
+                      <ReferenceLine
+                        key={ol.id}
+                        y={ol.price}
+                        stroke={ol.color ?? "hsl(var(--arc))"}
+                        strokeDasharray="4 3"
+                        label={{ value: `${ol.label ?? ""} $${ol.price.toFixed(2)}`, position: "right", fontSize: 10, fill: "hsl(var(--arc))" }}
+                      />
+                    ))}
+                    {mc && (
+                      <>
+                        <ReferenceLine y={mc.p50} stroke="hsl(var(--arc))" strokeDasharray="2 2" label={{ value: `MC med $${mc.p50.toFixed(2)}`, position: "left", fontSize: 9, fill: "hsl(var(--arc))" }} />
+                        <ReferenceLine y={mc.p10} stroke="hsl(var(--bearish))" strokeDasharray="1 3" />
+                        <ReferenceLine y={mc.p90} stroke="hsl(var(--bullish))" strokeDasharray="1 3" />
+                      </>
+                    )}
                     {overlayDots.map((d, i) => (
                       <ReferenceDot
                         key={i}
@@ -757,6 +872,7 @@ function AnalyzerPage() {
                 </ResponsiveContainer>
               </div>
             </Panel>
+
 
             {/* ---- NEW: Compare Stocks ---- */}
             <Panel title="Compare Stocks" icon={<TrendingUp size={14} />}>
