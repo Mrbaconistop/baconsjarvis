@@ -333,6 +333,99 @@ function AnalyzerPage() {
   >("price_above");
   const [alertValue, setAlertValue] = useState("");
 
+  // ---- PatternFlow Pro: prefs, overlays, monte-carlo, sentiment ----
+  const [prefs, setPrefs] = useState<AnalyzerPrefs>(() => loadPrefsLocal());
+  const [overlayLines, setOverlayLines] = useState<OverlayLine[]>([]);
+  const [mc, setMc] = useState<MCResult | null>(null);
+  const [mcHorizon, setMcHorizon] = useState(20);
+  const [mcRunning, setMcRunning] = useState(false);
+  const [newsSent, setNewsSent] = useState<NewsSentimentResult | null>(null);
+  const scoreNewsFn = useServerFn(scoreNewsSentiment);
+
+  const WAR_SECTORS = ["defense", "aerospace", "energy", "oil", "gas", "mining", "metals", "commodit"];
+  const industryText = (snap?.profile.industry ?? "").toLowerCase();
+  const warFlagged = prefs.warMode && WAR_SECTORS.some((s) => industryText.includes(s));
+
+  useEffect(() => {
+    if (!snap) return;
+    setOverlayLines(loadOverlays(snap.symbol));
+    setMc(null);
+    setNewsSent(null);
+    if (prefs.sentimentEnabled) {
+      scoreNewsFn({ data: { symbol: snap.symbol } })
+        .then((r) => setNewsSent(r))
+        .catch(() => { /* silent */ });
+    }
+  }, [snap?.symbol, prefs.sentimentEnabled, scoreNewsFn]);
+
+  const runMC = () => {
+    if (!candles.length || !snap) return;
+    setMcRunning(true);
+    // Estimate per-bar drift + vol from last N daily log-returns
+    const N = Math.min(180, candles.length - 1);
+    const logs: number[] = [];
+    for (let i = candles.length - N; i < candles.length; i++) {
+      const prev = candles[i - 1]?.c;
+      const cur = candles[i]?.c;
+      if (prev && cur) logs.push(Math.log(cur / prev));
+    }
+    const mu = logs.reduce((a, b) => a + b, 0) / (logs.length || 1);
+    const m = mu;
+    const varr = logs.reduce((a, b) => a + (b - m) ** 2, 0) / (logs.length || 1);
+    let sigma = Math.sqrt(varr);
+    if (prefs.warMode) sigma *= 1.25; // wider distributions in war mode
+    const res = runMonteCarlo({
+      spot: candles[candles.length - 1].c,
+      mu,
+      sigma,
+      horizon: mcHorizon,
+      paths: 2500,
+      seed: Math.floor(Date.now() / 1000),
+    });
+    setMc(res);
+    setMcRunning(false);
+  };
+
+  // Reward score (past predictions): negative MSE of predictor vs realised over lookback.
+  const rewardScore = useMemo(() => {
+    if (!candles.length || candles.length < 40) return null;
+    const H = 5;
+    let n = 0, sqErr = 0, hits = 0;
+    for (let i = 30; i < candles.length - H; i += 5) {
+      const window = candles.slice(0, i);
+      try {
+        const p = runPredictor(mode, window, snap?.news ?? [], params);
+        if (!p.targetPrice) continue;
+        const actual = candles[i + H].c;
+        const predRet = (p.targetPrice - window[window.length - 1].c) / window[window.length - 1].c;
+        const actualRet = (actual - window[window.length - 1].c) / window[window.length - 1].c;
+        sqErr += (predRet - actualRet) ** 2;
+        n += 1;
+        if (Math.sign(predRet) === Math.sign(actualRet)) hits += 1;
+      } catch { /* skip */ }
+    }
+    if (!n) return null;
+    const mse = sqErr / n;
+    return {
+      reward: -mse,
+      mse,
+      rmse: Math.sqrt(mse),
+      hitRate: hits / n,
+      samples: n,
+    };
+  }, [candles, mode, params, snap?.news]);
+
+  // Reliability score for the current setup
+  const reliabilityPct = useMemo(() => {
+    const winrate = backtestTuned?.winRate ?? 0.5;
+    const patStrength = Math.min(1, score.score / 100);
+    const sentAlign = newsSent
+      ? Math.max(0, (prediction?.direction === "up" ? 1 : -1) * newsSent.aggregate)
+      : 0;
+    return Math.round(Math.max(0, Math.min(1, winrate * 0.5 + patStrength * 0.35 + sentAlign * 0.15)) * 100);
+  }, [backtestTuned, score, newsSent, prediction]);
+
+
   // ---- Handlers ----
   async function handleAddAlert() {
     if (!alertTicker || !alertValue) return toast.error("Ticker and value required");
