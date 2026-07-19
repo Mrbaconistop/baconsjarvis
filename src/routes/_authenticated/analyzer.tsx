@@ -2,7 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { useQuery } from "@tanstack/react-query";
-import { ComposedChart, Line, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceDot, Legend } from "recharts";
+import { ComposedChart, Line, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceDot, ReferenceLine, Legend } from "recharts";
 import { format } from "date-fns";
 import {
   Activity,
@@ -66,6 +66,13 @@ import {
   stockNewsSentiment,
 } from "@/lib/jarvis.functions";
 import { toast } from "sonner";
+import { AnalyzerSettingsButton, loadPrefsLocal } from "@/components/jarvis/AnalyzerSettings";
+import { OverlayLineEditor, loadOverlays, type OverlayLine } from "@/components/jarvis/ChartOverlayLines";
+import { runMonteCarlo, type MCResult } from "@/lib/monte-carlo";
+import { scoreNewsSentiment, type NewsSentimentResult } from "@/lib/news-sentiment.functions";
+import { type AnalyzerPrefs } from "@/lib/analyzer-prefs.functions";
+import { Badge } from "@/components/ui/badge";
+import { Swords, Dice5 } from "lucide-react";
 
 const SearchSchema = z.object({
   symbol: z.string().optional(),
@@ -325,6 +332,99 @@ function AnalyzerPage() {
     "price_above" | "price_below" | "sma_cross_above" | "sma_cross_below" | "rsi_above" | "rsi_below" | "volume_spike"
   >("price_above");
   const [alertValue, setAlertValue] = useState("");
+
+  // ---- PatternFlow Pro: prefs, overlays, monte-carlo, sentiment ----
+  const [prefs, setPrefs] = useState<AnalyzerPrefs>(() => loadPrefsLocal());
+  const [overlayLines, setOverlayLines] = useState<OverlayLine[]>([]);
+  const [mc, setMc] = useState<MCResult | null>(null);
+  const [mcHorizon, setMcHorizon] = useState(20);
+  const [mcRunning, setMcRunning] = useState(false);
+  const [newsSent, setNewsSent] = useState<NewsSentimentResult | null>(null);
+  const scoreNewsFn = useServerFn(scoreNewsSentiment);
+
+  const WAR_SECTORS = ["defense", "aerospace", "energy", "oil", "gas", "mining", "metals", "commodit"];
+  const industryText = (snap?.profile.industry ?? "").toLowerCase();
+  const warFlagged = prefs.warMode && WAR_SECTORS.some((s) => industryText.includes(s));
+
+  useEffect(() => {
+    if (!snap) return;
+    setOverlayLines(loadOverlays(snap.symbol));
+    setMc(null);
+    setNewsSent(null);
+    if (prefs.sentimentEnabled) {
+      scoreNewsFn({ data: { symbol: snap.symbol } })
+        .then((r) => setNewsSent(r))
+        .catch(() => { /* silent */ });
+    }
+  }, [snap?.symbol, prefs.sentimentEnabled, scoreNewsFn]);
+
+  const runMC = () => {
+    if (!candles.length || !snap) return;
+    setMcRunning(true);
+    // Estimate per-bar drift + vol from last N daily log-returns
+    const N = Math.min(180, candles.length - 1);
+    const logs: number[] = [];
+    for (let i = candles.length - N; i < candles.length; i++) {
+      const prev = candles[i - 1]?.c;
+      const cur = candles[i]?.c;
+      if (prev && cur) logs.push(Math.log(cur / prev));
+    }
+    const mu = logs.reduce((a, b) => a + b, 0) / (logs.length || 1);
+    const m = mu;
+    const varr = logs.reduce((a, b) => a + (b - m) ** 2, 0) / (logs.length || 1);
+    let sigma = Math.sqrt(varr);
+    if (prefs.warMode) sigma *= 1.25; // wider distributions in war mode
+    const res = runMonteCarlo({
+      spot: candles[candles.length - 1].c,
+      mu,
+      sigma,
+      horizon: mcHorizon,
+      paths: 2500,
+      seed: Math.floor(Date.now() / 1000),
+    });
+    setMc(res);
+    setMcRunning(false);
+  };
+
+  // Reward score (past predictions): negative MSE of predictor vs realised over lookback.
+  const rewardScore = useMemo(() => {
+    if (!candles.length || candles.length < 40) return null;
+    const H = 5;
+    let n = 0, sqErr = 0, hits = 0;
+    for (let i = 30; i < candles.length - H; i += 5) {
+      const window = candles.slice(0, i);
+      try {
+        const p = runPredictor(mode, window, snap?.news ?? [], params);
+        if (!p.targetPrice) continue;
+        const actual = candles[i + H].c;
+        const predRet = (p.targetPrice - window[window.length - 1].c) / window[window.length - 1].c;
+        const actualRet = (actual - window[window.length - 1].c) / window[window.length - 1].c;
+        sqErr += (predRet - actualRet) ** 2;
+        n += 1;
+        if (Math.sign(predRet) === Math.sign(actualRet)) hits += 1;
+      } catch { /* skip */ }
+    }
+    if (!n) return null;
+    const mse = sqErr / n;
+    return {
+      reward: -mse,
+      mse,
+      rmse: Math.sqrt(mse),
+      hitRate: hits / n,
+      samples: n,
+    };
+  }, [candles, mode, params, snap?.news]);
+
+  // Reliability score for the current setup
+  const reliabilityPct = useMemo(() => {
+    const winrate = backtestTuned?.winRate ?? 0.5;
+    const patStrength = Math.min(1, score.score / 100);
+    const sentAlign = newsSent
+      ? Math.max(0, (prediction?.direction === "up" ? 1 : -1) * newsSent.aggregate)
+      : 0;
+    return Math.round(Math.max(0, Math.min(1, winrate * 0.5 + patStrength * 0.35 + sentAlign * 0.15)) * 100);
+  }, [backtestTuned, score, newsSent, prediction]);
+
 
   // ---- Handlers ----
   async function handleAddAlert() {
@@ -618,6 +718,105 @@ function AnalyzerPage() {
               </div>
             </Panel>
 
+            {/* ---- PatternFlow Pro ---- */}
+            <Panel
+              title="PatternFlow Pro"
+              icon={<Sparkles size={14} />}
+              actions={
+                <div className="flex items-center gap-2">
+                  {prefs.warMode && (
+                    <Badge variant="destructive" className="gap-1 text-[10px]">
+                      <Swords size={10} /> WAR MODE
+                    </Badge>
+                  )}
+                  {warFlagged && (
+                    <Badge className="text-[10px] bg-critical/20 text-critical border border-critical/40">
+                      War-linked sector
+                    </Badge>
+                  )}
+                  <AnalyzerSettingsButton prefs={prefs} onChange={setPrefs} />
+                </div>
+              }
+            >
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2 text-xs">
+                  <div className="grid grid-cols-2 gap-2">
+                    <Stat label="Reliability" value={`${reliabilityPct}%`} tone={reliabilityPct >= 60 ? "bull" : reliabilityPct <= 40 ? "bear" : undefined} />
+                    <Stat
+                      label="Reward score"
+                      value={rewardScore ? rewardScore.reward.toExponential(2) : "—"}
+                      tone={rewardScore && rewardScore.reward > -0.005 ? "bull" : "bear"}
+                    />
+                    <Stat
+                      label="Hit rate (past)"
+                      value={rewardScore ? `${(rewardScore.hitRate * 100).toFixed(0)}%` : "—"}
+                    />
+                    <Stat
+                      label="Sentiment"
+                      value={newsSent ? (newsSent.aggregate >= 0 ? "+" : "") + (newsSent.aggregate * 100).toFixed(0) : "—"}
+                      tone={newsSent && newsSent.aggregate > 0.1 ? "bull" : newsSent && newsSent.aggregate < -0.1 ? "bear" : undefined}
+                    />
+                  </div>
+                  {newsSent && newsSent.events.length > 0 && (
+                    <div className="flex flex-wrap gap-1 pt-1">
+                      {newsSent.events.map((e) => (
+                        <Badge key={e.type} variant="outline" className="text-[10px]">
+                          {e.type} · {e.count} · {(e.avgImpact * 100).toFixed(0)}%
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
+                  <p className="text-[10px] text-muted-foreground pt-1">
+                    Reward = −MSE of past predicted vs realised returns ({rewardScore?.samples ?? 0} samples).
+                    Reliability blends backtest win rate, pattern strength, sentiment alignment.
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="font-mono text-[10px] tracking-widest text-arc/70 uppercase">Monte Carlo · GBM</div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] text-muted-foreground">Horizon {mcHorizon}d</span>
+                      <Slider
+                        value={[mcHorizon]}
+                        min={5}
+                        max={120}
+                        step={5}
+                        onValueChange={([v]) => setMcHorizon(v)}
+                        className="w-24"
+                      />
+                      <Button size="sm" onClick={runMC} disabled={mcRunning} className="h-7 text-xs">
+                        {mcRunning ? <Loader2 size={12} className="animate-spin mr-1" /> : <Dice5 size={12} className="mr-1" />}
+                        Simulate
+                      </Button>
+                    </div>
+                  </div>
+                  {mc ? (
+                    <div className="grid grid-cols-3 gap-2">
+                      <Stat label="P10" value={fmtMoney(mc.p10)} tone="bear" />
+                      <Stat label="Median" value={fmtMoney(mc.p50)} />
+                      <Stat label="P90" value={fmtMoney(mc.p90)} tone="bull" />
+                      <Stat label="Mean" value={fmtMoney(mc.mean)} />
+                      <Stat label="P(above)" value={`${(mc.probAbove * 100).toFixed(0)}%`} tone={mc.probAbove >= 0.5 ? "bull" : "bear"} />
+                      <Stat label="Paths" value={mc.paths.toLocaleString()} />
+                    </div>
+                  ) : (
+                    <p className="text-[10px] text-muted-foreground">Run the simulator to generate a probability distribution for the selected horizon.</p>
+                  )}
+                </div>
+              </div>
+
+              <div className="mt-4 pt-3 border-t border-arc/10">
+                <OverlayLineEditor
+                  symbol={snap.symbol}
+                  currentPrice={snap.quote.c || snap.quote.pc || 0}
+                  priceMin={Math.min(...chartData.map((d) => d.l ?? d.c))}
+                  priceMax={Math.max(...chartData.map((d) => d.h ?? d.c))}
+                  onChange={setOverlayLines}
+                />
+              </div>
+            </Panel>
+
             {/* Chart */}
             <Panel title={`Price · ${snap.symbol}`} icon={<Activity size={14} />}>
               <div className="h-64 sm:h-80">
@@ -643,6 +842,22 @@ function AnalyzerPage() {
                     <Area type="monotone" dataKey="h" stroke="none" fill="hsl(var(--arc) / 0.05)" />
                     <Area type="monotone" dataKey="l" stroke="none" fill="hsl(var(--background))" />
                     <Line type="monotone" dataKey="c" stroke="hsl(var(--arc))" dot={false} strokeWidth={1.5} />
+                    {overlayLines.map((ol) => (
+                      <ReferenceLine
+                        key={ol.id}
+                        y={ol.price}
+                        stroke={ol.color ?? "hsl(var(--arc))"}
+                        strokeDasharray="4 3"
+                        label={{ value: `${ol.label ?? ""} $${ol.price.toFixed(2)}`, position: "right", fontSize: 10, fill: "hsl(var(--arc))" }}
+                      />
+                    ))}
+                    {mc && (
+                      <>
+                        <ReferenceLine y={mc.p50} stroke="hsl(var(--arc))" strokeDasharray="2 2" label={{ value: `MC med $${mc.p50.toFixed(2)}`, position: "left", fontSize: 9, fill: "hsl(var(--arc))" }} />
+                        <ReferenceLine y={mc.p10} stroke="hsl(var(--bearish))" strokeDasharray="1 3" />
+                        <ReferenceLine y={mc.p90} stroke="hsl(var(--bullish))" strokeDasharray="1 3" />
+                      </>
+                    )}
                     {overlayDots.map((d, i) => (
                       <ReferenceDot
                         key={i}
@@ -657,6 +872,7 @@ function AnalyzerPage() {
                 </ResponsiveContainer>
               </div>
             </Panel>
+
 
             {/* ---- NEW: Compare Stocks ---- */}
             <Panel title="Compare Stocks" icon={<TrendingUp size={14} />}>

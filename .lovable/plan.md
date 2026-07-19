@@ -1,78 +1,77 @@
-# JARVIS Upgrade: Memory + Router + Proactive Agent
+# PatternFlow Analyzer Upgrade
 
-Building three tightly-integrated systems. Default provider is **DeepSeek** (your paid key). Groq and Lovable AI are optional fallbacks.
+Everything lands in the existing `/analyzer` route + `patterns.ts` / `analytics.ts` / `calibration.ts`. No new routes, no new tables — settings piggyback on `user_facts` (already used for LLM config) plus `localStorage` mirror.
 
-## 1. Permanent Keyword Memory
+## 1. Settings Panel (gear icon in Patterns + Predictor tabs)
 
-Store every message forever with Postgres full-text search on top so JARVIS can pull relevant past context on demand.
+New `src/components/jarvis/AnalyzerSettings.tsx` (Sheet from the right). Persisted via new server fns `getAnalyzerPrefs` / `setAnalyzerPrefs` in `src/lib/analyzer-prefs.functions.ts` writing to `user_facts` with key `analyzer_prefs`. Mirrored to `localStorage` for instant load.
 
-- Add a `tsvector` column + GIN index to `chat_messages`, auto-populated by a trigger.
-- New table `user_facts_kv` — durable extracted facts ("owns Trident server", "watches TSLA at $420"). JARVIS writes here via a `remember` tool.
-- New server fn `recallMemory({ query, limit })` — full-text search over all past messages + facts, scoped to the user.
-- On every chat turn: extract top ~5 keywords from the current message, run `recallMemory`, inject results into the system prompt under a `## Relevant memory` section.
-- Cross-session pattern detection is emergent from this: mention "Minecraft" in week 1, mention "base" + "Minecraft" in week 4 → week-4 recall pulls week-1 context automatically.
+Controls:
+- Indicators: SMA, EMA, RSI, MACD, Bollinger, VWAP, Fibonacci — each with on/off + period input.
+- Sensitivity slider 0–100 (scales `DEFAULT_PARAMS` tolerances in `patterns.ts`).
+- Lookback: 1m / 3m / 6m / 1y / 5y (drives Yahoo range in `fetchHistorical`).
+- News sentiment toggle + weight slider 0–100%.
+- War Mode toggle (see §6).
 
-## 2. Smart Model Router (DeepSeek-first)
+Live-applied — no reload.
 
-Server-side classifier picks a model per turn. Fully overridable from Settings.
+## 2. Reward-Based Prediction
 
-Routing table (default):
+Extend `src/lib/patterns.ts` with `rewardScore(predicted, actual) = -((predicted-actual)/actual)^2` and a rolling history table in `localStorage` (`analyzer_pred_history`) keyed by symbol. Prediction card gets:
+- Price target + 1σ CI (from historical volatility).
+- Reliability score = weighted avg of backtest win rate, pattern strength, sentiment alignment.
+- Reward score = mean reward of last 20 predictions for this symbol.
+- "Run Monte Carlo" button → 5,000 GBM paths in a Web Worker–free simple loop (client-side, fast), returns P10/P50/P90 and shown as shaded fan on chart.
+
+## 3. News + LLM Sentiment
+
+Server fn `scoreNewsSentiment` in `src/lib/news-sentiment.functions.ts`:
+- Pull last 14d headlines via existing `fhNews`.
+- Batch to Groq `llama-3.1-8b-instant` (already wired via `ai-gateway.server.ts`) with a strict JSON schema: `{score:-1..1, event_type:"earnings"|"fda"|"war"|"macro"|"none", impact:0..1}`.
+- Fallback to existing keyword `sentimentScore` if Groq unreachable / no key.
+- Special-event flags surfaced in prediction card as pill badges with historical-analog impact number (simple lookup table for earnings/FDA/war).
+
+Fed into `calibratePrediction` via the existing `sentimentAdjust` path, weighted by the settings slider.
+
+## 4. Backtesting
+
+Already have `backtestStrategy` in `patterns.ts` — surface it in a new "Backtest" collapsible on the Predictor card. Computes over the selected lookback:
+- Win rate, avg return, Sharpe (add Sharpe helper to `analytics.ts`).
+- Rendered as small stat grid + equity curve sparkline.
+
+## 5. UI
+
+- Gear icons in Patterns + Predictor tab headers → open the Sheet.
+- Draggable horizontal overlay lines on the Recharts chart: click empty area of chart to add, drag to move, right-click to delete. Stored per-symbol in `localStorage`. Implemented as SVG overlay layered on the chart container (Recharts doesn't natively support this, so it's a positioned overlay reading the chart's Y-scale via a ref).
+- Indicator toggles reflect settings live — chart re-renders SMA/EMA/BB/VWAP lines from `useMemo`.
+
+## 6. War Mode
+
+Boolean pref. When on:
+- Sentiment weight × 1.5 (capped 100%).
+- Symbols matching a defense/energy/commodity list (LMT, RTX, NOC, GD, XOM, CVX, HAL, GLD, USO, …) get a red "WAR-EXPOSED" pill and reliability floor +10%.
+- Stop-loss ATR multiplier in `backtestStrategy` tightened from 2.0 → 1.5 (surfaced in backtest output).
+
+## Files touched / created
 
 ```text
-Intent                → Provider / Model
-──────────────────────────────────────────────
-casual chat, quick    → DeepSeek deepseek-chat
-code / debugging      → DeepSeek deepseek-chat
-math / hard reasoning → DeepSeek deepseek-reasoner
-vision / image input  → Lovable google/gemini-3-flash-preview (only when image attached)
-fallback chain        → DeepSeek → Groq (if key present) → Lovable Gemini
+NEW  src/lib/analyzer-prefs.functions.ts   # get/set prefs on user_facts
+NEW  src/lib/news-sentiment.functions.ts   # Groq-backed sentiment + event flags
+NEW  src/lib/monte-carlo.ts                # pure GBM sim (SSR-safe)
+NEW  src/components/jarvis/AnalyzerSettings.tsx
+NEW  src/components/jarvis/ChartOverlayLines.tsx
+EDIT src/lib/analytics.ts                  # + sharpe(), + volatility()
+EDIT src/lib/patterns.ts                   # + rewardScore, sensitivity scaling, warMode hook
+EDIT src/lib/calibration.ts                # honor sentiment weight + war-mode boost
+EDIT src/routes/_authenticated/analyzer.tsx # gear buttons, wiring, MC button, backtest panel, overlays
 ```
 
-Groq stays wired but OFF by default. A Settings toggle ("Prefer Groq for casual chat — faster, free") flips the default for quick turns only. If `GROQ_API_KEY` is missing, that toggle is hidden.
+No DB migration. No new secrets — reuses `GROQ_API_KEY` and `FINNHUB_API_KEY`.
 
-Router in `src/lib/model-router.server.ts`:
-- `classifyIntent(message, history)` — cheap regex/keyword heuristic, zero LLM cost.
-- `pickModel(intent, prefs)` — returns `{ provider, model, baseUrl, apiKey }`.
-- `callWithFallback(...)` — try primary; on 429/5xx/network, fall through the chain.
-- Logs `provider|model|intent|latency|tokens` per call.
+## Out of scope (call out before I build)
 
-`chat.ts` calls the router instead of hardcoding one provider.
+- No new "Patterns" / "Predictor" *routes* — they're tabs inside `/analyzer` today; the gear lives on those tab headers.
+- Monte Carlo runs client-side (fast enough, zero credits). If you'd rather it be a server fn, say so.
+- Draggable overlays are simple horizontal lines; full trendline/fib drawing is a bigger job.
 
-## 3. Proactive Agent (5-minute watcher)
-
-`pg_cron` hits a new public endpoint every 5 min. Endpoint runs cheap checks and writes to `notifications` when thresholds trip.
-
-Watchers (v1):
-- **Stocks** — reuse Finnhub key; for each `stock_holdings` row with an `alert_threshold`, compare current price and push a notification on crossing.
-- **Weather** — for the user's saved location, notify on state changes (rain starting, temp swing > 15°F, severe alerts).
-- **Discord** — new mentions/DMs since last check via existing `discord_webhooks`.
-
-Endpoint: `src/routes/api/public/hooks/watcher-tick.ts` — verified via existing `CRON_SECRET`.
-
-Each watcher is a small pure fn in `src/lib/watchers/*.server.ts` — easy to add Roblox/Steam/crypto later in the same shape.
-
-## Files touched
-
-New:
-- `src/lib/model-router.server.ts`
-- `src/lib/memory-recall.functions.ts`
-- `src/lib/watchers/{stocks,weather,discord}.server.ts`
-- `src/routes/api/public/hooks/watcher-tick.ts`
-
-Modified:
-- `src/routes/api/chat.ts` — use router + inject recalled memory into system prompt
-- `src/routes/_authenticated/settings.tsx` — add "Prefer Groq for casual" toggle (hidden if no key)
-- Migrations: `tsvector` + trigger on `chat_messages`, create `user_facts_kv`, seed pg_cron job
-
-## Cost profile
-
-- Chat: DeepSeek (your paid key) → $0 Lovable credits.
-- Memory recall: Postgres FTS → $0.
-- Watchers: Postgres + Finnhub/Discord/weather APIs → $0.
-- Lovable credits used only when: image attached (vision), or every provider in the chain fails and it falls back to Gemini.
-
-## Out of scope this round
-
-Sandbox (P3), custom function registry (P5), full vision UI (P7), Roblox/Steam connectors — queued for next round once these three are stable.
-
-Approve and I'll ship it.
+Confirm and I'll ship it in one pass.
