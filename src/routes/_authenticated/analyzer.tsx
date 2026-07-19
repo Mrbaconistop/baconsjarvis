@@ -66,11 +66,11 @@ import {
   stockNewsSentiment,
 } from "@/lib/jarvis.functions";
 import { toast } from "sonner";
-import { AnalyzerSettingsButton, loadPrefsLocal, savePrefsLocal } from "@/components/jarvis/AnalyzerSettings";
+import { AnalyzerSettingsButton, loadPrefsLocal } from "@/components/jarvis/AnalyzerSettings";
 import { OverlayLineEditor, loadOverlays, type OverlayLine } from "@/components/jarvis/ChartOverlayLines";
 import { runMonteCarlo, type MCResult } from "@/lib/monte-carlo";
 import { scoreNewsSentiment, type NewsSentimentResult } from "@/lib/news-sentiment.functions";
-import { DEFAULT_ANALYZER_PREFS, LOOKBACK_DAYS, type AnalyzerPrefs } from "@/lib/analyzer-prefs.functions";
+import { type AnalyzerPrefs } from "@/lib/analyzer-prefs.functions";
 import { Badge } from "@/components/ui/badge";
 import { Swords, Dice5 } from "lucide-react";
 
