@@ -341,6 +341,7 @@ function AnalyzerPage() {
   const [mcHorizon, setMcHorizon] = useState(20);
   const [mcRunning, setMcRunning] = useState(false);
   const [newsSent, setNewsSent] = useState<NewsSentimentResult | null>(null);
+  const [newsFilter, setNewsFilter] = useState<"all" | "pos" | "neg" | "neu">("all");
   const scoreNewsFn = useServerFn(scoreNewsSentiment);
 
   const WAR_SECTORS = ["defense", "aerospace", "energy", "oil", "gas", "mining", "metals", "commodit"];
