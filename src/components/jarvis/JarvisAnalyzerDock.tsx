@@ -232,12 +232,19 @@ export function JarvisAnalyzerDock(props: Props) {
             placeholder="e.g. Should I hold NVDA through earnings?"
             className="h-7 text-xs"
           />
-          <Link
-            to="/chat"
-            search={{ prompt: q ? `[Analyzer:${props.symbol}] ${q}` : `Analyze ${props.symbol}: current pattern, key levels, and near-term risk.` } as any}
-            className="mt-1 inline-flex w-full"
-          >
-            <Button size="sm" className="w-full h-7 text-xs">
+          <Link to="/chat" className="mt-1 inline-flex w-full">
+            <Button
+              size="sm"
+              className="w-full h-7 text-xs"
+              onClick={() => {
+                if (typeof window !== "undefined") {
+                  const seed = q
+                    ? `[Analyzer:${props.symbol}] ${q}`
+                    : `Analyze ${props.symbol}: current pattern, key levels, and near-term risk.`;
+                  try { sessionStorage.setItem("jarvis:prefill", seed); } catch { /* ignore */ }
+                }
+              }}
+            >
               <MessageSquare size={10} className="mr-1" /> Open in Chat
             </Button>
           </Link>
