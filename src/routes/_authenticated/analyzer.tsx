@@ -73,6 +73,7 @@ import { scoreNewsSentiment, type NewsSentimentResult } from "@/lib/news-sentime
 import { type AnalyzerPrefs } from "@/lib/analyzer-prefs.functions";
 import { Badge } from "@/components/ui/badge";
 import { Swords, Dice5 } from "lucide-react";
+import { JarvisAnalyzerDock } from "@/components/jarvis/JarvisAnalyzerDock";
 
 const SearchSchema = z.object({
   symbol: z.string().optional(),
