@@ -1450,6 +1450,26 @@ function AnalyzerPage() {
           </>
         )}
       </div>
+      {snap && (
+        <JarvisAnalyzerDock
+          symbol={snap.symbol}
+          currentPrice={snap.quote.c || snap.quote.pc || 0}
+          mode={mode}
+          onSetMode={(m) => navigate({ search: (p: any) => ({ ...p, mode: m }), replace: true })}
+          holdBars={holdBars}
+          onSetHold={(h) => navigate({ search: (p: any) => ({ ...p, hold: h }), replace: true })}
+          onLoadSymbol={(s) => { setPending(s); load(s); }}
+          watchlist={watchlist as string[]}
+          overlays={overlayLines}
+          onSetOverlays={setOverlayLines}
+          onRunMC={runMC}
+          mcRunning={mcRunning}
+          onRunTune={runTune}
+          tuning={!!tuneProgress}
+          newsFilter={newsFilter}
+          onSetNewsFilter={setNewsFilter}
+        />
+      )}
     </div>
   );
 }
