@@ -838,7 +838,10 @@ function AnalyzerPage() {
                     />
                     <Tooltip
                       labelFormatter={(t) => format(Number(t), "MMM d, yyyy")}
-                      formatter={(val: any, name: string) => (name === "c" ? [fmtMoney(Number(val)), "Close"] : null)}
+                      formatter={(val: any, name: string) => {
+                        const map: Record<string, string> = { c: "Close", h: "High", l: "Low" };
+                        return [fmtMoney(Number(val)), map[name] ?? name];
+                      }}
                       contentStyle={{ background: "hsl(var(--background))", border: "1px solid hsl(var(--border))" }}
                     />
                     <Area type="monotone" dataKey="h" stroke="none" fill="hsl(var(--arc) / 0.05)" />
