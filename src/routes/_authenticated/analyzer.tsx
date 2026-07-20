@@ -73,6 +73,7 @@ import { scoreNewsSentiment, type NewsSentimentResult } from "@/lib/news-sentime
 import { type AnalyzerPrefs } from "@/lib/analyzer-prefs.functions";
 import { Badge } from "@/components/ui/badge";
 import { Swords, Dice5 } from "lucide-react";
+import { JarvisAnalyzerDock } from "@/components/jarvis/JarvisAnalyzerDock";
 
 const SearchSchema = z.object({
   symbol: z.string().optional(),
@@ -340,6 +341,7 @@ function AnalyzerPage() {
   const [mcHorizon, setMcHorizon] = useState(20);
   const [mcRunning, setMcRunning] = useState(false);
   const [newsSent, setNewsSent] = useState<NewsSentimentResult | null>(null);
+  const [newsFilter, setNewsFilter] = useState<"all" | "pos" | "neg" | "neu">("all");
   const scoreNewsFn = useServerFn(scoreNewsSentiment);
 
   const WAR_SECTORS = ["defense", "aerospace", "energy", "oil", "gas", "mining", "metals", "commodit"];
@@ -836,7 +838,10 @@ function AnalyzerPage() {
                     />
                     <Tooltip
                       labelFormatter={(t) => format(Number(t), "MMM d, yyyy")}
-                      formatter={(val: any, name: string) => (name === "c" ? [fmtMoney(Number(val)), "Close"] : null)}
+                      formatter={(val: any, name: string) => {
+                        const map: Record<string, string> = { c: "Close", h: "High", l: "Low" };
+                        return [fmtMoney(Number(val)), map[name] ?? name];
+                      }}
                       contentStyle={{ background: "hsl(var(--background))", border: "1px solid hsl(var(--border))" }}
                     />
                     <Area type="monotone" dataKey="h" stroke="none" fill="hsl(var(--arc) / 0.05)" />
@@ -1083,20 +1088,18 @@ function AnalyzerPage() {
             <Panel
               title="Backtest"
               icon={<Activity size={14} />}
-              actions={
-                <div className="flex items-center gap-3">
-                  <span className="text-xs text-muted-foreground">Hold {holdBars}d</span>
-                  <Slider
-                    value={[holdBars]}
-                    min={1}
-                    max={20}
-                    step={1}
-                    onValueChange={(v) => navigate({ search: (p: any) => ({ ...p, hold: v[0] }), replace: true })}
-                    className="w-32"
-                  />
-                </div>
-              }
             >
+              <div className="flex items-center gap-3 mb-3 pb-3 border-b border-arc/10">
+                <span className="text-xs text-muted-foreground shrink-0 font-mono">Hold period · {holdBars}d</span>
+                <Slider
+                  value={[holdBars]}
+                  min={1}
+                  max={20}
+                  step={1}
+                  onValueChange={(v) => navigate({ search: (p: any) => ({ ...p, hold: v[0] }), replace: true })}
+                  className="flex-1 max-w-xs"
+                />
+              </div>
               {backtestTuned && backtestDefault && (
                 <>
                   <div className="grid grid-cols-2 md:grid-cols-5 gap-2 mb-3">
@@ -1393,6 +1396,15 @@ function AnalyzerPage() {
             <Panel title="News × Patterns" icon={<Newspaper size={14} />}>
               <div className="grid gap-2 md:grid-cols-2">
                 {newsLinks
+                  .map((l) => ({
+                    ...l,
+                    matched: l.matched.filter((m) =>
+                      newsFilter === "all" ? true :
+                      newsFilter === "pos" ? m.sentiment === "positive" :
+                      newsFilter === "neg" ? m.sentiment === "negative" :
+                      m.sentiment === "neutral",
+                    ),
+                  }))
                   .filter((l) => l.matched.length)
                   .slice(-6)
                   .reverse()
@@ -1438,6 +1450,26 @@ function AnalyzerPage() {
           </>
         )}
       </div>
+      {snap && (
+        <JarvisAnalyzerDock
+          symbol={snap.symbol}
+          currentPrice={snap.quote.c || snap.quote.pc || 0}
+          mode={mode}
+          onSetMode={(m) => navigate({ search: (p: any) => ({ ...p, mode: m }), replace: true })}
+          holdBars={holdBars}
+          onSetHold={(h) => navigate({ search: (p: any) => ({ ...p, hold: h }), replace: true })}
+          onLoadSymbol={(s) => { setPending(s); load(s); }}
+          watchlist={watchlist as string[]}
+          overlays={overlayLines}
+          onSetOverlays={setOverlayLines}
+          onRunMC={runMC}
+          mcRunning={mcRunning}
+          onRunTune={runTune}
+          tuning={!!tuneProgress}
+          newsFilter={newsFilter}
+          onSetNewsFilter={setNewsFilter}
+        />
+      )}
     </div>
   );
 }
