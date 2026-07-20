@@ -1088,20 +1088,18 @@ function AnalyzerPage() {
             <Panel
               title="Backtest"
               icon={<Activity size={14} />}
-              actions={
-                <div className="flex items-center gap-3">
-                  <span className="text-xs text-muted-foreground">Hold {holdBars}d</span>
-                  <Slider
-                    value={[holdBars]}
-                    min={1}
-                    max={20}
-                    step={1}
-                    onValueChange={(v) => navigate({ search: (p: any) => ({ ...p, hold: v[0] }), replace: true })}
-                    className="w-32"
-                  />
-                </div>
-              }
             >
+              <div className="flex items-center gap-3 mb-3 pb-3 border-b border-arc/10">
+                <span className="text-xs text-muted-foreground shrink-0 font-mono">Hold period · {holdBars}d</span>
+                <Slider
+                  value={[holdBars]}
+                  min={1}
+                  max={20}
+                  step={1}
+                  onValueChange={(v) => navigate({ search: (p: any) => ({ ...p, hold: v[0] }), replace: true })}
+                  className="flex-1 max-w-xs"
+                />
+              </div>
               {backtestTuned && backtestDefault && (
                 <>
                   <div className="grid grid-cols-2 md:grid-cols-5 gap-2 mb-3">
