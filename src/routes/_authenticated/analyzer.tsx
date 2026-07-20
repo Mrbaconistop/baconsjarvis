@@ -1396,6 +1396,15 @@ function AnalyzerPage() {
             <Panel title="News × Patterns" icon={<Newspaper size={14} />}>
               <div className="grid gap-2 md:grid-cols-2">
                 {newsLinks
+                  .map((l) => ({
+                    ...l,
+                    matched: l.matched.filter((m) =>
+                      newsFilter === "all" ? true :
+                      newsFilter === "pos" ? m.sentiment === "positive" :
+                      newsFilter === "neg" ? m.sentiment === "negative" :
+                      m.sentiment === "neutral",
+                    ),
+                  }))
                   .filter((l) => l.matched.length)
                   .slice(-6)
                   .reverse()
