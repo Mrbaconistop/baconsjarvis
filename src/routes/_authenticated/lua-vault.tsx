@@ -119,54 +119,15 @@ function LuaVaultPage() {
     [addSnippet],
   );
 
-  // Autocomplete provider — reads latest snippets via ref
-  useEffect(() => {
-    if (!monacoRef.current) return;
-    const monaco = monacoRef.current;
-    const disp = monaco.languages.registerCompletionItemProvider(["lua", "plaintext"], {
-      triggerCharacters: [".", ":", "_"],
-      provideCompletionItems: (model, position) => {
-        const word = model.getWordUntilPosition(position);
-        const range = {
-          startLineNumber: position.lineNumber,
-          endLineNumber: position.lineNumber,
-          startColumn: word.startColumn,
-          endColumn: word.endColumn,
-        };
-        const prefix = word.word.toLowerCase();
-        const seen = new Map<string, { label: string; from: string }>();
-        const idRe = /\b([A-Za-z_][A-Za-z0-9_]{1,})\b/g;
-        for (const s of snippetsRef.current) {
-          let m: RegExpExecArray | null;
-          while ((m = idRe.exec(s.code))) {
-            const name = m[1];
-            if (name.length < 2) continue;
-            if (prefix && !name.toLowerCase().startsWith(prefix)) continue;
-            const key = `${name}::${s.id}`;
-            if (!seen.has(key)) seen.set(key, { label: name, from: s.title });
-            if (seen.size > 400) break;
-          }
-        }
-        const suggestions = Array.from(seen.values()).map((v) => ({
-          label: { label: v.label, description: `from: ${v.from}` },
-          kind: monaco.languages.CompletionItemKind.Function,
-          insertText: v.label,
-          detail: `from: ${v.from}`,
-          range,
-        }));
-        return { suggestions };
-      },
-    });
-    return () => disp.dispose();
-  }, []);
-
   const onEditorMount = (ed: MonacoEditor.IStandaloneCodeEditor, monaco: Monaco) => {
     editorRef.current = ed;
     monacoRef.current = monaco;
-    // trigger the effect above by forcing re-run
-    const disp = monaco.languages.registerCompletionItemProvider(["lua", "plaintext"], {
+    const provider = {
       triggerCharacters: [".", ":", "_"],
-      provideCompletionItems: (model, position) => {
+      provideCompletionItems: (
+        model: MonacoEditor.ITextModel,
+        position: { lineNumber: number; column: number },
+      ) => {
         const word = model.getWordUntilPosition(position);
         const range = {
           startLineNumber: position.lineNumber,
@@ -198,8 +159,13 @@ function LuaVaultPage() {
           })),
         };
       },
+    };
+    const d1 = monaco.languages.registerCompletionItemProvider("lua", provider);
+    const d2 = monaco.languages.registerCompletionItemProvider("plaintext", provider);
+    ed.onDidDispose(() => {
+      d1.dispose();
+      d2.dispose();
     });
-    ed.onDidDispose(() => disp.dispose());
   };
 
   const gotoHit = (snippetId: string, line: number) => {
