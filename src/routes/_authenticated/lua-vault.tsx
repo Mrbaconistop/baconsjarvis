@@ -306,7 +306,7 @@ function LuaVaultPage() {
           <div>
             <div className="font-semibold text-white">Lua Vault</div>
             <div className="text-xs text-white/60">
-              Drop <code>.lua</code> / <code>.txt</code> files here, or click to browse
+              Drop <code>.lua</code> / <code>.txt</code> to add · <code>.json</code> to restore a vault
             </div>
           </div>
         </div>
