@@ -17,6 +17,7 @@ import {
   Menu,
   X,
   Sparkles,
+  FileCode,
 } from "lucide-react";
 import { applyThemeOverrides, readThemeOverrides, writeThemeOverrides, resetTheme } from "@/lib/theme";
 import { supabase } from "@/integrations/supabase/client";
@@ -35,6 +36,7 @@ const NAV = [
   { to: "/chat", label: "Chat", icon: MessageSquare, tag: "01" },
   { to: "/time", label: "Time & Tasks", icon: Clock, tag: "02" },
   { to: "/vault", label: "Vault", icon: KeyRound, tag: "03" },
+  { to: "/lua-vault", label: "Lua Vault", icon: FileCode, tag: "04" },
   
   { to: "/analyzer", label: "Analyzer", icon: Activity, tag: "13" },
   { to: "/briefing", label: "Briefing", icon: Bell, tag: "05" },
