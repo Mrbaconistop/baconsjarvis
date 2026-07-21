@@ -321,6 +321,14 @@ function LuaVaultPage() {
             <Plus size={14} /> New snippet
           </button>
           <button
+            onClick={exportAll}
+            disabled={snippets.length === 0}
+            className="inline-flex items-center gap-1.5 text-xs px-3 py-2 rounded bg-white/10 text-white hover:bg-white/20 disabled:opacity-40"
+            title="Download vault.json"
+          >
+            <Download size={14} /> Export All
+          </button>
+          <button
             disabled
             className="inline-flex items-center gap-1.5 text-xs px-3 py-2 rounded bg-white/5 text-white/40 cursor-not-allowed"
             title="Reserved for future"
@@ -332,7 +340,7 @@ function LuaVaultPage() {
           ref={fileInputRef}
           type="file"
           multiple
-          accept=".lua,.txt"
+          accept=".lua,.txt,.json"
           className="hidden"
           onChange={(e) => {
             if (e.target.files?.length) handleFiles(e.target.files);
