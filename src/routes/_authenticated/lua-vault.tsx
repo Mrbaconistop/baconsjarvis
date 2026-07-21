@@ -143,21 +143,61 @@ function LuaVaultPage() {
     return entry;
   }, []);
 
+  const importJson = useCallback(async (file: File) => {
+    try {
+      const parsed = JSON.parse(await file.text());
+      const incoming: Snippet[] = Array.isArray(parsed) ? parsed : parsed?.snippets;
+      if (!Array.isArray(incoming)) throw new Error("Invalid vault.json");
+      const normalized: Snippet[] = incoming
+        .filter((s) => s && typeof s.code === "string")
+        .map((s) => ({
+          id: s.id || uid(),
+          title: String(s.title ?? "Untitled"),
+          description: String(s.description ?? ""),
+          code: String(s.code ?? ""),
+          language: String(s.language ?? "lua"),
+          createdAt: Number(s.createdAt ?? Date.now()),
+        }));
+      setSnippets((prev) => {
+        const existing = new Set(prev.map((s) => s.id));
+        return [...normalized.filter((s) => !existing.has(s.id)), ...prev];
+      });
+      toast.success(`Imported ${normalized.length} snippet${normalized.length === 1 ? "" : "s"}`);
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to import JSON");
+    }
+  }, []);
+
   const handleFiles = useCallback(
     async (files: FileList | File[]) => {
       const arr = Array.from(files);
-      const bad = arr.filter((f) => !ACCEPTED.test(f.name));
-      const good = arr.filter((f) => ACCEPTED.test(f.name));
-      if (bad.length) toast.error(`Rejected: ${bad.map((f) => f.name).join(", ")} (only .lua / .txt)`);
-      for (const f of good) {
+      const json = arr.filter((f) => /\.json$/i.test(f.name));
+      const code = arr.filter((f) => ACCEPTED_CODE.test(f.name));
+      const bad = arr.filter((f) => !ACCEPTED_CODE.test(f.name) && !/\.json$/i.test(f.name));
+      if (bad.length) toast.error(`Rejected: ${bad.map((f) => f.name).join(", ")} (only .lua / .txt / .json)`);
+      for (const f of json) await importJson(f);
+      for (const f of code) {
         const text = await f.text();
         const language = /\.lua$/i.test(f.name) ? "lua" : "plaintext";
         addSnippet({ title: f.name.replace(/\.(lua|txt)$/i, ""), description: `Uploaded ${f.name}`, code: text, language });
       }
-      if (good.length) toast.success(`Loaded ${good.length} file${good.length > 1 ? "s" : ""}`);
+      if (code.length) toast.success(`Loaded ${code.length} file${code.length > 1 ? "s" : ""}`);
     },
-    [addSnippet],
+    [addSnippet, importJson],
   );
+
+  const exportAll = useCallback(() => {
+    const blob = new Blob(
+      [JSON.stringify({ snippets: snippetsRef.current, exportedAt: Date.now() }, null, 2)],
+      { type: "application/json" },
+    );
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `vault-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, []);
 
   const onEditorMount = (ed: MonacoEditor.IStandaloneCodeEditor, monaco: Monaco) => {
     editorRef.current = ed;
