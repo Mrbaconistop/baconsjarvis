@@ -17,6 +17,7 @@ import {
   Menu,
   X,
   Sparkles,
+  FileCode,
 } from "lucide-react";
 import { applyThemeOverrides, readThemeOverrides, writeThemeOverrides, resetTheme } from "@/lib/theme";
 import { supabase } from "@/integrations/supabase/client";
