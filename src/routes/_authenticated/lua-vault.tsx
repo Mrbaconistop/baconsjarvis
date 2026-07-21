@@ -3,7 +3,47 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Editor, { type Monaco, loader } from "@monaco-editor/react";
 import type { editor as MonacoEditor } from "monaco-editor";
 import { toast } from "sonner";
-import { Upload, Plus, Search, Trash2, FileCode, Play } from "lucide-react";
+import { Upload, Plus, Search, Trash2, FileCode, Play, Download } from "lucide-react";
+
+const LUAU_GLOBALS: { label: string; detail: string; doc?: string }[] = [
+  { label: "game", detail: "DataModel", doc: "Root of the Roblox instance tree." },
+  { label: "workspace", detail: "Workspace", doc: "Shortcut for game.Workspace." },
+  { label: "script", detail: "LuaSourceContainer" },
+  { label: "wait", detail: "function(seconds)" },
+  { label: "task", detail: "task library (spawn, wait, delay, defer)" },
+  { label: "Players", detail: "game:GetService('Players')" },
+  { label: "ReplicatedStorage", detail: "game:GetService('ReplicatedStorage')" },
+  { label: "ServerStorage", detail: "game:GetService('ServerStorage')" },
+  { label: "ServerScriptService", detail: "game:GetService('ServerScriptService')" },
+  { label: "StarterGui", detail: "game:GetService('StarterGui')" },
+  { label: "StarterPlayer", detail: "game:GetService('StarterPlayer')" },
+  { label: "RunService", detail: "game:GetService('RunService')" },
+  { label: "UserInputService", detail: "game:GetService('UserInputService')" },
+  { label: "TweenService", detail: "game:GetService('TweenService')" },
+  { label: "HttpService", detail: "game:GetService('HttpService')" },
+  { label: "Lighting", detail: "game:GetService('Lighting')" },
+  { label: "Debris", detail: "game:GetService('Debris')" },
+  { label: "MarketplaceService", detail: "game:GetService('MarketplaceService')" },
+  { label: "DataStoreService", detail: "game:GetService('DataStoreService')" },
+  { label: "PathfindingService", detail: "game:GetService('PathfindingService')" },
+  { label: "CollectionService", detail: "game:GetService('CollectionService')" },
+  { label: "SoundService", detail: "game:GetService('SoundService')" },
+  { label: "Instance", detail: "Instance.new(className, parent)" },
+  { label: "Vector3", detail: "Vector3.new(x, y, z)" },
+  { label: "Vector2", detail: "Vector2.new(x, y)" },
+  { label: "CFrame", detail: "CFrame.new(...)" },
+  { label: "Color3", detail: "Color3.fromRGB(r, g, b)" },
+  { label: "UDim2", detail: "UDim2.new(xs, xo, ys, yo)" },
+  { label: "UDim", detail: "UDim.new(scale, offset)" },
+  { label: "Enum", detail: "Roblox Enum namespace" },
+  { label: "Ray", detail: "Ray.new(origin, direction)" },
+  { label: "BrickColor", detail: "BrickColor.new(name)" },
+  { label: "TweenInfo", detail: "TweenInfo.new(...)" },
+  { label: "typeof", detail: "function(value)" },
+  { label: "tick", detail: "function() -> number" },
+  { label: "print", detail: "function(...)" },
+  { label: "warn", detail: "function(...)" },
+];
 
 export const Route = createFileRoute("/_authenticated/lua-vault")({
   ssr: false,
@@ -20,7 +60,7 @@ type Snippet = {
 };
 
 const KEY = "lua-vault.snippets.v1";
-const ACCEPTED = /\.(lua|txt)$/i;
+const ACCEPTED_CODE = /\.(lua|txt)$/i;
 
 function loadAll(): Snippet[] {
   try {
@@ -103,21 +143,61 @@ function LuaVaultPage() {
     return entry;
   }, []);
 
+  const importJson = useCallback(async (file: File) => {
+    try {
+      const parsed = JSON.parse(await file.text());
+      const incoming: Snippet[] = Array.isArray(parsed) ? parsed : parsed?.snippets;
+      if (!Array.isArray(incoming)) throw new Error("Invalid vault.json");
+      const normalized: Snippet[] = incoming
+        .filter((s) => s && typeof s.code === "string")
+        .map((s) => ({
+          id: s.id || uid(),
+          title: String(s.title ?? "Untitled"),
+          description: String(s.description ?? ""),
+          code: String(s.code ?? ""),
+          language: String(s.language ?? "lua"),
+          createdAt: Number(s.createdAt ?? Date.now()),
+        }));
+      setSnippets((prev) => {
+        const existing = new Set(prev.map((s) => s.id));
+        return [...normalized.filter((s) => !existing.has(s.id)), ...prev];
+      });
+      toast.success(`Imported ${normalized.length} snippet${normalized.length === 1 ? "" : "s"}`);
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to import JSON");
+    }
+  }, []);
+
   const handleFiles = useCallback(
     async (files: FileList | File[]) => {
       const arr = Array.from(files);
-      const bad = arr.filter((f) => !ACCEPTED.test(f.name));
-      const good = arr.filter((f) => ACCEPTED.test(f.name));
-      if (bad.length) toast.error(`Rejected: ${bad.map((f) => f.name).join(", ")} (only .lua / .txt)`);
-      for (const f of good) {
+      const json = arr.filter((f) => /\.json$/i.test(f.name));
+      const code = arr.filter((f) => ACCEPTED_CODE.test(f.name));
+      const bad = arr.filter((f) => !ACCEPTED_CODE.test(f.name) && !/\.json$/i.test(f.name));
+      if (bad.length) toast.error(`Rejected: ${bad.map((f) => f.name).join(", ")} (only .lua / .txt / .json)`);
+      for (const f of json) await importJson(f);
+      for (const f of code) {
         const text = await f.text();
         const language = /\.lua$/i.test(f.name) ? "lua" : "plaintext";
         addSnippet({ title: f.name.replace(/\.(lua|txt)$/i, ""), description: `Uploaded ${f.name}`, code: text, language });
       }
-      if (good.length) toast.success(`Loaded ${good.length} file${good.length > 1 ? "s" : ""}`);
+      if (code.length) toast.success(`Loaded ${code.length} file${code.length > 1 ? "s" : ""}`);
     },
-    [addSnippet],
+    [addSnippet, importJson],
   );
+
+  const exportAll = useCallback(() => {
+    const blob = new Blob(
+      [JSON.stringify({ snippets: snippetsRef.current, exportedAt: Date.now() }, null, 2)],
+      { type: "application/json" },
+    );
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `vault-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, []);
 
   const onEditorMount = (ed: MonacoEditor.IStandaloneCodeEditor, monaco: Monaco) => {
     editorRef.current = ed;
@@ -149,15 +229,25 @@ function LuaVaultPage() {
             if (seen.size > 400) break;
           }
         }
-        return {
-          suggestions: Array.from(seen.values()).map((v) => ({
-            label: { label: v.label, description: `from: ${v.from}` },
-            kind: monaco.languages.CompletionItemKind.Function,
-            insertText: v.label,
-            detail: `from: ${v.from}`,
+        const suggestions = Array.from(seen.values()).map((v) => ({
+          label: { label: v.label, description: `from: ${v.from}` },
+          kind: monaco.languages.CompletionItemKind.Function,
+          insertText: v.label,
+          detail: `from: ${v.from}`,
+          range,
+        }));
+        for (const g of LUAU_GLOBALS) {
+          if (prefix && !g.label.toLowerCase().startsWith(prefix)) continue;
+          suggestions.push({
+            label: { label: g.label, description: "Roblox Luau" },
+            kind: monaco.languages.CompletionItemKind.Module,
+            insertText: g.label,
+            detail: g.detail,
+            documentation: g.doc,
             range,
-          })),
-        };
+          } as any);
+        }
+        return { suggestions };
       },
     };
     const d1 = monaco.languages.registerCompletionItemProvider("lua", provider);
@@ -216,7 +306,7 @@ function LuaVaultPage() {
           <div>
             <div className="font-semibold text-white">Lua Vault</div>
             <div className="text-xs text-white/60">
-              Drop <code>.lua</code> / <code>.txt</code> files here, or click to browse
+              Drop <code>.lua</code> / <code>.txt</code> to add · <code>.json</code> to restore a vault
             </div>
           </div>
         </div>
@@ -231,6 +321,14 @@ function LuaVaultPage() {
             <Plus size={14} /> New snippet
           </button>
           <button
+            onClick={exportAll}
+            disabled={snippets.length === 0}
+            className="inline-flex items-center gap-1.5 text-xs px-3 py-2 rounded bg-white/10 text-white hover:bg-white/20 disabled:opacity-40"
+            title="Download vault.json"
+          >
+            <Download size={14} /> Export All
+          </button>
+          <button
             disabled
             className="inline-flex items-center gap-1.5 text-xs px-3 py-2 rounded bg-white/5 text-white/40 cursor-not-allowed"
             title="Reserved for future"
@@ -242,7 +340,7 @@ function LuaVaultPage() {
           ref={fileInputRef}
           type="file"
           multiple
-          accept=".lua,.txt"
+          accept=".lua,.txt,.json"
           className="hidden"
           onChange={(e) => {
             if (e.target.files?.length) handleFiles(e.target.files);
