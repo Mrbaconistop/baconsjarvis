@@ -3,7 +3,47 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Editor, { type Monaco, loader } from "@monaco-editor/react";
 import type { editor as MonacoEditor } from "monaco-editor";
 import { toast } from "sonner";
-import { Upload, Plus, Search, Trash2, FileCode, Play } from "lucide-react";
+import { Upload, Plus, Search, Trash2, FileCode, Play, Download } from "lucide-react";
+
+const LUAU_GLOBALS: { label: string; detail: string; doc?: string }[] = [
+  { label: "game", detail: "DataModel", doc: "Root of the Roblox instance tree." },
+  { label: "workspace", detail: "Workspace", doc: "Shortcut for game.Workspace." },
+  { label: "script", detail: "LuaSourceContainer" },
+  { label: "wait", detail: "function(seconds)" },
+  { label: "task", detail: "task library (spawn, wait, delay, defer)" },
+  { label: "Players", detail: "game:GetService('Players')" },
+  { label: "ReplicatedStorage", detail: "game:GetService('ReplicatedStorage')" },
+  { label: "ServerStorage", detail: "game:GetService('ServerStorage')" },
+  { label: "ServerScriptService", detail: "game:GetService('ServerScriptService')" },
+  { label: "StarterGui", detail: "game:GetService('StarterGui')" },
+  { label: "StarterPlayer", detail: "game:GetService('StarterPlayer')" },
+  { label: "RunService", detail: "game:GetService('RunService')" },
+  { label: "UserInputService", detail: "game:GetService('UserInputService')" },
+  { label: "TweenService", detail: "game:GetService('TweenService')" },
+  { label: "HttpService", detail: "game:GetService('HttpService')" },
+  { label: "Lighting", detail: "game:GetService('Lighting')" },
+  { label: "Debris", detail: "game:GetService('Debris')" },
+  { label: "MarketplaceService", detail: "game:GetService('MarketplaceService')" },
+  { label: "DataStoreService", detail: "game:GetService('DataStoreService')" },
+  { label: "PathfindingService", detail: "game:GetService('PathfindingService')" },
+  { label: "CollectionService", detail: "game:GetService('CollectionService')" },
+  { label: "SoundService", detail: "game:GetService('SoundService')" },
+  { label: "Instance", detail: "Instance.new(className, parent)" },
+  { label: "Vector3", detail: "Vector3.new(x, y, z)" },
+  { label: "Vector2", detail: "Vector2.new(x, y)" },
+  { label: "CFrame", detail: "CFrame.new(...)" },
+  { label: "Color3", detail: "Color3.fromRGB(r, g, b)" },
+  { label: "UDim2", detail: "UDim2.new(xs, xo, ys, yo)" },
+  { label: "UDim", detail: "UDim.new(scale, offset)" },
+  { label: "Enum", detail: "Roblox Enum namespace" },
+  { label: "Ray", detail: "Ray.new(origin, direction)" },
+  { label: "BrickColor", detail: "BrickColor.new(name)" },
+  { label: "TweenInfo", detail: "TweenInfo.new(...)" },
+  { label: "typeof", detail: "function(value)" },
+  { label: "tick", detail: "function() -> number" },
+  { label: "print", detail: "function(...)" },
+  { label: "warn", detail: "function(...)" },
+];
 
 export const Route = createFileRoute("/_authenticated/lua-vault")({
   ssr: false,
