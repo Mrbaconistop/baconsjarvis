@@ -189,15 +189,25 @@ function LuaVaultPage() {
             if (seen.size > 400) break;
           }
         }
-        return {
-          suggestions: Array.from(seen.values()).map((v) => ({
-            label: { label: v.label, description: `from: ${v.from}` },
-            kind: monaco.languages.CompletionItemKind.Function,
-            insertText: v.label,
-            detail: `from: ${v.from}`,
+        const suggestions = Array.from(seen.values()).map((v) => ({
+          label: { label: v.label, description: `from: ${v.from}` },
+          kind: monaco.languages.CompletionItemKind.Function,
+          insertText: v.label,
+          detail: `from: ${v.from}`,
+          range,
+        }));
+        for (const g of LUAU_GLOBALS) {
+          if (prefix && !g.label.toLowerCase().startsWith(prefix)) continue;
+          suggestions.push({
+            label: { label: g.label, description: "Roblox Luau" },
+            kind: monaco.languages.CompletionItemKind.Module,
+            insertText: g.label,
+            detail: g.detail,
+            documentation: g.doc,
             range,
-          })),
-        };
+          } as any);
+        }
+        return { suggestions };
       },
     };
     const d1 = monaco.languages.registerCompletionItemProvider("lua", provider);
