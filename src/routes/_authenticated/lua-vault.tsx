@@ -60,7 +60,7 @@ type Snippet = {
 };
 
 const KEY = "lua-vault.snippets.v1";
-const ACCEPTED = /\.(lua|txt)$/i;
+const ACCEPTED_CODE = /\.(lua|txt)$/i;
 
 function loadAll(): Snippet[] {
   try {
