@@ -37,6 +37,8 @@ const NAV = [
   { to: "/time", label: "Time & Tasks", icon: Clock, tag: "02" },
   { to: "/vault", label: "Vault", icon: KeyRound, tag: "03" },
   { to: "/lua-vault", label: "Lua Vault", icon: FileCode, tag: "04" },
+  { to: "/lua-lab", label: "Lua Lab", icon: Sparkles, tag: "14" },
+
   
   { to: "/analyzer", label: "Analyzer", icon: Activity, tag: "13" },
   { to: "/briefing", label: "Briefing", icon: Bell, tag: "05" },
