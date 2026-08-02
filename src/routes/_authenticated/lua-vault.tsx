@@ -546,5 +546,3 @@ function LuaVaultPage() {
   );
 }
 
-// Silence unused loader import in some bundler configs
-void loader;
