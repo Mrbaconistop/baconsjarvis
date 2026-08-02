@@ -4,7 +4,6 @@ import Editor, { type Monaco } from "@monaco-editor/react";
 import type { editor as MonacoEditor } from "monaco-editor";
 import { setupMonaco } from "@/lib/monaco-setup";
 
-setupMonaco();
 
 import { toast } from "sonner";
 import { Upload, Plus, Search, Trash2, FileCode, Play, Download } from "lucide-react";
