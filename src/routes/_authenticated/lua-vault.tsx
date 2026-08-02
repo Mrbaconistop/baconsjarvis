@@ -1,7 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Editor, { type Monaco, loader } from "@monaco-editor/react";
+import Editor, { type Monaco } from "@monaco-editor/react";
 import type { editor as MonacoEditor } from "monaco-editor";
+import { setupMonaco } from "@/lib/monaco-setup";
+
+
 import { toast } from "sonner";
 import { Upload, Plus, Search, Trash2, FileCode, Play, Download } from "lucide-react";
 
@@ -96,11 +99,23 @@ function LuaVaultPage() {
   const monacoRef = useRef<Monaco | null>(null);
   const snippetsRef = useRef<Snippet[]>(snippets);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [monacoReady, setMonacoReady] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setupMonaco()
+      .then(() => !cancelled && setMonacoReady(true))
+      .catch(() => !cancelled && setMonacoReady(true));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     snippetsRef.current = snippets;
     saveAll(snippets);
   }, [snippets]);
+
 
   useEffect(() => {
     if (!activeId && snippets.length > 0) setActiveId(snippets[0].id);
@@ -421,22 +436,32 @@ function LuaVaultPage() {
                 </button>
               </div>
               <div className="flex-1 min-h-0">
-                <Editor
-                  height="100%"
-                  theme="vs-dark"
-                  language={active.language}
-                  value={active.code}
-                  onChange={(v) => updateActive({ code: v ?? "" })}
-                  onMount={onEditorMount}
-                  options={{
-                    minimap: { enabled: false },
-                    fontSize: 13,
-                    tabSize: 2,
-                    automaticLayout: true,
-                    scrollBeyondLastLine: false,
-                  }}
-                />
+                {monacoReady ? (
+                  <Editor
+                    height="100%"
+                    theme="vs-dark"
+                    language={active.language}
+                    value={active.code}
+                    onChange={(v) => updateActive({ code: v ?? "" })}
+                    onMount={onEditorMount}
+                    options={{
+                      minimap: { enabled: false },
+                      fontSize: 13,
+                      tabSize: 2,
+                      automaticLayout: true,
+                      scrollBeyondLastLine: false,
+                    }}
+                  />
+                ) : (
+                  <textarea
+                    value={active.code}
+                    onChange={(e) => updateActive({ code: e.target.value })}
+                    spellCheck={false}
+                    className="w-full h-full bg-[#1e1e1e] text-[#d4d4d4] font-mono text-[13px] p-3 focus:outline-none resize-none"
+                  />
+                )}
               </div>
+
             </>
           ) : (
             <div className="flex-1 flex items-center justify-center text-white/40 text-sm">
@@ -542,5 +567,3 @@ function LuaVaultPage() {
   );
 }
 
-// Silence unused loader import in some bundler configs
-void loader;
