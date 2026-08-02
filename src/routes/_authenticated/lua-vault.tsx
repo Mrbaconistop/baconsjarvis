@@ -436,22 +436,32 @@ function LuaVaultPage() {
                 </button>
               </div>
               <div className="flex-1 min-h-0">
-                <Editor
-                  height="100%"
-                  theme="vs-dark"
-                  language={active.language}
-                  value={active.code}
-                  onChange={(v) => updateActive({ code: v ?? "" })}
-                  onMount={onEditorMount}
-                  options={{
-                    minimap: { enabled: false },
-                    fontSize: 13,
-                    tabSize: 2,
-                    automaticLayout: true,
-                    scrollBeyondLastLine: false,
-                  }}
-                />
+                {monacoReady ? (
+                  <Editor
+                    height="100%"
+                    theme="vs-dark"
+                    language={active.language}
+                    value={active.code}
+                    onChange={(v) => updateActive({ code: v ?? "" })}
+                    onMount={onEditorMount}
+                    options={{
+                      minimap: { enabled: false },
+                      fontSize: 13,
+                      tabSize: 2,
+                      automaticLayout: true,
+                      scrollBeyondLastLine: false,
+                    }}
+                  />
+                ) : (
+                  <textarea
+                    value={active.code}
+                    onChange={(e) => updateActive({ code: e.target.value })}
+                    spellCheck={false}
+                    className="w-full h-full bg-[#1e1e1e] text-[#d4d4d4] font-mono text-[13px] p-3 focus:outline-none resize-none"
+                  />
+                )}
               </div>
+
             </>
           ) : (
             <div className="flex-1 flex items-center justify-center text-white/40 text-sm">
