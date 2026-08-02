@@ -99,11 +99,23 @@ function LuaVaultPage() {
   const monacoRef = useRef<Monaco | null>(null);
   const snippetsRef = useRef<Snippet[]>(snippets);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [monacoReady, setMonacoReady] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setupMonaco()
+      .then(() => !cancelled && setMonacoReady(true))
+      .catch(() => !cancelled && setMonacoReady(true));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     snippetsRef.current = snippets;
     saveAll(snippets);
   }, [snippets]);
+
 
   useEffect(() => {
     if (!activeId && snippets.length > 0) setActiveId(snippets[0].id);
