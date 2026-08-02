@@ -23,6 +23,7 @@ import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticat
 import { Route as AuthenticatedPulseRouteImport } from './routes/_authenticated/pulse'
 import { Route as AuthenticatedMapRouteImport } from './routes/_authenticated/map'
 import { Route as AuthenticatedLuaVaultRouteImport } from './routes/_authenticated/lua-vault'
+import { Route as AuthenticatedLuaLabRouteImport } from './routes/_authenticated/lua-lab'
 import { Route as AuthenticatedLabRouteImport } from './routes/_authenticated/lab'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
 import { Route as AuthenticatedBriefingRouteImport } from './routes/_authenticated/briefing'
@@ -106,6 +107,11 @@ const AuthenticatedMapRoute = AuthenticatedMapRouteImport.update({
 const AuthenticatedLuaVaultRoute = AuthenticatedLuaVaultRouteImport.update({
   id: '/lua-vault',
   path: '/lua-vault',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedLuaLabRoute = AuthenticatedLuaLabRouteImport.update({
+  id: '/lua-lab',
+  path: '/lua-lab',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
 const AuthenticatedLabRoute = AuthenticatedLabRouteImport.update({
@@ -203,6 +209,7 @@ export interface FileRoutesByFullPath {
   '/briefing': typeof AuthenticatedBriefingRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/lab': typeof AuthenticatedLabRoute
+  '/lua-lab': typeof AuthenticatedLuaLabRoute
   '/lua-vault': typeof AuthenticatedLuaVaultRoute
   '/map': typeof AuthenticatedMapRoute
   '/pulse': typeof AuthenticatedPulseRoute
@@ -233,6 +240,7 @@ export interface FileRoutesByTo {
   '/briefing': typeof AuthenticatedBriefingRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/lab': typeof AuthenticatedLabRoute
+  '/lua-lab': typeof AuthenticatedLuaLabRoute
   '/lua-vault': typeof AuthenticatedLuaVaultRoute
   '/map': typeof AuthenticatedMapRoute
   '/pulse': typeof AuthenticatedPulseRoute
@@ -265,6 +273,7 @@ export interface FileRoutesById {
   '/_authenticated/briefing': typeof AuthenticatedBriefingRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
   '/_authenticated/lab': typeof AuthenticatedLabRoute
+  '/_authenticated/lua-lab': typeof AuthenticatedLuaLabRoute
   '/_authenticated/lua-vault': typeof AuthenticatedLuaVaultRoute
   '/_authenticated/map': typeof AuthenticatedMapRoute
   '/_authenticated/pulse': typeof AuthenticatedPulseRoute
@@ -297,6 +306,7 @@ export interface FileRouteTypes {
     | '/briefing'
     | '/dashboard'
     | '/lab'
+    | '/lua-lab'
     | '/lua-vault'
     | '/map'
     | '/pulse'
@@ -327,6 +337,7 @@ export interface FileRouteTypes {
     | '/briefing'
     | '/dashboard'
     | '/lab'
+    | '/lua-lab'
     | '/lua-vault'
     | '/map'
     | '/pulse'
@@ -358,6 +369,7 @@ export interface FileRouteTypes {
     | '/_authenticated/briefing'
     | '/_authenticated/dashboard'
     | '/_authenticated/lab'
+    | '/_authenticated/lua-lab'
     | '/_authenticated/lua-vault'
     | '/_authenticated/map'
     | '/_authenticated/pulse'
@@ -494,6 +506,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedLuaVaultRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/lua-lab': {
+      id: '/_authenticated/lua-lab'
+      path: '/lua-lab'
+      fullPath: '/lua-lab'
+      preLoaderRoute: typeof AuthenticatedLuaLabRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/lab': {
       id: '/_authenticated/lab'
       path: '/lab'
@@ -608,6 +627,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedBriefingRoute: typeof AuthenticatedBriefingRoute
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
   AuthenticatedLabRoute: typeof AuthenticatedLabRoute
+  AuthenticatedLuaLabRoute: typeof AuthenticatedLuaLabRoute
   AuthenticatedLuaVaultRoute: typeof AuthenticatedLuaVaultRoute
   AuthenticatedMapRoute: typeof AuthenticatedMapRoute
   AuthenticatedPulseRoute: typeof AuthenticatedPulseRoute
@@ -626,6 +646,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedBriefingRoute: AuthenticatedBriefingRoute,
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
   AuthenticatedLabRoute: AuthenticatedLabRoute,
+  AuthenticatedLuaLabRoute: AuthenticatedLuaLabRoute,
   AuthenticatedLuaVaultRoute: AuthenticatedLuaVaultRoute,
   AuthenticatedMapRoute: AuthenticatedMapRoute,
   AuthenticatedPulseRoute: AuthenticatedPulseRoute,
