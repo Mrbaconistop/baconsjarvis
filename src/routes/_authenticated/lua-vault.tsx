@@ -497,7 +497,10 @@ function LuaVaultPage() {
             </div>
           </section>
         </main>
+
+        <LuaLabPanel snippets={snippets} language="luau" onSelectSnippet={(id) => setActiveId(id)} />
       </div>
+
 
       {/* Manual paste modal */}
       {showModal && (
