@@ -3,42 +3,24 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { generateText } from "ai";
 import { z } from "zod";
 import { getModelForUser } from "./ai-gateway.server";
+import { LAB_BASE, LAB_CHAT_BASE, buildLabSystem, parseSections } from "./lua-lab-prompt";
 
-const BASE = `You are JARVIS in Lua Lab — a senior Roblox Luau / Lua engineer.
+const correctionSchema = z.object({ mistake: z.string().max(500), correction: z.string().max(2000) });
 
-Output format (ALWAYS, exactly):
-###PLAN
-<3-8 short bullet lines explaining the logic and approach BEFORE any code>
-###CODE
-\`\`\`lua
-<the complete script, no placeholders>
-\`\`\`
-###NOTES
-<1-4 short lines: where the script goes (Script/LocalScript/ModuleScript), how to test it>
-
-Rules: no markdown outside those sections, no prose before ###PLAN, keep code complete and runnable.`;
-
-function buildSystem(lang: string, rules: string[], mistakes: string[]) {
-  return `${BASE}
-
-TARGET LANGUAGE: ${lang === "luau" ? "Roblox Luau (typed Lua 5.1 superset, Roblox API)" : "vanilla Lua 5.1 (no Roblox APIs)"}.
-
-ACTIVE VALIDATION RULES — the code you write MUST satisfy every one of these:
-${rules.length ? rules.map((r) => `- ${r}`).join("\n") : "- (none)"}
-
-${
-  mistakes.length
-    ? `MISTAKE MEMORY — you previously produced these issues. Do not repeat them:\n${mistakes.map((m) => `- ${m}`).join("\n")}`
-    : ""
-}`;
-}
-
-const genInput = z.object({
-  description: z.string().min(1).max(4000),
+const contextSchema = {
   language: z.enum(["lua", "luau"]),
   rules: z.array(z.string()).max(60).default([]),
   mistakes: z.array(z.string()).max(40).default([]),
+  corrections: z.array(correctionSchema).max(60).default([]),
+  knowledge: z.array(z.string().max(6000)).max(40).default([]),
+  apiRefs: z.array(z.string().max(6000)).max(40).default([]),
+  vault: z.array(z.object({ title: z.string().max(200), excerpt: z.string().max(6000) })).max(12).default([]),
+};
+
+const genInput = z.object({
+  description: z.string().min(1).max(4000),
   currentCode: z.string().max(60000).optional(),
+  ...contextSchema,
 });
 
 export const generateLuaCode = createServerFn({ method: "POST" })
@@ -53,7 +35,7 @@ export const generateLuaCode = createServerFn({ method: "POST" })
 
     const { text } = await generateText({
       model,
-      system: buildSystem(data.language, data.rules, data.mistakes),
+      system: buildLabSystem(LAB_BASE, data),
       prompt,
       temperature: 0.2,
     });
@@ -62,9 +44,8 @@ export const generateLuaCode = createServerFn({ method: "POST" })
 
 const fixInput = z.object({
   code: z.string().min(1).max(60000),
-  language: z.enum(["lua", "luau"]),
   issues: z.array(z.string()).max(60),
-  rules: z.array(z.string()).max(60).default([]),
+  ...contextSchema,
 });
 
 export const fixLuaCode = createServerFn({ method: "POST" })
@@ -75,17 +56,47 @@ export const fixLuaCode = createServerFn({ method: "POST" })
     const { model } = await getModelForUser(userId, supabase);
     const { text } = await generateText({
       model,
-      system: buildSystem(data.language, data.rules, []),
+      system: buildLabSystem(LAB_BASE, { ...data, mistakes: [] }),
       prompt: `The validator flagged these issues:\n${data.issues.map((i) => `- ${i}`).join("\n")}\n\nFix ALL of them in this script without changing its behaviour:\n\`\`\`lua\n${data.code}\n\`\`\``,
       temperature: 0.1,
     });
     return parseSections(text);
   });
 
-function parseSections(text: string) {
-  const plan = /###PLAN([\s\S]*?)(###CODE|$)/.exec(text)?.[1]?.trim() ?? "";
-  const notes = /###NOTES([\s\S]*)$/.exec(text)?.[1]?.trim() ?? "";
-  const codeBlock = /```(?:lua|luau)?\s*([\s\S]*?)```/.exec(text)?.[1];
-  const code = (codeBlock ?? /###CODE([\s\S]*?)(###NOTES|$)/.exec(text)?.[1] ?? "").trim();
-  return { plan, code, notes, raw: text };
-}
+const chatInput = z.object({
+  message: z.string().min(1).max(8000),
+  history: z
+    .array(z.object({ role: z.enum(["user", "assistant"]), content: z.string().max(8000) }))
+    .max(24)
+    .default([]),
+  ...contextSchema,
+});
+
+export const chatLuaLab = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((i: unknown) => chatInput.parse(i))
+  .handler(async ({ data, context }) => {
+    const { supabase, userId } = context as any;
+    const { model } = await getModelForUser(userId, supabase);
+
+    const { text } = await generateText({
+      model,
+      system: buildLabSystem(LAB_CHAT_BASE, data),
+      messages: [
+        ...data.history.map((m) => ({ role: m.role, content: m.content })),
+        { role: "user" as const, content: data.message },
+      ],
+      temperature: 0.2,
+    });
+
+    const req = /###CORRECTION_REQ:\s*(.+)/.exec(text)?.[1]?.trim();
+    let correctionRequest: { mistake: string; correction: string } | null = null;
+    if (req) {
+      const [mistake, correction] = req.split(/→|->/).map((s) => s.trim());
+      correctionRequest = { mistake: mistake ?? req, correction: correction ?? req };
+    }
+    return {
+      text: text.replace(/###CORRECTION_REQ:.*/g, "").trim(),
+      correctionRequest,
+    };
+  });

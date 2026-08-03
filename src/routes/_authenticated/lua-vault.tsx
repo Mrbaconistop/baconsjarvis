@@ -3,6 +3,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Editor, { type Monaco } from "@monaco-editor/react";
 import type { editor as MonacoEditor } from "monaco-editor";
 import { setupMonaco } from "@/lib/monaco-setup";
+import LuaLabPanel from "@/components/jarvis/LuaLabPanel";
+
 
 
 import { toast } from "sonner";
@@ -497,7 +499,10 @@ function LuaVaultPage() {
             </div>
           </section>
         </main>
+
+        <LuaLabPanel snippets={snippets} language="luau" onSelectSnippet={(id) => setActiveId(id)} />
       </div>
+
 
       {/* Manual paste modal */}
       {showModal && (
