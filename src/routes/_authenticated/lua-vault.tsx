@@ -500,7 +500,12 @@ function LuaVaultPage() {
           </section>
         </main>
 
-        <LuaLabPanel snippets={snippets} language="luau" onSelectSnippet={(id) => setActiveId(id)} />
+        <LuaLabPanel
+          snippets={snippets}
+          language="luau"
+          onSelectSnippet={(id) => setActiveId(id)}
+          onSaveSnippet={(s) => addSnippet(s)}
+        />
       </div>
 
 
