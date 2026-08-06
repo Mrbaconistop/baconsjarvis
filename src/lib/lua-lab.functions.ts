@@ -2,7 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { generateText } from "ai";
 import { z } from "zod";
-import { getModelForUser } from "./ai-gateway.server";
+import { getModelForUser, resolveChatModel } from "./ai-gateway.server";
 import { LAB_BASE, LAB_CHAT_BASE, buildLabSystem, parseSections } from "./lua-lab-prompt";
 
 const correctionSchema = z.object({ mistake: z.string().max(500), correction: z.string().max(2000) });
@@ -15,7 +15,16 @@ const contextSchema = {
   knowledge: z.array(z.string().max(6000)).max(40).default([]),
   apiRefs: z.array(z.string().max(6000)).max(40).default([]),
   vault: z.array(z.object({ title: z.string().max(200), excerpt: z.string().max(6000) })).max(12).default([]),
+  apiKey: z.string().max(300).optional(),
 };
+
+// Resolves the model for the user, but lets the caller override the API key
+// (used by the multi-key rotation in the Lua Lab "API Keys" panel).
+async function pickModel(userId: string, supabase: any, apiKey?: string) {
+  const base = await getModelForUser(userId, supabase);
+  if (!apiKey?.trim()) return base;
+  return { ...base, ...resolveChatModel({ provider: base.provider as any, apiKey: apiKey.trim() }) };
+}
 
 const genInput = z.object({
   description: z.string().min(1).max(4000),
