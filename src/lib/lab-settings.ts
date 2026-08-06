@@ -3,6 +3,7 @@
 
 export type Correction = { id: string; mistake: string; correction: string; at: number };
 export type LabMessage = { id: string; role: "user" | "assistant"; content: string; at: number };
+export type ApiKeyEntry = { id: string; name: string; key: string; isActive: boolean };
 
 export type LabSettings = {
   knowledge: string[];
@@ -10,6 +11,7 @@ export type LabSettings = {
   apiRefs: string[];
   corrections: Correction[];
   memory: LabMessage[];
+  apiKeys: ApiKeyEntry[];
 };
 
 const KEY = "lua-lab.settings.v1";
@@ -20,6 +22,7 @@ export const DEFAULT_LAB_SETTINGS: LabSettings = {
   apiRefs: [],
   corrections: [],
   memory: [],
+  apiKeys: [],
 };
 
 function uid() {
@@ -54,6 +57,16 @@ export function loadLabSettings(): LabSettings {
               role: m.role as "user" | "assistant",
               content: String(m.content ?? ""),
               at: Number(m.at ?? Date.now()),
+            }))
+        : [],
+      apiKeys: Array.isArray((parsed as any).apiKeys)
+        ? (parsed as any).apiKeys
+            .filter((k: any) => k && typeof k.key === "string")
+            .map((k: any) => ({
+              id: String(k.id ?? uid()),
+              name: String(k.name ?? "Key"),
+              key: String(k.key ?? ""),
+              isActive: Boolean(k.isActive),
             }))
         : [],
     };

@@ -1,15 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
-import { Brain, Loader2, Send, Trash2, BookOpen, Plug, Search, ShieldCheck } from "lucide-react";
-import { chatLuaLab } from "@/lib/lua-lab.functions";
-import { RULES, type Lang } from "@/lib/lua-rules";
+import { Brain, Loader2, Send, Trash2, BookOpen, Plug, Search, ShieldCheck, KeyRound, Rocket } from "lucide-react";
+import { chatLuaLab, fixLuaCode, projectBlueprint, generateProjectModule } from "@/lib/lua-lab.functions";
+import { RULES, validate, loadRuleToggles, type Lang } from "@/lib/lua-rules";
 import {
   loadLabSettings,
   saveLabSettings,
   makeCorrection,
   makeMessage,
   type LabSettings,
+  type ApiKeyEntry,
 } from "@/lib/lab-settings";
 
 type VaultSnippet = { id: string; title: string; code: string; description?: string };
@@ -22,6 +23,10 @@ const NO_RE = /^\s*(n|no|nope|nah|don'?t|do not|negative)\b/i;
 
 const CLARIFY_Q = "What specifically was wrong? Can you describe what you expected?";
 const CONFIRM_Q = "Should I remember this correction for future generations?";
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const is429 = (e: any) => /429|rate limit|too many requests/i.test(String(e?.message ?? e));
+
 
 function searchVault(query: string, snippets: VaultSnippet[]): Hit[] {
   const terms = Array.from(
@@ -52,21 +57,31 @@ export default function LuaLabPanel({
   snippets,
   language = "luau",
   onSelectSnippet,
+  onSaveSnippet,
 }: {
   snippets: VaultSnippet[];
   language?: Lang;
   onSelectSnippet?: (id: string) => void;
+  onSaveSnippet?: (s: { title: string; description: string; code: string; language: string }) => void;
 }) {
   const [settings, setSettings] = useState<LabSettings>(() => loadLabSettings());
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [hits, setHits] = useState<Hit[]>([]);
   const [pending, setPending] = useState<null | { stage: "detail" | "confirm"; mistake: string; correction: string }>(null);
-  const [tab, setTab] = useState<"chat" | "knowledge" | "corrections">("chat");
+  const [tab, setTab] = useState<"chat" | "knowledge" | "corrections" | "keys">("chat");
   const [draftKnowledge, setDraftKnowledge] = useState("");
   const [draftApi, setDraftApi] = useState("");
+  const [keyName, setKeyName] = useState("");
+  const [keyValue, setKeyValue] = useState("");
+  const [showFactory, setShowFactory] = useState(false);
+  const [projectDesc, setProjectDesc] = useState("");
+  const [progress, setProgress] = useState<null | { pct: number; label: string; startedAt: number }>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const chat = useServerFn(chatLuaLab);
+  const fixCode = useServerFn(fixLuaCode);
+  const blueprint = useServerFn(projectBlueprint);
+  const genModule = useServerFn(generateProjectModule);
 
   useEffect(() => {
     saveLabSettings(settings);
@@ -88,6 +103,158 @@ export default function LuaLabPanel({
   function storeCorrection(mistake: string, correction: string) {
     setSettings((s) => ({ ...s, corrections: [makeCorrection(mistake, correction), ...s.corrections].slice(0, 200) }));
   }
+
+  // ---- API key helpers (rotation for rate-limit bypass) ----
+  function keyPool(): ApiKeyEntry[] {
+    return settings.apiKeys.filter((k) => k.key.trim());
+  }
+  function activeKey(): string | undefined {
+    const pool = keyPool();
+    return (pool.find((k) => k.isActive) ?? pool[0])?.key;
+  }
+  function keyForIndex(i: number): string | undefined {
+    const pool = keyPool();
+    if (!pool.length) return undefined;
+    const activeIdx = Math.max(0, pool.findIndex((k) => k.isActive));
+    return pool[(activeIdx + i) % pool.length].key;
+  }
+  function requireKey(): string | null {
+    const k = activeKey();
+    if (!k) {
+      toast.error("Please add and activate an API key first.");
+      return null;
+    }
+    return k;
+  }
+
+  function ctx(vault: { title: string; excerpt: string }[], apiKey?: string) {
+    return {
+      language,
+      rules: activeRules,
+      mistakes: [],
+      corrections: settings.corrections.map((c) => ({ mistake: c.mistake, correction: c.correction })),
+      knowledge: settings.knowledge,
+      apiRefs: settings.apiRefs,
+      vault,
+      apiKey,
+    };
+  }
+
+  // Retries once after 60s on 429 (rate limit protection).
+  async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
+    try {
+      return await fn();
+    } catch (e: any) {
+      if (!is429(e)) throw e;
+      setProgress((p) => (p ? { ...p, label: "Rate limited — waiting 60s…" } : p));
+      await sleep(60000);
+      return await fn();
+    }
+  }
+
+  async function runFactory() {
+    if (busy) return;
+    const desc = projectDesc.trim();
+    if (!desc) return;
+    if (!requireKey()) return;
+
+    setBusy(true);
+    const startedAt = Date.now();
+    const toggles = loadRuleToggles();
+    const vaultCtx = searchVault(desc, snippets).slice(0, 3).map((h) => ({ title: h.title, excerpt: h.excerpt }));
+    try {
+      setProgress({ pct: 2, label: "Designing blueprint…", startedAt });
+      const bp: any = await withRetry(() =>
+        blueprint({ data: { description: desc, moduleCount: 30, ...ctx(vaultCtx, keyForIndex(0)) } }),
+      );
+      const modules: any[] = bp.modules ?? [];
+      const projectName: string = bp.projectName || "Project";
+      const siblings: string[] = modules.map((m) => `${m.name} (${m.filename}) — ${m.purpose}`);
+      push("assistant", `🚀 Blueprint ready for "${projectName}" — ${modules.length} modules. Generating…`);
+
+      for (let i = 0; i < modules.length; i++) {
+        const m = modules[i];
+        setProgress({
+          pct: Math.round(((i + 1) / (modules.length + 1)) * 100),
+          label: `Generating Module ${i + 1}/${modules.length}: ${m.name}…`,
+          startedAt,
+        });
+        const key = keyForIndex(i);
+        let res: any = await withRetry(() =>
+          genModule({
+            data: {
+              projectName,
+              projectDescription: desc,
+              module: m,
+              siblings,
+              targetLines: 1000,
+              isMain: false,
+              ...ctx(vaultCtx, key),
+            },
+          }),
+        );
+        let code: string = res.code || "";
+
+        // validate → auto-fix loop (max 2 passes)
+        for (let pass = 0; pass < 2; pass++) {
+          const issues = validate(code, language, toggles).filter((x) => x.severity !== "style");
+          if (!issues.length || !code) break;
+          setProgress((p) => (p ? { ...p, label: `Fixing ${issues.length} issue(s) in ${m.name}…` } : p));
+          const fixed: any = await withRetry(() =>
+            fixCode({
+              data: {
+                code,
+                issues: issues.slice(0, 40).map((x) => `${x.label}: ${x.message}`),
+                ...ctx(vaultCtx, key),
+              },
+            }),
+          );
+          if (fixed.code) code = fixed.code;
+        }
+
+        onSaveSnippet?.({
+          title: `[${projectName}] ${m.name}`,
+          description: `project-module · ${projectName} · ${m.purpose}`,
+          code,
+          language: "lua",
+        });
+        await sleep(2000);
+      }
+
+      setProgress({ pct: 98, label: "Generating main.lua…", startedAt });
+      const main: any = await withRetry(() =>
+        genModule({
+          data: {
+            projectName,
+            projectDescription: desc,
+            module: { name: "Main", filename: "main.lua", purpose: "Entry point", dependencies: [] },
+            siblings,
+            targetLines: 400,
+            isMain: true,
+            ...ctx(vaultCtx, keyForIndex(modules.length)),
+          },
+        }),
+      );
+      onSaveSnippet?.({
+        title: `[${projectName}] Main`,
+        description: `project-module · ${projectName} · entry point`,
+        code: main.code || "",
+        language: "lua",
+      });
+
+      setProgress({ pct: 100, label: "Done", startedAt });
+      push("assistant", `✅ "${projectName}" generated — ${modules.length} modules + main.lua saved to the Vault.`);
+      toast.success("Project generated");
+      setShowFactory(false);
+    } catch (e: any) {
+      toast.error(e?.message ?? "Generation failed");
+      push("assistant", `⚠️ Project generation failed: ${e?.message ?? "unknown error"}`);
+    } finally {
+      setBusy(false);
+      setTimeout(() => setProgress(null), 4000);
+    }
+  }
+
 
   async function send() {
     const text = input.trim();
@@ -131,13 +298,7 @@ export default function LuaLabPanel({
         data: {
           message: text,
           history,
-          language,
-          rules: activeRules,
-          mistakes: [],
-          corrections: settings.corrections.map((c) => ({ mistake: c.mistake, correction: c.correction })),
-          knowledge: settings.knowledge,
-          apiRefs: settings.apiRefs,
-          vault: found.map((h) => ({ title: h.title, excerpt: h.excerpt })),
+          ...ctx(found.map((h) => ({ title: h.title, excerpt: h.excerpt })), activeKey()),
         },
       });
       push("assistant", res.text || "(no response)");
@@ -164,6 +325,7 @@ export default function LuaLabPanel({
             ["chat", "Jarvis Lab"],
             ["knowledge", "Knowledge"],
             ["corrections", `Corrections${settings.corrections.length ? ` (${settings.corrections.length})` : ""}`],
+            ["keys", `🔑 Keys${settings.apiKeys.length ? ` (${settings.apiKeys.length})` : ""}`],
           ] as const
         ).map(([id, label]) => (
           <button
@@ -221,6 +383,56 @@ export default function LuaLabPanel({
             </div>
           )}
 
+          {progress && (
+            <div className="border-t border-white/10 px-3 py-2">
+              <div className="h-1.5 rounded bg-white/10 overflow-hidden">
+                <div className="h-full bg-cyan-400 transition-all" style={{ width: `${progress.pct}%` }} />
+              </div>
+              <div className="mt-1 flex justify-between text-[10px] text-white/50">
+                <span className="truncate">{progress.label}</span>
+                <span className="shrink-0 font-mono">
+                  {progress.pct}%
+                  {progress.pct > 2 && progress.pct < 100
+                    ? ` · ~${Math.max(
+                        1,
+                        Math.round(
+                          (((Date.now() - progress.startedAt) / progress.pct) * (100 - progress.pct)) / 60000,
+                        ),
+                      )}m left`
+                    : ""}
+                </span>
+              </div>
+            </div>
+          )}
+
+          {showFactory && (
+            <div className="border-t border-white/10 p-2 space-y-2 bg-[#1e1e1e]">
+              <div className="text-[10px] uppercase tracking-widest text-cyan-300/80">🚀 Project Factory — 30 modules</div>
+              <textarea
+                value={projectDesc}
+                onChange={(e) => setProjectDesc(e.target.value)}
+                rows={2}
+                placeholder="Describe the project (e.g. Advanced admin system with logging)…"
+                className="w-full bg-[#252526] border border-white/10 rounded px-2 py-1.5 text-xs resize-none focus:border-cyan-400 focus:outline-none"
+              />
+              <div className="flex gap-2">
+                <button
+                  onClick={runFactory}
+                  disabled={busy || !projectDesc.trim()}
+                  className="px-2 py-1 rounded bg-cyan-500 text-black text-[11px] hover:bg-cyan-400 disabled:opacity-40"
+                >
+                  Start Generation
+                </button>
+                <button
+                  onClick={() => setShowFactory(false)}
+                  className="px-2 py-1 rounded bg-white/10 text-[11px] hover:bg-white/20"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+
           <div className="border-t border-white/10 p-2">
             {pending && (
               <div className="mb-2 text-[11px] text-amber-300 flex items-center gap-1.5">
@@ -242,6 +454,14 @@ export default function LuaLabPanel({
                 placeholder="Describe what you want…"
                 className="flex-1 bg-[#1e1e1e] border border-white/10 rounded px-2 py-1.5 text-xs resize-none focus:border-cyan-400 focus:outline-none"
               />
+              <button
+                onClick={() => setShowFactory((v) => !v)}
+                disabled={busy}
+                title="Generate a 30k-line project in chunks"
+                className="p-2 rounded bg-white/10 text-cyan-300 hover:bg-white/20 disabled:opacity-40"
+              >
+                <Rocket size={14} />
+              </button>
               <button
                 onClick={send}
                 disabled={busy || !input.trim()}
@@ -377,6 +597,83 @@ export default function LuaLabPanel({
               ))}
             </ul>
           )}
+        </div>
+      )}
+
+      {tab === "keys" && (
+        <div className="flex-1 overflow-auto p-3 text-xs space-y-3">
+          <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-widest text-cyan-300/80">
+            <KeyRound size={11} /> API Keys ({settings.apiKeys.length})
+          </div>
+          <p className="text-white/40 text-[11px]">
+            Keys are stored locally and rotated round-robin during bulk generation to avoid rate limits.
+          </p>
+          <input
+            value={keyName}
+            onChange={(e) => setKeyName(e.target.value)}
+            placeholder="Key name"
+            className="w-full bg-[#1e1e1e] border border-white/10 rounded px-2 py-1.5 focus:border-cyan-400 focus:outline-none"
+          />
+          <input
+            value={keyValue}
+            onChange={(e) => setKeyValue(e.target.value)}
+            type="password"
+            placeholder="API key"
+            className="w-full bg-[#1e1e1e] border border-white/10 rounded px-2 py-1.5 font-mono focus:border-cyan-400 focus:outline-none"
+          />
+          <button
+            onClick={() => {
+              if (!keyValue.trim()) return;
+              setSettings((s) => ({
+                ...s,
+                apiKeys: [
+                  ...s.apiKeys,
+                  {
+                    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                    name: keyName.trim() || `Key ${s.apiKeys.length + 1}`,
+                    key: keyValue.trim(),
+                    isActive: s.apiKeys.length === 0,
+                  },
+                ],
+              }));
+              setKeyName("");
+              setKeyValue("");
+              toast.success("Key added");
+            }}
+            className="px-2 py-1 rounded bg-white/10 hover:bg-white/20 text-[11px]"
+          >
+            Add
+          </button>
+          <ul className="space-y-1">
+            {settings.apiKeys.map((k) => (
+              <li key={k.id} className="bg-white/5 rounded p-2 flex items-center gap-2">
+                <span className={`w-2 h-2 rounded-full shrink-0 ${k.isActive ? "bg-emerald-400" : "bg-white/20"}`} />
+                <div className="flex-1 min-w-0">
+                  <div className="truncate text-white/80">{k.name}</div>
+                  <div className="text-[10px] text-white/35 font-mono truncate">••••{k.key.slice(-4)}</div>
+                </div>
+                {!k.isActive && (
+                  <button
+                    onClick={() =>
+                      setSettings((s) => ({
+                        ...s,
+                        apiKeys: s.apiKeys.map((x) => ({ ...x, isActive: x.id === k.id })),
+                      }))
+                    }
+                    className="text-[10px] px-1.5 py-0.5 rounded bg-white/10 hover:bg-white/20 shrink-0"
+                  >
+                    Set Active
+                  </button>
+                )}
+                <button
+                  onClick={() => setSettings((s) => ({ ...s, apiKeys: s.apiKeys.filter((x) => x.id !== k.id) }))}
+                  className="text-white/40 hover:text-red-400 shrink-0"
+                >
+                  <Trash2 size={12} />
+                </button>
+              </li>
+            ))}
+          </ul>
         </div>
       )}
     </aside>
