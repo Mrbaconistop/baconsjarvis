@@ -1,15 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
-import { Brain, Loader2, Send, Trash2, BookOpen, Plug, Search, ShieldCheck } from "lucide-react";
-import { chatLuaLab } from "@/lib/lua-lab.functions";
-import { RULES, type Lang } from "@/lib/lua-rules";
+import { Brain, Loader2, Send, Trash2, BookOpen, Plug, Search, ShieldCheck, KeyRound, Rocket } from "lucide-react";
+import { chatLuaLab, fixLuaCode, projectBlueprint, generateProjectModule } from "@/lib/lua-lab.functions";
+import { RULES, validate, loadRuleToggles, type Lang } from "@/lib/lua-rules";
 import {
   loadLabSettings,
   saveLabSettings,
   makeCorrection,
   makeMessage,
   type LabSettings,
+  type ApiKeyEntry,
 } from "@/lib/lab-settings";
 
 type VaultSnippet = { id: string; title: string; code: string; description?: string };
@@ -22,6 +23,10 @@ const NO_RE = /^\s*(n|no|nope|nah|don'?t|do not|negative)\b/i;
 
 const CLARIFY_Q = "What specifically was wrong? Can you describe what you expected?";
 const CONFIRM_Q = "Should I remember this correction for future generations?";
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const is429 = (e: any) => /429|rate limit|too many requests/i.test(String(e?.message ?? e));
+
 
 function searchVault(query: string, snippets: VaultSnippet[]): Hit[] {
   const terms = Array.from(
