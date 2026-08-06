@@ -57,21 +57,31 @@ export default function LuaLabPanel({
   snippets,
   language = "luau",
   onSelectSnippet,
+  onSaveSnippet,
 }: {
   snippets: VaultSnippet[];
   language?: Lang;
   onSelectSnippet?: (id: string) => void;
+  onSaveSnippet?: (s: { title: string; description: string; code: string; language: string }) => void;
 }) {
   const [settings, setSettings] = useState<LabSettings>(() => loadLabSettings());
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [hits, setHits] = useState<Hit[]>([]);
   const [pending, setPending] = useState<null | { stage: "detail" | "confirm"; mistake: string; correction: string }>(null);
-  const [tab, setTab] = useState<"chat" | "knowledge" | "corrections">("chat");
+  const [tab, setTab] = useState<"chat" | "knowledge" | "corrections" | "keys">("chat");
   const [draftKnowledge, setDraftKnowledge] = useState("");
   const [draftApi, setDraftApi] = useState("");
+  const [keyName, setKeyName] = useState("");
+  const [keyValue, setKeyValue] = useState("");
+  const [showFactory, setShowFactory] = useState(false);
+  const [projectDesc, setProjectDesc] = useState("");
+  const [progress, setProgress] = useState<null | { pct: number; label: string; startedAt: number }>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const chat = useServerFn(chatLuaLab);
+  const fixCode = useServerFn(fixLuaCode);
+  const blueprint = useServerFn(projectBlueprint);
+  const genModule = useServerFn(generateProjectModule);
 
   useEffect(() => {
     saveLabSettings(settings);
@@ -93,6 +103,158 @@ export default function LuaLabPanel({
   function storeCorrection(mistake: string, correction: string) {
     setSettings((s) => ({ ...s, corrections: [makeCorrection(mistake, correction), ...s.corrections].slice(0, 200) }));
   }
+
+  // ---- API key helpers (rotation for rate-limit bypass) ----
+  function keyPool(): ApiKeyEntry[] {
+    return settings.apiKeys.filter((k) => k.key.trim());
+  }
+  function activeKey(): string | undefined {
+    const pool = keyPool();
+    return (pool.find((k) => k.isActive) ?? pool[0])?.key;
+  }
+  function keyForIndex(i: number): string | undefined {
+    const pool = keyPool();
+    if (!pool.length) return undefined;
+    const activeIdx = Math.max(0, pool.findIndex((k) => k.isActive));
+    return pool[(activeIdx + i) % pool.length].key;
+  }
+  function requireKey(): string | null {
+    const k = activeKey();
+    if (!k) {
+      toast.error("Please add and activate an API key first.");
+      return null;
+    }
+    return k;
+  }
+
+  function ctx(vault: { title: string; excerpt: string }[], apiKey?: string) {
+    return {
+      language,
+      rules: activeRules,
+      mistakes: [],
+      corrections: settings.corrections.map((c) => ({ mistake: c.mistake, correction: c.correction })),
+      knowledge: settings.knowledge,
+      apiRefs: settings.apiRefs,
+      vault,
+      apiKey,
+    };
+  }
+
+  // Retries once after 60s on 429 (rate limit protection).
+  async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
+    try {
+      return await fn();
+    } catch (e: any) {
+      if (!is429(e)) throw e;
+      setProgress((p) => (p ? { ...p, label: "Rate limited — waiting 60s…" } : p));
+      await sleep(60000);
+      return await fn();
+    }
+  }
+
+  async function runFactory() {
+    if (busy) return;
+    const desc = projectDesc.trim();
+    if (!desc) return;
+    if (!requireKey()) return;
+
+    setBusy(true);
+    const startedAt = Date.now();
+    const toggles = loadRuleToggles();
+    const vaultCtx = searchVault(desc, snippets).slice(0, 3).map((h) => ({ title: h.title, excerpt: h.excerpt }));
+    try {
+      setProgress({ pct: 2, label: "Designing blueprint…", startedAt });
+      const bp: any = await withRetry(() =>
+        blueprint({ data: { description: desc, moduleCount: 30, ...ctx(vaultCtx, keyForIndex(0)) } }),
+      );
+      const modules: any[] = bp.modules ?? [];
+      const projectName: string = bp.projectName || "Project";
+      const siblings: string[] = modules.map((m) => `${m.name} (${m.filename}) — ${m.purpose}`);
+      push("assistant", `🚀 Blueprint ready for "${projectName}" — ${modules.length} modules. Generating…`);
+
+      for (let i = 0; i < modules.length; i++) {
+        const m = modules[i];
+        setProgress({
+          pct: Math.round(((i + 1) / (modules.length + 1)) * 100),
+          label: `Generating Module ${i + 1}/${modules.length}: ${m.name}…`,
+          startedAt,
+        });
+        const key = keyForIndex(i);
+        let res: any = await withRetry(() =>
+          genModule({
+            data: {
+              projectName,
+              projectDescription: desc,
+              module: m,
+              siblings,
+              targetLines: 1000,
+              isMain: false,
+              ...ctx(vaultCtx, key),
+            },
+          }),
+        );
+        let code: string = res.code || "";
+
+        // validate → auto-fix loop (max 2 passes)
+        for (let pass = 0; pass < 2; pass++) {
+          const issues = validate(code, language, toggles).filter((x) => x.severity !== "style");
+          if (!issues.length || !code) break;
+          setProgress((p) => (p ? { ...p, label: `Fixing ${issues.length} issue(s) in ${m.name}…` } : p));
+          const fixed: any = await withRetry(() =>
+            fixCode({
+              data: {
+                code,
+                issues: issues.slice(0, 40).map((x) => `${x.label}: ${x.message}`),
+                ...ctx(vaultCtx, key),
+              },
+            }),
+          );
+          if (fixed.code) code = fixed.code;
+        }
+
+        onSaveSnippet?.({
+          title: `[${projectName}] ${m.name}`,
+          description: `project-module · ${projectName} · ${m.purpose}`,
+          code,
+          language: "lua",
+        });
+        await sleep(2000);
+      }
+
+      setProgress({ pct: 98, label: "Generating main.lua…", startedAt });
+      const main: any = await withRetry(() =>
+        genModule({
+          data: {
+            projectName,
+            projectDescription: desc,
+            module: { name: "Main", filename: "main.lua", purpose: "Entry point", dependencies: [] },
+            siblings,
+            targetLines: 400,
+            isMain: true,
+            ...ctx(vaultCtx, keyForIndex(modules.length)),
+          },
+        }),
+      );
+      onSaveSnippet?.({
+        title: `[${projectName}] Main`,
+        description: `project-module · ${projectName} · entry point`,
+        code: main.code || "",
+        language: "lua",
+      });
+
+      setProgress({ pct: 100, label: "Done", startedAt });
+      push("assistant", `✅ "${projectName}" generated — ${modules.length} modules + main.lua saved to the Vault.`);
+      toast.success("Project generated");
+      setShowFactory(false);
+    } catch (e: any) {
+      toast.error(e?.message ?? "Generation failed");
+      push("assistant", `⚠️ Project generation failed: ${e?.message ?? "unknown error"}`);
+    } finally {
+      setBusy(false);
+      setTimeout(() => setProgress(null), 4000);
+    }
+  }
+
 
   async function send() {
     const text = input.trim();
