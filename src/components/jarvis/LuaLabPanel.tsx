@@ -325,6 +325,7 @@ export default function LuaLabPanel({
             ["chat", "Jarvis Lab"],
             ["knowledge", "Knowledge"],
             ["corrections", `Corrections${settings.corrections.length ? ` (${settings.corrections.length})` : ""}`],
+            ["keys", `🔑 Keys${settings.apiKeys.length ? ` (${settings.apiKeys.length})` : ""}`],
           ] as const
         ).map(([id, label]) => (
           <button
