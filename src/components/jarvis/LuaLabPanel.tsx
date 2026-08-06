@@ -455,6 +455,14 @@ export default function LuaLabPanel({
                 className="flex-1 bg-[#1e1e1e] border border-white/10 rounded px-2 py-1.5 text-xs resize-none focus:border-cyan-400 focus:outline-none"
               />
               <button
+                onClick={() => setShowFactory((v) => !v)}
+                disabled={busy}
+                title="Generate a 30k-line project in chunks"
+                className="p-2 rounded bg-white/10 text-cyan-300 hover:bg-white/20 disabled:opacity-40"
+              >
+                <Rocket size={14} />
+              </button>
+              <button
                 onClick={send}
                 disabled={busy || !input.trim()}
                 className="p-2 rounded bg-cyan-500 text-black hover:bg-cyan-400 disabled:opacity-40"
