@@ -298,13 +298,7 @@ export default function LuaLabPanel({
         data: {
           message: text,
           history,
-          language,
-          rules: activeRules,
-          mistakes: [],
-          corrections: settings.corrections.map((c) => ({ mistake: c.mistake, correction: c.correction })),
-          knowledge: settings.knowledge,
-          apiRefs: settings.apiRefs,
-          vault: found.map((h) => ({ title: h.title, excerpt: h.excerpt })),
+          ...ctx(found.map((h) => ({ title: h.title, excerpt: h.excerpt })), activeKey()),
         },
       });
       push("assistant", res.text || "(no response)");
