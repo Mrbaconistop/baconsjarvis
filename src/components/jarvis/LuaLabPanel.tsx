@@ -599,6 +599,83 @@ export default function LuaLabPanel({
           )}
         </div>
       )}
+
+      {tab === "keys" && (
+        <div className="flex-1 overflow-auto p-3 text-xs space-y-3">
+          <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-widest text-cyan-300/80">
+            <KeyRound size={11} /> API Keys ({settings.apiKeys.length})
+          </div>
+          <p className="text-white/40 text-[11px]">
+            Keys are stored locally and rotated round-robin during bulk generation to avoid rate limits.
+          </p>
+          <input
+            value={keyName}
+            onChange={(e) => setKeyName(e.target.value)}
+            placeholder="Key name"
+            className="w-full bg-[#1e1e1e] border border-white/10 rounded px-2 py-1.5 focus:border-cyan-400 focus:outline-none"
+          />
+          <input
+            value={keyValue}
+            onChange={(e) => setKeyValue(e.target.value)}
+            type="password"
+            placeholder="API key"
+            className="w-full bg-[#1e1e1e] border border-white/10 rounded px-2 py-1.5 font-mono focus:border-cyan-400 focus:outline-none"
+          />
+          <button
+            onClick={() => {
+              if (!keyValue.trim()) return;
+              setSettings((s) => ({
+                ...s,
+                apiKeys: [
+                  ...s.apiKeys,
+                  {
+                    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                    name: keyName.trim() || `Key ${s.apiKeys.length + 1}`,
+                    key: keyValue.trim(),
+                    isActive: s.apiKeys.length === 0,
+                  },
+                ],
+              }));
+              setKeyName("");
+              setKeyValue("");
+              toast.success("Key added");
+            }}
+            className="px-2 py-1 rounded bg-white/10 hover:bg-white/20 text-[11px]"
+          >
+            Add
+          </button>
+          <ul className="space-y-1">
+            {settings.apiKeys.map((k) => (
+              <li key={k.id} className="bg-white/5 rounded p-2 flex items-center gap-2">
+                <span className={`w-2 h-2 rounded-full shrink-0 ${k.isActive ? "bg-emerald-400" : "bg-white/20"}`} />
+                <div className="flex-1 min-w-0">
+                  <div className="truncate text-white/80">{k.name}</div>
+                  <div className="text-[10px] text-white/35 font-mono truncate">••••{k.key.slice(-4)}</div>
+                </div>
+                {!k.isActive && (
+                  <button
+                    onClick={() =>
+                      setSettings((s) => ({
+                        ...s,
+                        apiKeys: s.apiKeys.map((x) => ({ ...x, isActive: x.id === k.id })),
+                      }))
+                    }
+                    className="text-[10px] px-1.5 py-0.5 rounded bg-white/10 hover:bg-white/20 shrink-0"
+                  >
+                    Set Active
+                  </button>
+                )}
+                <button
+                  onClick={() => setSettings((s) => ({ ...s, apiKeys: s.apiKeys.filter((x) => x.id !== k.id) }))}
+                  className="text-white/40 hover:text-red-400 shrink-0"
+                >
+                  <Trash2 size={12} />
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </aside>
   );
 }
