@@ -59,6 +59,16 @@ export function loadLabSettings(): LabSettings {
               at: Number(m.at ?? Date.now()),
             }))
         : [],
+      apiKeys: Array.isArray((parsed as any).apiKeys)
+        ? (parsed as any).apiKeys
+            .filter((k: any) => k && typeof k.key === "string")
+            .map((k: any) => ({
+              id: String(k.id ?? uid()),
+              name: String(k.name ?? "Key"),
+              key: String(k.key ?? ""),
+              isActive: Boolean(k.isActive),
+            }))
+        : [],
     };
   } catch {
     return { ...DEFAULT_LAB_SETTINGS };
