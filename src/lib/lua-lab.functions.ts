@@ -37,7 +37,7 @@ export const generateLuaCode = createServerFn({ method: "POST" })
   .inputValidator((i: unknown) => genInput.parse(i))
   .handler(async ({ data, context }) => {
     const { supabase, userId } = context as any;
-    const { model } = await getModelForUser(userId, supabase);
+    const { model } = await pickModel(userId, supabase, (data as any).apiKey);
     const prompt = data.currentCode?.trim()
       ? `Existing script:\n\`\`\`lua\n${data.currentCode}\n\`\`\`\n\nRequest: ${data.description}`
       : data.description;
@@ -62,7 +62,7 @@ export const fixLuaCode = createServerFn({ method: "POST" })
   .inputValidator((i: unknown) => fixInput.parse(i))
   .handler(async ({ data, context }) => {
     const { supabase, userId } = context as any;
-    const { model } = await getModelForUser(userId, supabase);
+    const { model } = await pickModel(userId, supabase, (data as any).apiKey);
     const { text } = await generateText({
       model,
       system: buildLabSystem(LAB_BASE, { ...data, mistakes: [] }),
@@ -86,7 +86,7 @@ export const chatLuaLab = createServerFn({ method: "POST" })
   .inputValidator((i: unknown) => chatInput.parse(i))
   .handler(async ({ data, context }) => {
     const { supabase, userId } = context as any;
-    const { model } = await getModelForUser(userId, supabase);
+    const { model } = await pickModel(userId, supabase, (data as any).apiKey);
 
     const { text } = await generateText({
       model,
