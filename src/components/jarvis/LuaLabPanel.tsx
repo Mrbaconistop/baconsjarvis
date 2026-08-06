@@ -383,6 +383,56 @@ export default function LuaLabPanel({
             </div>
           )}
 
+          {progress && (
+            <div className="border-t border-white/10 px-3 py-2">
+              <div className="h-1.5 rounded bg-white/10 overflow-hidden">
+                <div className="h-full bg-cyan-400 transition-all" style={{ width: `${progress.pct}%` }} />
+              </div>
+              <div className="mt-1 flex justify-between text-[10px] text-white/50">
+                <span className="truncate">{progress.label}</span>
+                <span className="shrink-0 font-mono">
+                  {progress.pct}%
+                  {progress.pct > 2 && progress.pct < 100
+                    ? ` · ~${Math.max(
+                        1,
+                        Math.round(
+                          (((Date.now() - progress.startedAt) / progress.pct) * (100 - progress.pct)) / 60000,
+                        ),
+                      )}m left`
+                    : ""}
+                </span>
+              </div>
+            </div>
+          )}
+
+          {showFactory && (
+            <div className="border-t border-white/10 p-2 space-y-2 bg-[#1e1e1e]">
+              <div className="text-[10px] uppercase tracking-widest text-cyan-300/80">🚀 Project Factory — 30 modules</div>
+              <textarea
+                value={projectDesc}
+                onChange={(e) => setProjectDesc(e.target.value)}
+                rows={2}
+                placeholder="Describe the project (e.g. Advanced admin system with logging)…"
+                className="w-full bg-[#252526] border border-white/10 rounded px-2 py-1.5 text-xs resize-none focus:border-cyan-400 focus:outline-none"
+              />
+              <div className="flex gap-2">
+                <button
+                  onClick={runFactory}
+                  disabled={busy || !projectDesc.trim()}
+                  className="px-2 py-1 rounded bg-cyan-500 text-black text-[11px] hover:bg-cyan-400 disabled:opacity-40"
+                >
+                  Start Generation
+                </button>
+                <button
+                  onClick={() => setShowFactory(false)}
+                  className="px-2 py-1 rounded bg-white/10 text-[11px] hover:bg-white/20"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+
           <div className="border-t border-white/10 p-2">
             {pending && (
               <div className="mb-2 text-[11px] text-amber-300 flex items-center gap-1.5">
